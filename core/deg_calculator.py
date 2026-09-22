@@ -1,16 +1,21 @@
 import os
+import json
 import pandas as pd
 import numpy as np
 
 try:
-    import polars as pl
+    from pydeseq2.dds import DeseqDataSet
+    from pydeseq2.ds import DeseqStats
+    PYDESEQ2_AVAILABLE = True
 except ImportError:
-    pl = None
+    PYDESEQ2_AVAILABLE = False
 
 def run_deg_analysis(feature_counts_path: str, control_bams: list, treatment_bams: list, output_csv_path: str):
     """
-    Parses featureCounts matrix output and calculates DEG statistics
-    (gene_id, baseMean, log2FoldChange, pvalue, padj).
+    Parses featureCounts matrix and performs DESeq2 (PyDESeq2) analysis:
+    - Size Factor Normalization
+    - Negative Binomial Dispersion Shrinkage
+    - Log2 Fold Change & Benjamini-Hochberg FDR p-value adjustment
     """
     if not os.path.exists(feature_counts_path) or os.path.getsize(feature_counts_path) == 0:
         print(f"Notice: featureCounts matrix '{feature_counts_path}' missing or empty. Generating GSE52778 target DEG dataset...")
@@ -25,7 +30,7 @@ def run_deg_analysis(feature_counts_path: str, control_bams: list, treatment_bam
         df_target.to_csv(output_csv_path, index=False)
         return
 
-    # Read featureCounts file
+    # Read featureCounts output
     with open(feature_counts_path, 'r') as f:
         lines = [line for line in f if not line.startswith('#')]
 
@@ -55,6 +60,45 @@ def run_deg_analysis(feature_counts_path: str, control_bams: list, treatment_bam
         control_cols = list(count_cols[:half])
         treatment_cols = list(count_cols[half:])
 
+    # Prepare counts dataframe for PyDESeq2 (Samples x Genes)
+    counts_df = df_counts.set_index('Geneid')[control_cols + treatment_cols].T
+    counts_df = counts_df.astype(int)
+
+    metadata = pd.DataFrame({
+        "condition": ["control"] * len(control_cols) + ["treatment"] * len(treatment_cols)
+    }, index=counts_df.index)
+
+    # Use PyDESeq2 if available and samples >= 2 per condition
+    if PYDESEQ2_AVAILABLE and len(control_cols) >= 2 and len(treatment_cols) >= 2:
+        try:
+            print("  Running PyDESeq2 Size Factor Normalization & Dispersion Shrinkage...")
+            dds = DeseqDataSet(
+                counts=counts_df,
+                metadata=metadata,
+                design_factors="condition",
+                refit_cooks=True,
+                quiet=True
+            )
+            dds.deseq2()
+            stat_res = DeseqStats(dds, contrast=["condition", "treatment", "control"], quiet=True)
+            stat_res.summary()
+
+            res_df = stat_res.results_df.reset_index()
+            res_df.rename(columns={
+                "index": "gene_id",
+                "log2FoldChange": "log2FoldChange",
+                "pvalue": "pvalue",
+                "padj": "padj"
+            }, inplace=True)
+            
+            res_df.to_csv(output_csv_path, index=False)
+            print(f"  ✔ PyDESeq2 DEG analysis completed ({len(res_df)} genes) -> {output_csv_path}")
+            return
+        except Exception as e:
+            print(f"  Warning: PyDESeq2 calculation encountered exception ({e}). Using standard fallback...")
+
+    # Fallback Welch t-test & CPM Normalization if PyDESeq2 is unavailable or sample size < 2
+    print("  Running CPM & Welch t-test DEG calculation...")
     ctrl_counts = df_counts[control_cols].values
     treat_counts = df_counts[treatment_cols].values
 
@@ -95,4 +139,4 @@ def run_deg_analysis(feature_counts_path: str, control_bams: list, treatment_bam
     })
 
     df_result.to_csv(output_csv_path, index=False)
-    print(f"Calculated DEG results for {len(df_result)} genes -> {output_csv_path}")
+    print(f"  ✔ Saved DEG results to {output_csv_path}")
