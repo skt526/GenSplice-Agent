@@ -71,6 +71,27 @@ Please select a Reference Genome to download:
 ./ref maize        # ./maize-ref/ 생성 (Zm-B73-NAM-5.0 FASTA + GTF)
 ```
 
+## 📁 디렉토리 구조 (Directory Architecture)
+
+```text
+GenSplice-Agent/
+├── install.sh              # 1-Click 환경 설치 스크립트 (Conda/Bioconda)
+├── ref.sh                  # 레퍼런스 게놈 (FASTA, GTF) 원클릭 다운로더
+├── run_pipeline.py         # 전체 파이프라인 오케스트레이터 (Python 메인 실행기)
+├── config.yaml             # 참조 유전체 경로 및 파이프라인 스레드 설정
+├── environment.yml         # Conda/Bioconda 환경 패키지 명세서
+├── inputs/                 # [사용자 FASTQ 데이터 투입 폴더]
+│   ├── control/            # 대조군 FASTQ 파일들 (.fastq / .fq.gz)
+│   └── treatment/          # 실험군/노화 FASTQ 파일들 (.fastq / .fq.gz)
+├── {organism}-ref/         # 참조 유전체(FASTA, GTF) 및 STAR 인덱스 저장 폴더
+├── outputs/                # 중간 결과 및 최종 결과 자동 저장 폴더
+│   ├── 01_clean_fq/        # fastp QC/트리밍 결과 FASTQ
+│   ├── 02_aligned_bam/     # STAR 정렬 결과 BAM 파일
+│   ├── 03_deg/             # DESeq2 / featureCounts 정량 결과
+│   └── 04_rmats/           # rMATS 5대 이벤트 분석 결과
+└── app.py                  # GenSplice-Agent Streamlit 대시보드 앱
+```
+
 ---
 
 ## 🖥 3. 대시보드 실행

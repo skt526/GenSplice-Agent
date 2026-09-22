@@ -54,7 +54,21 @@
 
 ```text
 GenSplice-Agent/
-├── app.py                      # Streamlit 메인 대시보드 UI 컨트롤러
+├── install.sh              # 1-Click 환경 설치 스크립트 (Conda/Bioconda)
+├── ref.sh                  # 레퍼런스 게놈 (FASTA, GTF) 원클릭 다운로더
+├── run_pipeline.py         # 전체 파이프라인 오케스트레이터 (Python 메인 실행기)
+├── config.yaml             # 참조 유전체 경로 및 파이프라인 스레드 설정
+├── environment.yml         # Conda/Bioconda 환경 패키지 명세서
+├── inputs/                 # [사용자 FASTQ 데이터 투입 폴더]
+│   ├── control/            # 대조군 FASTQ 파일들 (.fastq / .fq.gz)
+│   └── treatment/          # 실험군/노화 FASTQ 파일들 (.fastq / .fq.gz)
+├── {organism}-ref/         # 참조 유전체(FASTA, GTF) 및 STAR 인덱스 저장 폴더
+├── outputs/                # 중간 결과 및 최종 결과 자동 저장 폴더
+│   ├── 01_clean_fq/        # fastp QC/트리밍 결과 FASTQ
+│   ├── 02_aligned_bam/     # STAR 정렬 결과 BAM 파일
+│   ├── 03_deg/             # DESeq2 / featureCounts 정량 결과
+│   └── 04_rmats/           # rMATS 5대 이벤트 분석 결과
+├── app.py                  # GenSplice-Agent Streamlit 대시보드 앱
 ├── config.py                   # 기본 임계값(FDR, ΔPSI, Log2FC) 및 색상 테마
 ├── core/
 │   ├── __init__.py
@@ -68,7 +82,7 @@ GenSplice-Agent/
 ├── ai/
 │   ├── __init__.py
 │   └── gemini_evaluator.py     # google-genai SDK 기반 양적/질적 변화 종합 해석기
-├── requirements.txt            # streamlit, polars, pyarrow, plotly, google-genai
+├── requirements.txt            # 파이썬 의존성 패키지 명세서
 └── test_data/                  # 검증용 Mock 데이터셋 (DEG 1개, rMATS 5개)
 ```
 

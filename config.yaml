@@ -1,0 +1,28 @@
+# ==============================================================================
+# GenSplice-Agent Pipeline Configuration
+# ==============================================================================
+
+# Reference Genome Settings
+reference:
+  organism: "human"                   # Options: human, mouse, rice, arabidopsis, maize, custom
+  ref_dir: "./human-ref"              # Directory containing FASTA and GTF files
+  fasta: "./human-ref/Homo_sapiens.GRCh38.dna.primary_assembly.fa"
+  gtf: "./human-ref/Homo_sapiens.GRCh38.113.gtf"
+  star_index: "./human-ref/star_index"
+
+# Computation Resources
+threads: 8                            # Number of CPU threads for fastp, STAR, featureCounts, rMATS
+
+# Input Settings
+inputs:
+  control_dir: "./inputs/control"     # Control FASTQ directory (.fastq, .fq.gz)
+  treatment_dir: "./inputs/treatment" # Treatment/Aging FASTQ directory (.fastq, .fq.gz)
+  read_type: "paired"                 # Options: paired, single
+
+# Output Settings
+outputs:
+  base_dir: "./outputs"
+  clean_fq: "./outputs/01_clean_fq"
+  aligned_bam: "./outputs/02_aligned_bam"
+  deg: "./outputs/03_deg"
+  rmats: "./outputs/04_rmats"
