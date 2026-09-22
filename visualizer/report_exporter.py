@@ -1,7 +1,8 @@
 """
 GenSplice-Agent Standalone HTML Exporter Module
-Generates Black & White Dark Mode interactive HTML reports openable in Chrome / browsers.
-Threshold sliders and legend placed on the RIGHT side.
+Generates Light Mode interactive HTML reports openable in Chrome / browsers.
+Features translucent shaded quadrant regions, red (DEG) / blue (Splicing) / purple (Both) system,
+and right-side threshold controls.
 """
 
 import os
@@ -21,10 +22,11 @@ def export_html_report(
     as_fdr_cutoff: float = 0.05
 ) -> str:
     """
-    Exports a self-contained Black & White dark mode interactive HTML report:
-    1. Dark mode theme (#0B0F19 bg, #111827 cards, #F9FAFB text)
-    2. DEG = Red (#EF4444), Splicing = Blue (#3B82F6), Both = Purple (#A855F7)
-    3. Threshold Sliders & Plot Legend placed on the RIGHT side of the graph
+    Exports a self-contained Light Mode interactive HTML report:
+    1. Light Mode theme (#F8FAFC bg, #FFFFFF cards, #0F172A text)
+    2. Translucent shaded background regions for Q1, Q2, Q3, Q4
+    3. DEG = Red (#EF4444), Splicing = Blue (#3B82F6), Both = Purple (#A855F7)
+    4. Threshold Sliders & Plot Legend placed on the RIGHT side of the graph
     """
     os.makedirs(os.path.dirname(output_html_path), exist_ok=True)
 
@@ -32,7 +34,6 @@ def export_html_report(
     fig_quad = build_quadrant_plot(df_merged, log2fc_cutoff, delta_psi_cutoff, color_by="quadrant")
     fig_volc = build_dual_volcano_plot(df_merged, log2fc_cutoff, delta_psi_cutoff, deg_fdr_cutoff, as_fdr_cutoff)
 
-    # Extract Plotly HTML snippets
     quad_html = fig_quad.to_html(full_html=False, include_plotlyjs="cdn", div_id="plotly-quad-div")
     volc_html = fig_volc.to_html(full_html=False, include_plotlyjs=False, div_id="plotly-volc-div")
 
@@ -49,13 +50,13 @@ def export_html_report(
             for _, r in q2_pdf.iterrows():
                 rows_html += f"""
                 <tr>
-                    <td><strong style="color:#F9FAFB;">{r['geneSymbol']}</strong></td>
-                    <td><code style="color:#9CA3AF;">{r['gene_id']}</code></td>
+                    <td><strong>{r['geneSymbol']}</strong></td>
+                    <td><code>{r['gene_id']}</code></td>
                     <td><span class="badge badge-blue">{r['event_type']}</span></td>
                     <td><strong style="color: #3B82F6;">{r['delta_psi']:.3f}</strong></td>
                     <td>{r['log2FoldChange']:.3f}</td>
                     <td>{r['as_fdr']:.2e}</td>
-                    <td><small style="color:#9CA3AF;">{r['coordinates']}</small></td>
+                    <td><small>{r['coordinates']}</small></td>
                 </tr>
                 """
             q2_genes_html = f"""
@@ -77,7 +78,7 @@ def export_html_report(
             </table>
             """
         else:
-            q2_genes_html = "<p class='no-data' id='q2-table' style='color:#9CA3AF;'>No Q2 target genes detected with current cutoffs.</p>"
+            q2_genes_html = "<p class='no-data' id='q2-table' style='color:#64748B;'>No Q2 target genes detected with current cutoffs.</p>"
 
     # 4. Format AI Section
     ai_section_html = ""
@@ -95,20 +96,20 @@ def export_html_report(
 
     raw_data_json = df_merged.to_pandas().to_json(orient="records")
 
-    # 5. Full Dark Mode HTML Template with Right-Side Controls & Legend
+    # 5. Full Light Mode HTML Template with Right-Side Controls
     full_html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GenSplice-Agent Interactive Black & White Transcriptomics Report</title>
+    <title>GenSplice-Agent Interactive Light Mode Report</title>
     <style>
         :root {{
-            --bg-body: #0B0F19;
-            --bg-card: #111827;
-            --border-color: #1F2937;
-            --text-main: #F9FAFB;
-            --text-muted: #9CA3AF;
+            --bg-body: #F8FAFC;
+            --bg-card: #FFFFFF;
+            --border-color: #E2E8F0;
+            --text-main: #0F172A;
+            --text-muted: #64748B;
             --red-deg: #EF4444;
             --blue-as: #3B82F6;
             --purple-both: #A855F7;
@@ -122,15 +123,15 @@ def export_html_report(
             line-height: 1.5;
         }}
         .header {{
-            background: linear-gradient(135deg, #111827 0%, #1F2937 100%);
+            background: linear-gradient(135deg, #FFFFFF 0%, #F1F5F9 100%);
             border: 1px solid var(--border-color);
             color: var(--text-main);
             padding: 28px 32px;
             border-radius: 16px;
             margin-bottom: 24px;
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
         }}
-        .header h1 {{ margin: 0 0 8px 0; font-size: 28px; font-weight: 800; letter-spacing: -0.5px; }}
+        .header h1 {{ margin: 0 0 8px 0; font-size: 28px; font-weight: 800; color: #0F172A; }}
         .header p {{ margin: 0; color: var(--text-muted); font-size: 15px; }}
 
         .kpi-container {{
@@ -144,6 +145,7 @@ def export_html_report(
             border-radius: 12px;
             padding: 18px;
             border: 1px solid var(--border-color);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
             text-align: center;
         }}
         .kpi-card .value {{ font-size: 32px; font-weight: 800; margin-top: 4px; }}
@@ -155,11 +157,11 @@ def export_html_report(
             padding: 24px;
             margin-bottom: 24px;
             border: 1px solid var(--border-color);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
         }}
-        .card h2 {{ margin-top: 0; font-size: 20px; color: var(--text-main); border-bottom: 1px solid var(--border-color); padding-bottom: 12px; }}
+        .card h2 {{ margin-top: 0; font-size: 20px; color: var(--text-main); border-bottom: 2px solid var(--border-color); padding-bottom: 12px; }}
 
-        /* Main Chart & Right-Side Control Panel Layout */
+        /* Chart & Right-Side Control Panel Layout */
         .chart-layout-grid {{
             display: grid;
             grid-template-columns: 1fr 300px;
@@ -168,10 +170,11 @@ def export_html_report(
         }}
 
         .right-control-panel {{
-            background: #111827;
+            background: #F8FAFC;
             border-radius: 14px;
             padding: 20px;
-            border: 1px solid #374151;
+            border: 2px solid #3B82F6;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
             display: flex;
             flex-direction: column;
             gap: 20px;
@@ -180,7 +183,7 @@ def export_html_report(
             margin: 0;
             font-size: 16px;
             color: var(--text-main);
-            border-bottom: 1px solid #374151;
+            border-bottom: 1px solid var(--border-color);
             padding-bottom: 8px;
         }}
 
@@ -206,10 +209,10 @@ def export_html_report(
         .slider-as input[type=range] {{ accent-color: var(--blue-as); }}
 
         .legend-guide {{
-            background: #0B0F19;
+            background: #FFFFFF;
             border-radius: 8px;
             padding: 12px;
-            border: 1px solid #1F2937;
+            border: 1px solid var(--border-color);
             font-size: 13px;
             display: flex;
             flex-direction: column;
@@ -229,18 +232,18 @@ def export_html_report(
 
         .data-table {{ width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 14px; color: var(--text-main); }}
         .data-table th, .data-table td {{ padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border-color); }}
-        .data-table th {{ background-color: #1F2937; font-weight: 600; color: #D1D5DB; }}
+        .data-table th {{ background-color: #F1F5F9; font-weight: 600; color: #475569; }}
         .badge {{ display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; }}
-        .badge-blue {{ background-color: rgba(59, 130, 246, 0.2); color: #3B82F6; border: 1px solid #3B82F6; }}
-        .ai-card {{ border-left: 6px solid var(--purple-both); background: #111827; }}
-        .ai-content {{ line-height: 1.7; font-size: 15px; color: #E5E7EB; }}
+        .badge-blue {{ background-color: rgba(59, 130, 246, 0.15); color: #3B82F6; border: 1px solid #3B82F6; }}
+        .ai-card {{ border-left: 6px solid var(--purple-both); background: #FFFFFF; }}
+        .ai-content {{ line-height: 1.7; font-size: 15px; color: #334155; }}
         .footer {{ text-align: center; color: var(--text-muted); font-size: 13px; margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border-color); }}
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>🧬 GenSplice-Agent Interactive Black & White Report</h1>
-        <p>Monochrome Aesthetics • Red (DEG) | Blue (Splicing) | Purple (Both)</p>
+        <h1>🧬 GenSplice-Agent Interactive Light Report</h1>
+        <p>Shaded Region Overlays • Red (DEG) | Blue (Splicing) | Purple (Both)</p>
     </div>
 
     <!-- Dynamic KPI Cards -->
@@ -261,15 +264,15 @@ def export_html_report(
             <div class="label" style="color: var(--red-deg);">Q4: DEG Only</div>
             <div class="value" style="color: var(--red-deg);" id="kpi-q4">{kpis['Q4']}</div>
         </div>
-        <div class="kpi-card" style="border-top: 4px solid #4B5563;">
-            <div class="label" style="color: #9CA3AF;">Q3: Invariant</div>
-            <div class="value" style="color: #9CA3AF;" id="kpi-q3">{kpis['Q3']}</div>
+        <div class="kpi-card" style="border-top: 4px solid #94A3B8;">
+            <div class="label" style="color: #64748B;">Q3: Invariant</div>
+            <div class="value" style="color: #64748B;" id="kpi-q3">{kpis['Q3']}</div>
         </div>
     </div>
 
     <!-- 4-Quadrant Plot with Right-Side Sliders & Legend -->
     <div class="card">
-        <h2>📊 4-Quadrant Transcriptomics Cross-Plot</h2>
+        <h2>📊 4-Quadrant Transcriptomics Cross-Plot (Translucent Regions)</h2>
         <div class="chart-layout-grid">
             <!-- Left: Plot Canvas -->
             <div id="plot-wrapper">
@@ -311,7 +314,7 @@ def export_html_report(
                         <span><b>Q1 (Purple):</b> Both DEG & AS</span>
                     </div>
                     <div class="legend-item">
-                        <span class="legend-dot" style="background: #4B5563;"></span>
+                        <span class="legend-dot" style="background: #94A3B8;"></span>
                         <span><b>Q3 (Gray):</b> Invariant</span>
                     </div>
                 </div>
@@ -337,10 +340,10 @@ def export_html_report(
     {ai_section_html}
 
     <div class="footer">
-        Generated automatically by GenSplice-Agent Pipeline • Black & White Dark Theme
+        Generated automatically by GenSplice-Agent Pipeline • Light Mode Theme
     </div>
 
-    <!-- Real-Time Threshold Scripting -->
+    <!-- Real-Time Threshold & Shaded Region Scripting -->
     <script>
         const rawGeneData = {raw_data_json};
         
@@ -358,11 +361,29 @@ def export_html_report(
 
             const quadDiv = document.getElementById('plotly-quad-div');
             if (quadDiv && window.Plotly) {{
+                const max_x = 3.0;
+                const max_y = 0.7;
+
                 const newShapes = [
-                    {{ type: 'line', x0: fcCut, x1: fcCut, y0: -2, y1: 2, line: {{ color: '#EF4444', width: 2, dash: 'dash' }} }},
-                    {{ type: 'line', x0: -fcCut, x1: -fcCut, y0: -2, y1: 2, line: {{ color: '#EF4444', width: 2, dash: 'dash' }} }},
-                    {{ type: 'line', x0: -10, x1: 10, y0: psiCut, y1: psiCut, line: {{ color: '#3B82F6', width: 2, dash: 'dash' }} }},
-                    {{ type: 'line', x0: -10, x1: 10, y0: -psiCut, y1: -psiCut, line: {{ color: '#3B82F6', width: 2, dash: 'dash' }} }}
+                    // Q3 Center Gray
+                    {{ type: 'rect', x0: -fcCut, x1: fcCut, y0: -psiCut, y1: psiCut, fillcolor: 'rgba(241, 245, 249, 0.6)', line: {{ width: 0 }}, layer: 'below' }},
+                    // Q2 Blue Top & Bottom
+                    {{ type: 'rect', x0: -fcCut, x1: fcCut, y0: psiCut, y1: max_y, fillcolor: 'rgba(59, 130, 246, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
+                    {{ type: 'rect', x0: -fcCut, x1: fcCut, y0: -max_y, y1: -psiCut, fillcolor: 'rgba(59, 130, 246, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
+                    // Q4 Red Left & Right
+                    {{ type: 'rect', x0: fcCut, x1: max_x, y0: -psiCut, y1: psiCut, fillcolor: 'rgba(239, 68, 68, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
+                    {{ type: 'rect', x0: -max_x, x1: -fcCut, y0: -psiCut, y1: psiCut, fillcolor: 'rgba(239, 68, 68, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
+                    // Q1 Purple 4 Corners
+                    {{ type: 'rect', x0: fcCut, x1: max_x, y0: psiCut, y1: max_y, fillcolor: 'rgba(168, 85, 247, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
+                    {{ type: 'rect', x0: -max_x, x1: -fcCut, y0: psiCut, y1: max_y, fillcolor: 'rgba(168, 85, 247, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
+                    {{ type: 'rect', x0: fcCut, x1: max_x, y0: -max_y, y1: -psiCut, fillcolor: 'rgba(168, 85, 247, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
+                    {{ type: 'rect', x0: -max_x, x1: -fcCut, y0: -max_y, y1: -psiCut, fillcolor: 'rgba(168, 85, 247, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
+
+                    // Threshold Lines
+                    {{ type: 'line', x0: fcCut, x1: fcCut, y0: -max_y, y1: max_y, line: {{ color: '#EF4444', width: 2, dash: 'dash' }} }},
+                    {{ type: 'line', x0: -fcCut, x1: -fcCut, y0: -max_y, y1: max_y, line: {{ color: '#EF4444', width: 2, dash: 'dash' }} }},
+                    {{ type: 'line', x0: -max_x, x1: max_x, y0: psiCut, y1: psiCut, line: {{ color: '#3B82F6', width: 2, dash: 'dash' }} }},
+                    {{ type: 'line', x0: -max_x, x1: max_x, y0: -psiCut, y1: -psiCut, line: {{ color: '#3B82F6', width: 2, dash: 'dash' }} }}
                 ];
                 Plotly.relayout(quadDiv, {{ shapes: newShapes }});
             }}
@@ -394,5 +415,5 @@ def export_html_report(
     with open(output_html_path, "w", encoding="utf-8") as f:
         f.write(full_html)
 
-    print(f"  ✔ Standalone Dark Mode HTML Report exported to: {output_html_path}")
+    print(f"  ✔ Standalone Light Mode HTML Report exported to: {output_html_path}")
     return output_html_path

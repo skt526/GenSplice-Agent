@@ -1,6 +1,6 @@
 """
 GenSplice-Agent Streamlit Dashboard & AI Agent
-Black & White Dark Mode Theme with Right-Side Threshold Control Panel
+Light Mode Theme with Shaded Translucent Threshold Regions & Right-Side Control Panel
 """
 
 import os
@@ -24,13 +24,13 @@ from ai.gemini_evaluator import evaluate_gene_with_gemini
 
 # Streamlit Page Config
 st.set_page_config(
-    page_title="GenSplice-Agent Black & White Platform",
+    page_title="GenSplice-Agent Light Platform",
     page_icon="🧬",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for Premium Black & White Dark Mode
+# Custom CSS for Premium Light Mode Theme
 st.markdown(f"""
 <style>
     .stApp {{
@@ -41,11 +41,11 @@ st.markdown(f"""
         font-size: 2.4rem;
         font-weight: 900;
         letter-spacing: -0.5px;
-        color: #FFFFFF;
+        color: #0F172A;
         margin-bottom: 0.2rem;
-    }
+    }}
     .sub-header {{
-        color: #9CA3AF;
+        color: #64748B;
         font-size: 1rem;
         margin-bottom: 1.5rem;
     }}
@@ -54,6 +54,7 @@ st.markdown(f"""
         border-radius: 12px;
         padding: 16px;
         border: 1px solid {THEME_BORDER};
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         text-align: center;
     }}
     .kpi-val {{
@@ -63,7 +64,7 @@ st.markdown(f"""
     }}
     .kpi-lbl {{
         font-size: 0.8rem;
-        color: #9CA3AF;
+        color: #64748B;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.5px;
@@ -72,18 +73,20 @@ st.markdown(f"""
         background-color: {THEME_CARD_BG};
         border-radius: 14px;
         padding: 20px;
-        border: 1px solid #374151;
+        border: 2px solid #3B82F6;
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
     }}
     .stButton>button {{
         border-radius: 8px;
         font-weight: 700;
-        background-color: #1F2937;
-        color: #F9FAFB;
-        border: 1px solid #374151;
+        background-color: #FFFFFF;
+        color: #0F172A;
+        border: 1px solid #CBD5E1;
     }}
     .stButton>button:hover {{
-        background-color: #374151;
-        color: #FFFFFF;
+        background-color: #F1F5F9;
+        border-color: #3B82F6;
+        color: #3B82F6;
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -91,7 +94,7 @@ st.markdown(f"""
 # Sidebar Configuration
 st.sidebar.image("https://img.icons8.com/color/96/dna-helix.png", width=64)
 st.sidebar.title("GenSplice-Agent")
-st.sidebar.caption("Monochrome & Biological Theme")
+st.sidebar.caption("Light Theme Edition")
 st.sidebar.markdown("---")
 
 # 1. Data Input Paths
@@ -134,7 +137,7 @@ df_deg_raw, df_rmats_raw = load_and_process_raw(deg_path, rmats_dir)
 
 # Main Dashboard Layout
 st.markdown('<div class="main-header">🧬 GenSplice-Agent Platform</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Black & White Dark Mode • DEG (Red) | Alternative Splicing (Blue) | Dual (Purple)</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Light Theme • Shaded Region Overlays • Red (DEG) | Blue (Splicing) | Purple (Both)</div>', unsafe_allow_html=True)
 
 if df_deg_raw.height == 0 and df_rmats_raw.height == 0:
     st.warning("⚠️ No valid DEG or rMATS data found. Please run `./GenSplice` or `./test` to generate output data.")
@@ -143,7 +146,7 @@ if df_deg_raw.height == 0 and df_rmats_raw.height == 0:
 # Main Plot Area and Right-Side Controls Layout
 plot_col, control_col = st.columns([3, 1])
 
-# Initialize cutoffs with defaults or slider values
+# Threshold Sliders on the Right Side
 with control_col:
     st.markdown('<div class="control-panel-right">', unsafe_allow_html=True)
     st.markdown("### 🎛️ Threshold Controls (Right)")
@@ -154,12 +157,12 @@ with control_col:
     as_fdr_cutoff = st.select_slider("rMATS FDR Cutoff", options=[0.001, 0.01, 0.05, 0.1], value=DEFAULT_AS_FDR_CUTOFF, key="as_fdr_slider")
     
     st.markdown("---")
-    st.markdown("### 📌 Color Guide")
+    st.markdown("### 📌 Shaded Region Legend")
     st.markdown("""
-    - 🔴 **DEG Only (Q4):** Red (`#EF4444`)
-    - 🔵 **Splicing Only (Q2):** Blue (`#3B82F6`)
-    - 🟣 **Both DEG & AS (Q1):** Purple (`#A855F7`)
-    - ⚪ **Invariant (Q3):** Dark Gray (`#4B5563`)
+    - 🔴 **Q4 DEG Only:** Translucent Red Region
+    - 🔵 **Q2 Splicing Only:** Translucent Blue Region
+    - 🟣 **Q1 Both DEG & AS:** Translucent Purple Region
+    - ⚪ **Q3 Invariant:** Soft Gray Center
     """)
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -178,7 +181,7 @@ kpis = get_quadrant_kpis(df_merged)
 col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
-    st.markdown(f'<div class="kpi-box"><div class="kpi-lbl">Total Analyzed</div><div class="kpi-val" style="color:#F9FAFB;">{kpis["total"]}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi-box"><div class="kpi-lbl">Total Analyzed</div><div class="kpi-val" style="color:#0F172A;">{kpis["total"]}</div></div>', unsafe_allow_html=True)
 with col2:
     st.markdown(f'<div class="kpi-box" style="border-top:4px solid #3B82F6;"><div class="kpi-lbl" style="color:#3B82F6;">Q2: Splicing Target</div><div class="kpi-val" style="color:#3B82F6;">{kpis["Q2"]}</div></div>', unsafe_allow_html=True)
 with col3:
@@ -186,7 +189,7 @@ with col3:
 with col4:
     st.markdown(f'<div class="kpi-box" style="border-top:4px solid #EF4444;"><div class="kpi-lbl" style="color:#EF4444;">Q4: DEG Only</div><div class="kpi-val" style="color:#EF4444;">{kpis["Q4"]}</div></div>', unsafe_allow_html=True)
 with col5:
-    st.markdown(f'<div class="kpi-box" style="border-top:4px solid #4B5563;"><div class="kpi-lbl" style="color:#9CA3AF;">Q3: Invariant</div><div class="kpi-val" style="color:#9CA3AF;">{kpis["Q3"]}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi-box" style="border-top:4px solid #94A3B8;"><div class="kpi-lbl" style="color:#64748B;">Q3: Invariant</div><div class="kpi-val" style="color:#64748B;">{kpis["Q3"]}</div></div>', unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -202,7 +205,7 @@ with export_col2:
             deg_fdr_cutoff=deg_fdr_cutoff,
             as_fdr_cutoff=as_fdr_cutoff
         )
-        st.success("✔ Dark Mode HTML Report generated!")
+        st.success("✔ Light Mode HTML Report generated!")
         with open(html_out_path, "r", encoding="utf-8") as f:
             html_bytes = f.read().encode("utf-8")
         st.download_button(
@@ -222,7 +225,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
 
 # Tab 1: Quadrant Plot
 with tab1:
-    st.subheader("Interactive 4-Quadrant Cross-Plot (Right Legend & Sliders)")
+    st.subheader("Interactive 4-Quadrant Cross-Plot (Shaded Regions & Right Legend)")
     fig_quad = build_quadrant_plot(df_merged, log2fc_cutoff, delta_psi_cutoff, color_by=color_by)
     st.plotly_chart(
         fig_quad,
