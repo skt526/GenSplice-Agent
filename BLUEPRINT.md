@@ -1,6 +1,6 @@
-# DualSplice-Dash (가칭) AntiGravity 통합 개발 청사진 (Blueprint)
+# GenSplice-Agent AntiGravity 통합 개발 청사진 (Blueprint)
 
-유전자의 발현 총량(Quantity, DEG)뿐만 아니라 스플라이싱 형태의 질적 변화(Quality, Alternative Splicing)가 생체 조절 기전에서 갖는 중요성을 직관적으로 입증하기 위한 `DualSplice-Dash` (가칭)의 AntiGravity 전용 통합 개발 청사진(Blueprint)입니다.
+유전자의 발현 총량(Quantity, DEG)뿐만 아니라 스플라이싱 형태의 질적 변화(Quality, Alternative Splicing)가 생체 조절 기전에서 갖는 중요성을 직관적으로 입증하기 위한 `GenSplice-Agent`의 AntiGravity 전용 통합 개발 청사진(Blueprint)입니다.
 
 ---
 
@@ -53,7 +53,7 @@
 로컬 머신의 AntiGravity 환경에서 원클릭으로 구동할 수 있는 경량 모듈형 구조입니다.
 
 ```text
-DualSplice-Dash/
+GenSplice-Agent/
 ├── app.py                      # Streamlit 메인 대시보드 UI 컨트롤러
 ├── config.py                   # 기본 임계값(FDR, ΔPSI, Log2FC) 및 색상 테마
 ├── core/
