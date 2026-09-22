@@ -3,6 +3,8 @@ system:
   total_cpu: 8
   assigned_threads: 6
   total_ram_gb: 16
+  star_bam_sort_ram_gb: 9
+  star_bam_sort_ram_bytes: 9663676416
 
 reference:
   organism: "human"

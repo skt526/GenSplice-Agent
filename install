@@ -55,9 +55,6 @@ echo -e "Available Disk Space : ${YELLOW}${DISK_FREE_GB} GB${NC}"
 echo -e "----------------------------------------------------"
 
 # 3. Minimum Requirements Thresholds
-# - STAR Human/Mouse alignment RAM requirement: >= 30 GB
-# - Free Disk requirement for Index & BAM files: >= 50 GB
-# - Minimum CPU Cores: >= 4
 MIN_RAM_GB=30
 MIN_DISK_GB=50
 MIN_CPU=4
@@ -102,17 +99,24 @@ else
     echo -e "System specifications are suitable for large-scale transcriptomics and splicing analysis."
 fi
 
-# 5. Calculate (n - 2) Optimal Thread Allocation
+# 5. Calculate (n - 2) Optimal Thread Allocation & Dynamic STAR RAM
 if [ "$CPU_CORES" -gt 2 ]; then
     OPTIMAL_THREADS=$((CPU_CORES - 2))
 else
     OPTIMAL_THREADS=1
 fi
 
+# Dynamic STAR BAM sort RAM calculation (60% of total RAM)
+STAR_RAM_GB=$(( RAM_TOTAL_GB * 60 / 100 ))
+if [ "$STAR_RAM_GB" -lt 4 ]; then
+    STAR_RAM_GB=4
+fi
+STAR_RAM_BYTES=$(( STAR_RAM_GB * 1024 * 1024 * 1024 ))
+
 echo -e "----------------------------------------------------"
-echo -e "System Stability Optimization:"
-echo -e "  Allocating ${GREEN}${OPTIMAL_THREADS}${NC} threads (n - 2 out of ${CPU_CORES} total)"
-echo -e "  to prevent background OS/GUI freezing or screen stuttering."
+echo -e "System Performance & Resource Optimization:"
+echo -e "  - Pipeline Threads (n-2)     : ${GREEN}${OPTIMAL_THREADS}${NC} threads (out of ${CPU_CORES} total)"
+echo -e "  - Dynamic STAR BAM Sort RAM  : ${GREEN}${STAR_RAM_GB} GB${NC} (${STAR_RAM_BYTES} bytes, 60% of total RAM)"
 echo -e "----------------------------------------------------"
 
 # 6. Auto-generate / Update config.yaml with Hardware & Thread Settings
@@ -122,6 +126,8 @@ system:
   total_cpu: ${CPU_CORES}
   assigned_threads: ${OPTIMAL_THREADS}
   total_ram_gb: ${RAM_TOTAL_GB}
+  star_bam_sort_ram_gb: ${STAR_RAM_GB}
+  star_bam_sort_ram_bytes: ${STAR_RAM_BYTES}
 
 reference:
   organism: "human"
@@ -143,7 +149,7 @@ outputs:
   rmats: "./outputs/04_rmats"
 EOF
 
-echo -e "Configuration file 'config.yaml' created with assigned_threads=${OPTIMAL_THREADS}.\n"
+echo -e "Configuration file 'config.yaml' updated with assigned_threads=${OPTIMAL_THREADS} and STAR RAM=${STAR_RAM_GB}GB.\n"
 
 # 7. Package Manager & Conda Environment Setup
 echo -e "${BLUE}[1/2] Creating directory structure...${NC}"
