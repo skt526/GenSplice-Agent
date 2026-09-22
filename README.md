@@ -6,13 +6,20 @@
 
 ---
 
-## 📦 예상 의존성 목록 (Required Dependencies)
+## 📦 예상 의존성 목록 (Conda/Bioconda Ecosystem)
 
-### 1. 시스템 요구사항
-- **Python**: 3.9 이상 (Python 3.10+ 권장)
-- **Git**: 2.0 이상
+서버 환경 간 라이브러리 충돌을 방지하기 위해 **Conda / Mamba** 기반 완전 환경 격리를 제공합니다.
 
-### 2. 핵심 파이썬 패키지 (`requirements.txt`)
+### 1. 생물정보학 CLI 분석 도구 (Bioconda)
+| 도구명 | 추천 버전 | 용도 및 역할 |
+| :--- | :--- | :--- |
+| **`fastp`** | `>= 0.23.4` | FASTQ 시퀀싱 데이터 품질 관리(QC) 및 어댑터 트리밍 |
+| **`STAR`** | `>= 2.7.11a` | RNA-seq 리드 게놈 정렬 및 스플라이스 정렬 엔진 |
+| **`rmats`** | `>= 4.3.0` | Alternative Splicing (SE, RI, A5SS, A3SS, MXE) 분석 도구 |
+| **`subread`** | `>= 2.0.6` | `featureCounts` 전사체 정량 산출 CLI 도구 |
+| **`R` (r-base)** | `>= 4.2` | rMATS 및 DESeq2 통계 검증 R 백엔드 연동 |
+
+### 2. 파이썬 웹 대시보드 라이브러리 (`environment.yml`)
 | 패키지명 | 최소 버전 | 용도 |
 | :--- | :--- | :--- |
 | `streamlit` | `>= 1.35.0` | 대시보드 웹 인터페이스 GUI |
@@ -25,9 +32,9 @@
 
 ---
 
-## 🚀 원클릭 설치 및 실행 방법 (One-Click Installation)
+## 🚀 원클릭 환경 구축 (`install.sh`)
 
-저장소를 클론한 후 `./install` (또는 `bash install.sh`) 명령어를 실행하면, **가상 환경 생성부터 의존성 설치 및 무결성 검증까지 전 과정을 시각적 진행 상태(Progress)와 함께 원클릭으로 완료**할 수 있습니다.
+`bash install.sh` (또는 `./install`) 단 한 줄만 실행하면 **Conda/Mamba 감지, `environment.yml` 기반 가상환경 생성, 생물정보학 CLI 도구 설치 및 무결성 검증까지 원클릭으로 완료**됩니다.
 
 ### 1. 저장소 클론
 ```bash
@@ -37,29 +44,30 @@ cd GenSplice-Agent
 
 ### 2. 원클릭 의존성 설치
 ```bash
-./install
+bash install.sh
 ```
-*(또는 `bash install.sh`)*
+*(또는 `./install`)*
 
 #### 💡 설치 프로세스 진행 단계 (터미널 실시간 표시)
-1. **[1/5] Python 3 환경 확인**: Python 3.9+ 및 경로 체크
-2. **[2/5] 가상 환경 생성**: `.venv` 파이썬 가상 환경 자동 생성
-3. **[3/5] 패키지 관리자 업그레이드**: `pip`, `setuptools`, `wheel` 최신화
-4. **[4/5] 의존성 설치**: `requirements.txt` 패키지 자동 설치 (프로그레스 바 출력)
-5. **[5/5] 무결성 검증**: 핵심 모듈(`polars`, `streamlit`, `google.genai` 등) 정상 로드 테스트
+1. **[1/5] 패키지 관리자 감지**: `mamba` 또는 `conda` 자동 체크 (미설치 시 python venv 대체 폴백)
+2. **[2/5] Conda 환경 확인**: `gensplice-agent` 환경 존재 여부 확인
+3. **[3/5] Conda 패키지 설치**: `environment.yml` 기반 Bioconda + Python 통합 패키지 설치
+4. **[4/5] 생물정보학 CLI 검증**: `fastp`, `STAR`, `rmats.py`, `featureCounts`, `R` 실행 권한 및 검증
+5. **[5/5] Python 파이프라인 검증**: `streamlit`, `polars`, `google.genai` 등 정상 파싱 로드 테스트
 
 ---
 
 ## 🖥 대시보드 실행
 
-설치가 완료된 후 아래 명령어로 대시보드를 구동합니다:
+설치가 완료되면 아래 명령어로 Conda 환경을 활성화하고 대시보드를 구동합니다:
 
 ```bash
-source .venv/bin/activate
+conda activate gensplice-agent
 streamlit run app.py
 ```
 
 ---
 
 ## 📄 문서
-- [BLUEPRINT.md](BLUEPRINT.md): GenSplice-Agent 시스템 설계 청사진 및 알골리즘 명세
+- [BLUEPRINT.md](BLUEPRINT.md): GenSplice-Agent 시스템 설계 청사진 및 알고리즘 명세
+- [environment.yml](environment.yml): Conda/Bioconda 명세서

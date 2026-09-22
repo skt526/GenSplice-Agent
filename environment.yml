@@ -1,0 +1,21 @@
+name: gensplice-agent
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python>=3.10
+  - r-base>=4.2
+  - fastp>=0.23.4
+  - star>=2.7.11a
+  - rmats>=4.3.0
+  - subread>=2.0.6
+  - pip
+  - pip:
+      - streamlit>=1.35.0
+      - polars>=0.20.0
+      - pyarrow>=15.0.0
+      - plotly>=5.20.0
+      - google-genai>=0.1.0
+      - pandas>=2.0.0
+      - openpyxl>=3.1.0
