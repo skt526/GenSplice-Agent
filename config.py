@@ -1,5 +1,6 @@
 """
 GenSplice-Agent Configuration & Global Design System
+Black & White Dark Mode Theme with High-Contrast Biological Color System
 """
 
 import os
@@ -10,29 +11,40 @@ DEFAULT_DELTA_PSI_CUTOFF = 0.1
 DEFAULT_DEG_FDR_CUTOFF = 0.05
 DEFAULT_AS_FDR_CUTOFF = 0.05
 
-# Quadrant Palette (Harmonious Modern Theme)
+# Black & White Dark Mode Theme Colors
+THEME_BG = "#0B0F19"
+THEME_CARD_BG = "#111827"
+THEME_TEXT = "#F9FAFB"
+THEME_MUTED = "#9CA3AF"
+THEME_BORDER = "#1F2937"
+
+# Quadrant Palette (DEG = Red, AS = Blue, Both = Purple, Invariant = Gray)
 QUADRANT_COLORS = {
-    "Q1": "#E63946",  # Vibrant Coral Red (Dual Responders)
-    "Q2": "#8E44AD",  # Amethyst Purple (Splicing-Driven / Primary Target)
-    "Q3": "#95A5A6",  # Muted Cool Gray (Background Invariant)
-    "Q4": "#2980B9",  # Deep Ocean Blue (Expression-Driven)
+    "Q1": "#A855F7",  # Purple (Both DEG & Alternative Splicing)
+    "Q2": "#3B82F6",  # Blue (Alternative Splicing Only - Target)
+    "Q3": "#4B5563",  # Dark Muted Gray (Invariant Background)
+    "Q4": "#EF4444",  # Red (DEG Expression Only)
 }
 
 QUADRANT_LABELS = {
-    "Q1": "Q1: Dual Responders (DEG & AS)",
-    "Q2": "Q2: Splicing-Driven (Masked / No DEG Change)",
+    "Q1": "Q1: Dual Responders (Both DEG & Splicing)",
+    "Q2": "Q2: Splicing-Driven (Alternative Splicing Only)",
     "Q3": "Q3: Invariant Background",
-    "Q4": "Q4: Abundance-Driven (DEG Only)",
+    "Q4": "Q4: Expression-Driven (DEG Only)",
 }
 
-# 5 rMATS Splicing Event Type Colors
+# Threshold Line Colors (Matching Axes)
+DEG_THRESHOLD_COLOR = "#EF4444"  # Red for Log2FC DEG threshold
+AS_THRESHOLD_COLOR = "#3B82F6"   # Blue for Delta PSI Splicing threshold
+
+# 5 rMATS Splicing Event Type Colors (Harmonized with Dark Theme)
 EVENT_COLORS = {
-    "SE": "#E74C3C",    # Exon Skipping (Red)
-    "RI": "#2ECC71",    # Retained Intron (Green)
-    "MXE": "#F39C12",   # Mutually Exclusive Exons (Orange)
-    "A5SS": "#9B59B6",  # Alt 5' Splice Site (Purple)
-    "A3SS": "#1ABC9C",  # Alt 3' Splice Site (Teal)
-    "None": "#BDC3C7"   # No Splicing Event (Gray)
+    "SE": "#EF4444",    # Exon Skipping (Red)
+    "RI": "#10B981",    # Retained Intron (Green)
+    "MXE": "#F59E0B",   # Mutually Exclusive Exons (Amber/Orange)
+    "A5SS": "#A855F7",  # Alt 5' Splice Site (Purple)
+    "A3SS": "#06B6D4",  # Alt 3' Splice Site (Cyan)
+    "None": "#4B5563"   # No Splicing Event (Gray)
 }
 
 EVENT_NAMES = {

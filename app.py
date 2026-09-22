@@ -1,6 +1,6 @@
 """
 GenSplice-Agent Streamlit Dashboard & AI Agent
-Integrative Quantity (DEG) & Quality (Alternative Splicing 5 Event Types) Platform
+Black & White Dark Mode Theme with Right-Side Threshold Control Panel
 """
 
 import os
@@ -10,7 +10,9 @@ import pandas as pd
 
 from config import (
     DEFAULT_LOG2FC_CUTOFF, DEFAULT_DELTA_PSI_CUTOFF,
-    DEFAULT_DEG_FDR_CUTOFF, DEFAULT_AS_FDR_CUTOFF
+    DEFAULT_DEG_FDR_CUTOFF, DEFAULT_AS_FDR_CUTOFF,
+    THEME_BG, THEME_CARD_BG, THEME_TEXT, THEME_MUTED, THEME_BORDER,
+    QUADRANT_COLORS
 )
 from core.deg_loader import load_deg_data
 from core.rmats_loader import load_rmats_data, select_primary_splicing_events
@@ -22,59 +24,74 @@ from ai.gemini_evaluator import evaluate_gene_with_gemini
 
 # Streamlit Page Config
 st.set_page_config(
-    page_title="GenSplice-Agent Transcriptomics Platform",
+    page_title="GenSplice-Agent Black & White Platform",
     page_icon="🧬",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for Premium Design
-st.markdown("""
+# Custom CSS for Premium Black & White Dark Mode
+st.markdown(f"""
 <style>
-    .main-header {
-        font-size: 2.2rem;
-        font-weight: 800;
-        background: linear-gradient(135deg, #4A0E4E 0%, #8E44AD 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 0.5rem;
+    .stApp {{
+        background-color: {THEME_BG};
+        color: {THEME_TEXT};
+    }}
+    .main-header {{
+        font-size: 2.4rem;
+        font-weight: 900;
+        letter-spacing: -0.5px;
+        color: #FFFFFF;
+        margin-bottom: 0.2rem;
     }
-    .kpi-box {
-        background-color: #FFFFFF;
+    .sub-header {{
+        color: #9CA3AF;
+        font-size: 1rem;
+        margin-bottom: 1.5rem;
+    }}
+    .kpi-box {{
+        background-color: {THEME_CARD_BG};
         border-radius: 12px;
         padding: 16px;
-        border: 1px solid #E2E8F0;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        border: 1px solid {THEME_BORDER};
         text-align: center;
-    }
-    .kpi-val {
-        font-size: 2rem;
+    }}
+    .kpi-val {{
+        font-size: 2.2rem;
         font-weight: 800;
         margin-top: 4px;
-    }
-    .kpi-lbl {
-        font-size: 0.85rem;
-        color: #64748B;
-        font-weight: 600;
+    }}
+    .kpi-lbl {{
+        font-size: 0.8rem;
+        color: #9CA3AF;
+        font-weight: 700;
         text-transform: uppercase;
-    }
-    .stButton>button {
+        letter-spacing: 0.5px;
+    }}
+    .control-panel-right {{
+        background-color: {THEME_CARD_BG};
+        border-radius: 14px;
+        padding: 20px;
+        border: 1px solid #374151;
+    }}
+    .stButton>button {{
         border-radius: 8px;
-        font-weight: 600;
-    }
-    .threshold-container {
-        background-color: #F8FAFC;
-        border-radius: 12px;
-        padding: 16px 24px;
-        border: 2px solid #8E44AD;
-        margin-bottom: 16px;
-    }
+        font-weight: 700;
+        background-color: #1F2937;
+        color: #F9FAFB;
+        border: 1px solid #374151;
+    }}
+    .stButton>button:hover {{
+        background-color: #374151;
+        color: #FFFFFF;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
 # Sidebar Configuration
 st.sidebar.image("https://img.icons8.com/color/96/dna-helix.png", width=64)
 st.sidebar.title("GenSplice-Agent")
+st.sidebar.caption("Monochrome & Biological Theme")
 st.sidebar.markdown("---")
 
 # 1. Data Input Paths
@@ -90,10 +107,10 @@ if not os.path.exists(rmats_dir) and os.path.exists("test_data"):
 
 st.sidebar.markdown("---")
 
-# 2. Sidebar Quick Controls
-st.sidebar.header("⚙️ Global Settings")
-color_option = st.sidebar.radio("Plot Color Palette", ["By Quadrant", "By Splicing Event Type"])
-color_by = "quadrant" if color_option == "By Quadrant" else "event_type"
+# 2. Sidebar Color Options
+st.sidebar.header("🎨 Plot Color Settings")
+color_option = st.sidebar.radio("Color Palette", ["By Quadrant (Red/Blue/Purple)", "By Splicing Event Type"])
+color_by = "quadrant" if color_option.startswith("By Quadrant") else "event_type"
 
 st.sidebar.markdown("---")
 
@@ -117,28 +134,36 @@ df_deg_raw, df_rmats_raw = load_and_process_raw(deg_path, rmats_dir)
 
 # Main Dashboard Layout
 st.markdown('<div class="main-header">🧬 GenSplice-Agent Platform</div>', unsafe_allow_html=True)
-st.markdown("Integrative Quantitative (DEG) & Qualitative (Alternative Splicing) Transcriptomics Dashboard")
+st.markdown('<div class="sub-header">Black & White Dark Mode • DEG (Red) | Alternative Splicing (Blue) | Dual (Purple)</div>', unsafe_allow_html=True)
 
 if df_deg_raw.height == 0 and df_rmats_raw.height == 0:
     st.warning("⚠️ No valid DEG or rMATS data found. Please run `./GenSplice` or `./test` to generate output data.")
     st.stop()
 
-# Real-Time Interactive Threshold Adjustment Panel directly at top
-st.markdown('<div class="threshold-container">', unsafe_allow_html=True)
-st.subheader("🎛️ Real-Time Interactive Threshold Adjustment")
-tcol1, tcol2, tcol3, tcol4 = st.columns(4)
+# Main Plot Area and Right-Side Controls Layout
+plot_col, control_col = st.columns([3, 1])
 
-with tcol1:
-    log2fc_cutoff = st.slider("Log₂FC Cutoff (|Log₂FC|)", 0.1, 3.0, DEFAULT_LOG2FC_CUTOFF, 0.05, key="log2fc_slider")
-with tcol2:
-    delta_psi_cutoff = st.slider("ΔPSI Cutoff (|ΔPSI|)", 0.01, 0.5, DEFAULT_DELTA_PSI_CUTOFF, 0.01, key="psi_slider")
-with tcol3:
+# Initialize cutoffs with defaults or slider values
+with control_col:
+    st.markdown('<div class="control-panel-right">', unsafe_allow_html=True)
+    st.markdown("### 🎛️ Threshold Controls (Right)")
+    
+    log2fc_cutoff = st.slider("Log₂FC Cutoff (DEG: Red)", 0.1, 3.0, DEFAULT_LOG2FC_CUTOFF, 0.05, key="log2fc_slider")
+    delta_psi_cutoff = st.slider("ΔPSI Cutoff (Splicing: Blue)", 0.01, 0.5, DEFAULT_DELTA_PSI_CUTOFF, 0.01, key="psi_slider")
     deg_fdr_cutoff = st.select_slider("DEG FDR Cutoff", options=[0.001, 0.01, 0.05, 0.1], value=DEFAULT_DEG_FDR_CUTOFF, key="deg_fdr_slider")
-with tcol4:
     as_fdr_cutoff = st.select_slider("rMATS FDR Cutoff", options=[0.001, 0.01, 0.05, 0.1], value=DEFAULT_AS_FDR_CUTOFF, key="as_fdr_slider")
-st.markdown('</div>', unsafe_allow_html=True)
+    
+    st.markdown("---")
+    st.markdown("### 📌 Color Guide")
+    st.markdown("""
+    - 🔴 **DEG Only (Q4):** Red (`#EF4444`)
+    - 🔵 **Splicing Only (Q2):** Blue (`#3B82F6`)
+    - 🟣 **Both DEG & AS (Q1):** Purple (`#A855F7`)
+    - ⚪ **Invariant (Q3):** Dark Gray (`#4B5563`)
+    """)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# Merge dataset dynamically based on live slider values
+# Dynamic Merger
 df_merged = merge_deg_and_rmats(
     df_deg=df_deg_raw,
     df_rmats=df_rmats_raw,
@@ -148,24 +173,24 @@ df_merged = merge_deg_and_rmats(
     as_fdr_cutoff=as_fdr_cutoff
 )
 
-# Summary KPI Cards
+# KPI Summary Bar
 kpis = get_quadrant_kpis(df_merged)
 col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
-    st.markdown(f'<div class="kpi-box"><div class="kpi-lbl">Total Analyzed</div><div class="kpi-val" style="color:#1E293B;">{kpis["total"]}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi-box"><div class="kpi-lbl">Total Analyzed</div><div class="kpi-val" style="color:#F9FAFB;">{kpis["total"]}</div></div>', unsafe_allow_html=True)
 with col2:
-    st.markdown(f'<div class="kpi-box" style="border-top:4px solid #8E44AD;"><div class="kpi-lbl" style="color:#8E44AD;">Q2: Splicing Target</div><div class="kpi-val" style="color:#8E44AD;">{kpis["Q2"]}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi-box" style="border-top:4px solid #3B82F6;"><div class="kpi-lbl" style="color:#3B82F6;">Q2: Splicing Target</div><div class="kpi-val" style="color:#3B82F6;">{kpis["Q2"]}</div></div>', unsafe_allow_html=True)
 with col3:
-    st.markdown(f'<div class="kpi-box" style="border-top:4px solid #E63946;"><div class="kpi-lbl" style="color:#E63946;">Q1: Dual Responders</div><div class="kpi-val" style="color:#E63946;">{kpis["Q1"]}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi-box" style="border-top:4px solid #A855F7;"><div class="kpi-lbl" style="color:#A855F7;">Q1: Dual Responders</div><div class="kpi-val" style="color:#A855F7;">{kpis["Q1"]}</div></div>', unsafe_allow_html=True)
 with col4:
-    st.markdown(f'<div class="kpi-box" style="border-top:4px solid #2980B9;"><div class="kpi-lbl" style="color:#2980B9;">Q4: DEG Only</div><div class="kpi-val" style="color:#2980B9;">{kpis["Q4"]}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi-box" style="border-top:4px solid #EF4444;"><div class="kpi-lbl" style="color:#EF4444;">Q4: DEG Only</div><div class="kpi-val" style="color:#EF4444;">{kpis["Q4"]}</div></div>', unsafe_allow_html=True)
 with col5:
-    st.markdown(f'<div class="kpi-box" style="border-top:4px solid #95A5A6;"><div class="kpi-lbl" style="color:#95A5A6;">Q3: Invariant</div><div class="kpi-val" style="color:#95A5A6;">{kpis["Q3"]}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi-box" style="border-top:4px solid #4B5563;"><div class="kpi-lbl" style="color:#9CA3AF;">Q3: Invariant</div><div class="kpi-val" style="color:#9CA3AF;">{kpis["Q3"]}</div></div>', unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# Export HTML Report Button in Top Action Bar
+# Export HTML Report Button
 export_col1, export_col2 = st.columns([3, 1])
 with export_col2:
     if st.button("🌐 Export Interactive Chrome HTML Report"):
@@ -177,11 +202,11 @@ with export_col2:
             deg_fdr_cutoff=deg_fdr_cutoff,
             as_fdr_cutoff=as_fdr_cutoff
         )
-        st.success("✔ Report generated! Openable in Chrome:")
+        st.success("✔ Dark Mode HTML Report generated!")
         with open(html_out_path, "r", encoding="utf-8") as f:
             html_bytes = f.read().encode("utf-8")
         st.download_button(
-            label="💾 Download Chrome HTML Report",
+            label="💾 Download HTML Report",
             data=html_bytes,
             file_name="gensplice_report.html",
             mime="text/html"
@@ -197,7 +222,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
 
 # Tab 1: Quadrant Plot
 with tab1:
-    st.subheader("Interactive 4-Quadrant Cross-Plot (Real-Time Drag & Update)")
+    st.subheader("Interactive 4-Quadrant Cross-Plot (Right Legend & Sliders)")
     fig_quad = build_quadrant_plot(df_merged, log2fc_cutoff, delta_psi_cutoff, color_by=color_by)
     st.plotly_chart(
         fig_quad,
@@ -211,7 +236,7 @@ with tab1:
 
 # Tab 2: Dual Volcano
 with tab2:
-    st.subheader("Parallel Dual Volcano View (DEG vs rMATS Splicing)")
+    st.subheader("Parallel Dual Volcano View (Red: DEG | Blue: Splicing)")
     fig_volc = build_dual_volcano_plot(df_merged, log2fc_cutoff, delta_psi_cutoff, deg_fdr_cutoff, as_fdr_cutoff)
     st.plotly_chart(fig_volc, use_container_width=True)
 
