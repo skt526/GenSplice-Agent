@@ -292,7 +292,7 @@ def main():
             if c_r2:
                 reads_arg.append(c_r2)
 
-            star_sort_ram = system_settings.get("star_bam_sort_ram_bytes", max(4000000000, int(system_settings.get("total_ram_gb", 32) * 0.6 * 1073741824)))
+            star_sort_ram = system_settings.get("star_bam_sort_ram_bytes", max(4000000000, int(system_settings.get("total_ram_gb", 32) * 0.75 * 1073741824)))
             cmd_star_align = [
                 "STAR",
                 "--genomeDir", str(star_index_dir),

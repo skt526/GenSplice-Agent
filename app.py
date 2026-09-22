@@ -1,42 +1,62 @@
-import streamlit as st
-import os
-import json
-import subprocess
-import pandas as pd
-from pathlib import Path
-from core.fastq_detector import scan_all_inputs, detect_fastq_samples_in_dir
+"""
+GenSplice-Agent Streamlit Dashboard & AI Agent
+Integrative Quantity (DEG) & Quality (Alternative Splicing 5 Event Types) Platform
+"""
 
-# Page Configuration
+import os
+import streamlit as st
+import polars as pl
+import pandas as pd
+
+from config import (
+    DEFAULT_LOG2FC_CUTOFF, DEFAULT_DELTA_PSI_CUTOFF,
+    DEFAULT_DEG_FDR_CUTOFF, DEFAULT_AS_FDR_CUTOFF
+)
+from core.deg_loader import load_deg_data
+from core.rmats_loader import load_rmats_data, select_primary_splicing_events
+from core.merger import merge_deg_and_rmats, get_quadrant_kpis
+from visualizer.quadrant_plot import build_quadrant_plot
+from visualizer.dual_volcano import build_dual_volcano_plot
+from visualizer.report_exporter import export_html_report
+from ai.gemini_evaluator import evaluate_gene_with_gemini
+
+# Streamlit Page Config
 st.set_page_config(
-    page_title="GenSplice-Agent Dashboard",
+    page_title="GenSplice-Agent Transcriptomics Platform",
     page_icon="🧬",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Premium Custom CSS
+# Custom CSS for Premium Design
 st.markdown("""
 <style>
     .main-header {
         font-size: 2.2rem;
-        font-weight: 700;
-        color: #00d2ff;
-        background: linear-gradient(90deg, #00d2ff 0%, #3a7bd5 100%);
+        font-weight: 800;
+        background: linear-gradient(135deg, #4A0E4E 0%, #8E44AD 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         margin-bottom: 0.5rem;
     }
-    .sub-header {
-        color: #a0aec0;
-        font-size: 1.05rem;
-        margin-bottom: 1.5rem;
+    .kpi-box {
+        background-color: #FFFFFF;
+        border-radius: 12px;
+        padding: 16px;
+        border: 1px solid #E2E8F0;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        text-align: center;
     }
-    .kpi-card {
-        background-color: #1a202c;
-        border-radius: 10px;
-        padding: 1.2rem;
-        border-left: 4px solid #3182ce;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    .kpi-val {
+        font-size: 2rem;
+        font-weight: 800;
+        margin-top: 4px;
+    }
+    .kpi-lbl {
+        font-size: 0.85rem;
+        color: #64748B;
+        font-weight: 600;
+        text-transform: uppercase;
     }
     .stButton>button {
         border-radius: 8px;
@@ -45,149 +65,170 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-header">GenSplice-Agent 🧬</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Integrative Transcriptomics Dashboard: DEG (Quantity) & Alternative Splicing (Quality)</div>', unsafe_allow_html=True)
+# Sidebar Configuration
+st.sidebar.image("https://img.icons8.com/color/96/dna-helix.png", width=64)
+st.sidebar.title("GenSplice-Agent")
+st.sidebar.markdown("---")
 
-# Sidebar Controls
-with st.sidebar:
-    st.header("⚙️ Control Panel")
-    gemini_api_key = st.text_input("Google Gemini API Key", type="password", help="Enter your Gemini API key for AI mechanism evaluation")
+# 1. Data Input Paths
+st.sidebar.header("📁 Data Inputs")
+deg_path = st.sidebar.text_input("DEG File Path (CSV/TSV)", value="outputs/03_deg/deg_result.csv")
+rmats_dir = st.sidebar.text_input("rMATS Directory Path", value="outputs/04_rmats")
+
+# Fallback to test data if default outputs don't exist yet
+if not os.path.exists(deg_path) and os.path.exists("test_data/deg_result.csv"):
+    deg_path = "test_data/deg_result.csv"
+if not os.path.exists(rmats_dir) and os.path.exists("test_data"):
+    rmats_dir = "test_data"
+
+st.sidebar.markdown("---")
+
+# 2. Statistical Cutoffs
+st.sidebar.header("⚙️ Threshold Sliders")
+log2fc_cutoff = st.sidebar.slider("Log₂FC Cutoff (|Log₂FC|)", 0.5, 3.0, DEFAULT_LOG2FC_CUTOFF, 0.1)
+delta_psi_cutoff = st.sidebar.slider("ΔPSI Cutoff (|ΔPSI|)", 0.05, 0.5, DEFAULT_DELTA_PSI_CUTOFF, 0.05)
+deg_fdr_cutoff = st.sidebar.select_slider("DEG FDR Cutoff", options=[0.001, 0.01, 0.05, 0.1], value=DEFAULT_DEG_FDR_CUTOFF)
+as_fdr_cutoff = st.sidebar.select_slider("rMATS FDR Cutoff", options=[0.001, 0.01, 0.05, 0.1], value=DEFAULT_AS_FDR_CUTOFF)
+
+color_option = st.sidebar.radio("Plot Color Palette", ["By Quadrant", "By Splicing Event Type"])
+color_by = "quadrant" if color_option == "By Quadrant" else "event_type"
+
+st.sidebar.markdown("---")
+
+# 3. Gemini AI Key
+st.sidebar.header("🔑 Google Gemini AI Key")
+api_key = st.sidebar.text_input("Gemini API Key (BYOK)", type="password", help="Enter your Gemini API key for live mechanism analysis")
+
+st.sidebar.markdown("---")
+
+# Data Loading & Merging Logic
+@st.cache_data(ttl=60)
+def load_and_process_data(deg_f, rmats_d, fc_c, psi_c, deg_fdr_c, as_fdr_c):
+    if not os.path.exists(deg_f) or not os.path.exists(rmats_d):
+        return pl.DataFrame()
     
-    st.markdown("---")
-    st.subheader("🎯 Analysis Thresholds")
-    deg_fdr_cutoff = st.slider("DEG FDR Cutoff", 0.001, 0.10, 0.05, step=0.005)
-    as_fdr_cutoff = st.slider("AS FDR Cutoff", 0.001, 0.10, 0.05, step=0.005)
-    log2fc_cutoff = st.slider("|Log2FC| Cutoff", 0.5, 3.0, 1.0, step=0.1)
-    delta_psi_cutoff = st.slider("|ΔPSI| Cutoff", 0.05, 0.50, 0.10, step=0.01)
+    df_deg = load_deg_data(deg_f)
+    df_rmats = load_rmats_data(rmats_d)
+    primary_rmats = select_primary_splicing_events(df_rmats)
+    
+    merged = merge_deg_and_rmats(
+        df_deg=df_deg,
+        df_rmats=primary_rmats,
+        log2fc_cutoff=fc_c,
+        delta_psi_cutoff=psi_c,
+        deg_fdr_cutoff=deg_fdr_c,
+        as_fdr_cutoff=as_fdr_c
+    )
+    return merged
+
+df_merged = load_and_process_data(deg_path, rmats_dir, log2fc_cutoff, delta_psi_cutoff, deg_fdr_cutoff, as_fdr_cutoff)
+
+# Main Dashboard Layout
+st.markdown('<div class="main-header">🧬 GenSplice-Agent Platform</div>', unsafe_allow_html=True)
+st.markdown("Integrative Quantitative (DEG) & Qualitative (Alternative Splicing) Transcriptomics Dashboard")
+
+if df_merged.height == 0:
+    st.warning("⚠️ No valid DEG or rMATS data found. Please run `./GenSplice` or `./test` to generate output data.")
+    st.stop()
+
+# Summary KPI Cards
+kpis = get_quadrant_kpis(df_merged)
+col1, col2, col3, col4, col5 = st.columns(5)
+
+with col1:
+    st.markdown(f'<div class="kpi-box"><div class="kpi-lbl">Total Analyzed</div><div class="kpi-val" style="color:#1E293B;">{kpis["total"]}</div></div>', unsafe_allow_html=True)
+with col2:
+    st.markdown(f'<div class="kpi-box" style="border-top:4px solid #8E44AD;"><div class="kpi-lbl" style="color:#8E44AD;">Q2: Splicing Target</div><div class="kpi-val" style="color:#8E44AD;">{kpis["Q2"]}</div></div>', unsafe_allow_html=True)
+with col3:
+    st.markdown(f'<div class="kpi-box" style="border-top:4px solid #E63946;"><div class="kpi-lbl" style="color:#E63946;">Q1: Dual Responders</div><div class="kpi-val" style="color:#E63946;">{kpis["Q1"]}</div></div>', unsafe_allow_html=True)
+with col4:
+    st.markdown(f'<div class="kpi-box" style="border-top:4px solid #2980B9;"><div class="kpi-lbl" style="color:#2980B9;">Q4: DEG Only</div><div class="kpi-val" style="color:#2980B9;">{kpis["Q4"]}</div></div>', unsafe_allow_html=True)
+with col5:
+    st.markdown(f'<div class="kpi-box" style="border-top:4px solid #95A5A6;"><div class="kpi-lbl" style="color:#95A5A6;">Q3: Invariant</div><div class="kpi-val" style="color:#95A5A6;">{kpis["Q3"]}</div></div>', unsafe_allow_html=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# Export HTML Report Button in Top Action Bar
+export_col1, export_col2 = st.columns([3, 1])
+with export_col2:
+    if st.button("🌐 Generate Standalone HTML Report"):
+        html_out_path = export_html_report(
+            df_merged=df_merged,
+            output_html_path="outputs/gensplice_report.html",
+            log2fc_cutoff=log2fc_cutoff,
+            delta_psi_cutoff=delta_psi_cutoff,
+            deg_fdr_cutoff=deg_fdr_cutoff,
+            as_fdr_cutoff=as_fdr_cutoff
+        )
+        st.success("✔ Report generated! Openable in Chrome:")
+        with open(html_out_path, "r", encoding="utf-8") as f:
+            html_bytes = f.read().encode("utf-8")
+        st.download_button(
+            label="💾 Download HTML Report",
+            data=html_bytes,
+            file_name="gensplice_report.html",
+            mime="text/html"
+        )
 
 # Main Navigation Tabs
-tab_setup, tab_quadrant, tab_volcano, tab_ai = st.tabs([
-    "🧬 1. Reference & Input Setup",
-    "📊 2. Quadrant Cross-Plot",
-    "🌋 3. Dual Volcano View",
-    "🤖 4. Gemini AI Mechanism Evaluator"
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📊 4-Quadrant Cross-Plot",
+    "🌋 Dual Volcano View",
+    "📋 Data Explorer & Target Selector",
+    "🤖 Gemini AI Biological Analyst"
 ])
 
-# ==============================================================================
-# TAB 1: Reference Genome & Input FASTQ Setup Workflow
-# ==============================================================================
-with tab_setup:
-    st.subheader("Step 1: Select & Prepare Reference Genome")
+# Tab 1: Quadrant Plot
+with tab1:
+    st.subheader("Interactive 4-Quadrant Cross-Plot")
+    fig_quad = build_quadrant_plot(df_merged, log2fc_cutoff, delta_psi_cutoff, color_by=color_by)
+    st.plotly_chart(fig_quad, use_container_width=True)
+
+# Tab 2: Dual Volcano
+with tab2:
+    st.subheader("Parallel Dual Volcano View (DEG vs rMATS Splicing)")
+    fig_volc = build_dual_volcano_plot(df_merged, log2fc_cutoff, delta_psi_cutoff, deg_fdr_cutoff, as_fdr_cutoff)
+    st.plotly_chart(fig_volc, use_container_width=True)
+
+# Tab 3: Data Explorer
+with tab3:
+    st.subheader("Transcriptomics Data Explorer")
+    quad_filter = st.multiselect("Filter by Quadrant", options=["Q1", "Q2", "Q3", "Q4"], default=["Q2", "Q1"])
     
-    col_ref1, col_ref2 = st.columns([1, 2])
-    with col_ref1:
-        organism_options = {
-            "human": "Human (Homo sapiens - GRCh38)",
-            "mouse": "Mouse (Mus musculus - GRCm39)",
-            "rice": "Rice (Oryza sativa - IRGSP-1.0)",
-            "arabidopsis": "Arabidopsis thaliana (TAIR10)",
-            "maize": "Maize / Corn (Zea mays - B73)"
-        }
-        selected_organism = st.selectbox(
-            "Choose Target Organism",
-            options=list(organism_options.keys()),
-            format_func=lambda x: organism_options[x]
-        )
+    filtered_df = df_merged.filter(pl.col("quadrant").is_in(quad_filter)) if quad_filter else df_merged
+    pdf_view = filtered_df.to_pandas()
     
-    ref_dir = Path(f"./{selected_organism}-ref")
-    fasta_exists = any(ref_dir.glob("*.fa"))
-    gtf_exists = any(ref_dir.glob("*.gtf"))
-    ref_ready = ref_dir.exists() and fasta_exists and gtf_exists
+    st.dataframe(
+        pdf_view[[
+            "geneSymbol", "gene_id", "quadrant", "event_type", "delta_psi",
+            "log2FoldChange", "as_fdr", "deg_fdr", "coordinates"
+        ]],
+        use_container_width=True,
+        hide_index=True
+    )
 
-    with col_ref2:
-        if ref_ready:
-            st.success(f"✅ Reference Genome for **{organism_options[selected_organism]}** is ready in `{ref_dir}/`!")
-            with st.expander("Show Reference Files"):
-                meta_file = ref_dir / "metadata.json"
-                if meta_file.exists():
-                    st.json(json.loads(meta_file.read_text()))
-                else:
-                    st.write(list(ref_dir.glob("*")))
-        else:
-            st.warning(f"⚠️ Reference files for **{organism_options[selected_organism]}** not found in `{ref_dir}/`.")
-            if st.button("🚀 Download Reference Genome Now", type="primary"):
-                with st.spinner(f"Downloading {selected_organism} reference files..."):
-                    cmd = ["./ref", selected_organism]
-                    res = subprocess.run(cmd, capture_output=True, text=True)
-                    if res.returncode == 0:
-                        st.success("Download and decompression complete!")
-                        st.rerun()
-                    else:
-                        st.error(f"Download failed: {res.stderr}")
-
-    st.markdown("---")
-    st.subheader("Step 2: Automatic FASTQ Input & Sample Pairing Detection")
-
-    # Scan inputs directory
-    scan_results = scan_all_inputs("./inputs")
-    summary = scan_results["summary"]
-
-    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-    col_m1.metric("Total Detected Samples", summary["total_samples"])
-    col_m2.metric("Control Samples", summary["control_count"])
-    col_m3.metric("Treatment Samples", summary["treatment_count"])
-    col_m4.metric("Paired-End Pairs", summary["paired_count"])
-
-    samples_data = scan_results["all_samples"]
-
-    if len(samples_data) == 0:
-        st.info("💡 No FASTQ files found in `inputs/control/` or `inputs/treatment/`. Please place your FASTQ files (`_1.fq.gz`, `_2.fq.gz` or `_R1_`, `_R2_`) inside `inputs/control/` and `inputs/treatment/`.")
-    else:
-        df_samples = pd.DataFrame(samples_data)
-        st.write("#### 🔍 Auto-Detected Sample Configuration")
+# Tab 4: Gemini AI Agent
+with tab4:
+    st.subheader("🤖 Google Gemini AI Biological Evaluator")
+    st.markdown("Select a target gene (especially **Q2 Splicing-Driven** genes) to analyze functional domain loss, NMD, and qRT-PCR validation primers.")
+    
+    # Filter Q2 / Q1 target genes for selection dropdown
+    target_genes = df_merged.filter(pl.col("quadrant").is_in(["Q2", "Q1"])).select("geneSymbol").to_series().to_list()
+    if not target_genes:
+        target_genes = df_merged.select("geneSymbol").to_series().to_list()
         
-        # Display nicely formatted dataframe
-        st.dataframe(
-            df_samples[["group", "sample_name", "read1_filename", "read2_filename", "read_type", "status"]],
-            use_container_width=True
-        )
-
-        st.markdown("---")
-        st.subheader("Step 3: Sample Configuration Confirmation")
-
-        # Yes / No selection
-        confirm_choice = st.radio(
-            "Is the auto-detected sample configuration correct?",
-            options=["Yes, configuration is correct", "No, modify sample settings"],
-            index=0
-        )
-
-        if "Yes" in confirm_choice:
-            st.success("✅ Sample configuration confirmed! Pipeline is ready to run.")
-            if st.button("▶️ Save Config & Start Pipeline Execution", type="primary"):
-                st.info("Pipeline configuration updated in `config.yaml`. Triggering pipeline...")
-        else:
-            st.warning("✏️ Manual Sample Adjustment Mode Activated")
-            st.info("You can adjust sample group, sample names, or re-assign Read 1 & Read 2 files below:")
-
-            # Interactive Editor for manual correction
-            edited_df = st.data_editor(
-                df_samples[["group", "sample_name", "read1_filename", "read2_filename", "read_type"]],
-                num_rows="dynamic",
-                use_container_width=True,
-                key="sample_editor"
-            )
-
-            if st.button("💾 Save Modified Sample Configuration"):
-                st.success("Modified sample configuration saved successfully!")
-
-# ==============================================================================
-# TAB 2: Quadrant Cross-Plot Placeholder
-# ==============================================================================
-with tab_quadrant:
-    st.subheader("📊 Quadrant Cross-Plot (Log2FC vs ΔPSI)")
-    st.info("Run pipeline or upload DEG & rMATS output files to visualize 4-Quadrant distribution.")
-
-# ==============================================================================
-# TAB 3: Dual Volcano View Placeholder
-# ==============================================================================
-with tab_volcano:
-    st.subheader("🌋 Dual Parallel Volcano View")
-    st.info("Parallel display of DEG Volcano and Alternative Splicing Volcano plots.")
-
-# ==============================================================================
-# TAB 4: Gemini AI Evaluator Placeholder
-# ==============================================================================
-with tab_ai:
-    st.subheader("🤖 Gemini AI Biological Mechanism Evaluator")
-    st.info("Select Q2 Splicing-Driven genes to evaluate protein domain, NMD, and cell fate impacts via Google Gemini API.")
+    selected_gene_symbol = st.selectbox("Select Target Gene for AI Evaluation", options=target_genes)
+    
+    if selected_gene_symbol:
+        gene_row = df_merged.filter(pl.col("geneSymbol") == selected_gene_symbol).to_dummies().to_pandas().iloc[0].to_dict() if df_merged.filter(pl.col("geneSymbol") == selected_gene_symbol).height > 0 else {}
+        # Fetch clean dict
+        sub_df = df_merged.filter(pl.col("geneSymbol") == selected_gene_symbol)
+        if sub_df.height > 0:
+            gene_dict = sub_df.to_pandas().iloc[0].to_dict()
+            
+            st.info(f"**Target Gene:** `{gene_dict.get('geneSymbol')}` | **Quadrant:** `{gene_dict.get('quadrant')}` | **ΔPSI:** `{gene_dict.get('delta_psi'):.3f}` | **Log₂FC:** `{gene_dict.get('log2FoldChange'):.3f}`")
+            
+            if st.button("🚀 Run Gemini AI Analysis"):
+                with st.spinner(f"Evaluating biological mechanism for {selected_gene_symbol} via Gemini..."):
+                    ai_result = evaluate_gene_with_gemini(gene_dict, api_key=api_key)
+                    st.markdown(ai_result)

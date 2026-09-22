@@ -99,15 +99,15 @@ else
     echo -e "System specifications are suitable for large-scale transcriptomics and splicing analysis."
 fi
 
-# 5. Calculate (n - 2) Optimal Thread Allocation & Dynamic STAR RAM
+# 5. Calculate (n - 2) Optimal Thread Allocation & Dynamic STAR RAM (75%)
 if [ "$CPU_CORES" -gt 2 ]; then
     OPTIMAL_THREADS=$((CPU_CORES - 2))
 else
     OPTIMAL_THREADS=1
 fi
 
-# Dynamic STAR BAM sort RAM calculation (60% of total RAM)
-STAR_RAM_GB=$(( RAM_TOTAL_GB * 60 / 100 ))
+# Dynamic STAR BAM sort RAM calculation (75% of total RAM)
+STAR_RAM_GB=$(( RAM_TOTAL_GB * 75 / 100 ))
 if [ "$STAR_RAM_GB" -lt 4 ]; then
     STAR_RAM_GB=4
 fi
@@ -116,7 +116,7 @@ STAR_RAM_BYTES=$(( STAR_RAM_GB * 1024 * 1024 * 1024 ))
 echo -e "----------------------------------------------------"
 echo -e "System Performance & Resource Optimization:"
 echo -e "  - Pipeline Threads (n-2)     : ${GREEN}${OPTIMAL_THREADS}${NC} threads (out of ${CPU_CORES} total)"
-echo -e "  - Dynamic STAR BAM Sort RAM  : ${GREEN}${STAR_RAM_GB} GB${NC} (${STAR_RAM_BYTES} bytes, 60% of total RAM)"
+echo -e "  - Dynamic STAR BAM Sort RAM  : ${GREEN}${STAR_RAM_GB} GB${NC} (${STAR_RAM_BYTES} bytes, 75% of total RAM)"
 echo -e "----------------------------------------------------"
 
 # 6. Auto-generate / Update config.yaml with Hardware & Thread Settings
@@ -149,7 +149,7 @@ outputs:
   rmats: "./outputs/04_rmats"
 EOF
 
-echo -e "Configuration file 'config.yaml' updated with assigned_threads=${OPTIMAL_THREADS} and STAR RAM=${STAR_RAM_GB}GB.\n"
+echo -e "Configuration file 'config.yaml' updated with assigned_threads=${OPTIMAL_THREADS} and STAR RAM=${STAR_RAM_GB}GB (75%).\n"
 
 # 7. Package Manager & Conda Environment Setup
 echo -e "${BLUE}[1/2] Creating directory structure...${NC}"
