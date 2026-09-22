@@ -32,34 +32,50 @@
 
 ---
 
-## 🚀 원클릭 환경 구축 (`install.sh`)
+## 🚀 1. 원클릭 환경 구축 (`install.sh`)
 
 `bash install.sh` (또는 `./install`) 단 한 줄만 실행하면 **Conda/Mamba 감지, `environment.yml` 기반 가상환경 생성, 생물정보학 CLI 도구 설치 및 무결성 검증까지 원클릭으로 완료**됩니다.
 
-### 1. 저장소 클론
 ```bash
 git clone https://github.com/skt526/GenSplice-Agent.git
 cd GenSplice-Agent
-```
-
-### 2. 원클릭 의존성 설치
-```bash
 bash install.sh
 ```
-*(또는 `./install`)*
-
-#### 💡 설치 프로세스 진행 단계 (터미널 실시간 표시)
-1. **[1/5] 패키지 관리자 감지**: `mamba` 또는 `conda` 자동 체크 (미설치 시 python venv 대체 폴백)
-2. **[2/5] Conda 환경 확인**: `gensplice-agent` 환경 존재 여부 확인
-3. **[3/5] Conda 패키지 설치**: `environment.yml` 기반 Bioconda + Python 통합 패키지 설치
-4. **[4/5] 생물정보학 CLI 검증**: `fastp`, `STAR`, `rmats.py`, `featureCounts`, `R` 실행 권한 및 검증
-5. **[5/5] Python 파이프라인 검증**: `streamlit`, `polars`, `google.genai` 등 정상 파싱 로드 테스트
 
 ---
 
-## 🖥 대시보드 실행
+## 🧬 2. 표준 레퍼런스 게놈 다운로더 (`ref`)
 
-설치가 완료되면 아래 명령어로 Conda 환경을 활성화하고 대시보드를 구동합니다:
+명령어 `./ref` (또는 `bash ref.sh`)를 실행하면 인터랙티브 메뉴를 통해 **최신 버전의 Reference Genome (FASTA) 및 유전자 주석(GTF) 데이터**를 즉각 다운로드하고 자동으로 압축 해제하여 `./{선택한 종}-ref/` 폴더에 세팅합니다.
+
+### 인터랙티브 메뉴 실행
+```bash
+./ref
+```
+```text
+Please select a Reference Genome to download:
+  1) Human (Homo sapiens - GRCh38)
+  2) Mouse (Mus musculus - GRCm39)
+  3) Rice (Oryza sativa - IRGSP-1.0)
+  4) Arabidopsis thaliana (TAIR10)
+  5) Maize / Corn (Zea mays - B73)
+  6) Exit
+```
+
+### 파라미터 직접 지정 실행
+```bash
+./ref human        # ./human-ref/ 생성 (GRCh38 FASTA + GTF)
+./ref mouse        # ./mouse-ref/ 생성 (GRCm39 FASTA + GTF)
+./ref rice         # ./rice-ref/ 생성 (IRGSP-1.0 FASTA + GTF)
+./ref arabidopsis  # ./arabidopsis-ref/ 생성 (TAIR10 FASTA + GTF)
+./ref maize        # ./maize-ref/ 생성 (Zm-B73-NAM-5.0 FASTA + GTF)
+```
+
+---
+
+## 🖥 3. 대시보드 실행
+
+환경 구축 후 아래 명령어로 Conda 환경을 활성화하고 대시보드를 구동합니다:
 
 ```bash
 conda activate gensplice-agent
@@ -70,4 +86,4 @@ streamlit run app.py
 
 ## 📄 문서
 - [BLUEPRINT.md](BLUEPRINT.md): GenSplice-Agent 시스템 설계 청사진 및 알고리즘 명세
-- [environment.yml](environment.yml): Conda/Bioconda 명세서
+- [environment.yml](environment.yml): Conda/Bioconda 환경 명세서
