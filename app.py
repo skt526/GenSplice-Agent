@@ -1,7 +1,10 @@
 """
 GenSplice-Agent Streamlit Dashboard & AI Agent
 Light Mode Theme with Shaded Translucent Threshold Regions & Right-Side Control Panel
-Features Gene Count KPI cards positioned directly BELOW the 4-Quadrant Cross-Plot.
+Features:
+- Dual Volcano tab removed per user request.
+- Legend Header explaining color meanings.
+- One-line concise descriptions for Q1, Q2, Q3, Q4.
 """
 
 import os
@@ -19,7 +22,6 @@ from core.deg_loader import load_deg_data
 from core.rmats_loader import load_rmats_data, select_primary_splicing_events
 from core.merger import merge_deg_and_rmats, get_quadrant_kpis
 from visualizer.quadrant_plot import build_quadrant_plot
-from visualizer.dual_volcano import build_dual_volcano_plot
 from visualizer.report_exporter import export_html_report
 from ai.gemini_evaluator import evaluate_gene_with_gemini
 
@@ -181,12 +183,12 @@ with control_col:
     )
 
     st.markdown("---")
-    st.markdown("### 📌 Shaded Region Legend")
+    st.markdown("### 📌 Quadrant Color System")
     st.markdown("""
-    - 🔴 **Q4 DEG Only:** Translucent Red Region
-    - 🔵 **Q2 Splicing Only:** Translucent Blue Region
-    - 🟣 **Q1 Both DEG & AS:** Translucent Purple Region
-    - ⚪ **Q3 Invariant:** Soft Gray Center
+    - 🟣 **Q1:** Both DEG & Splicing
+    - 🔵 **Q2:** Splicing Only (Target)
+    - ⚪ **Q3:** Invariant Background
+    - 🔴 **Q4:** DEG Only
     """)
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -212,17 +214,16 @@ with export_col2:
             mime="text/html"
         )
 
-# Main Navigation Tabs
-tab1, tab2, tab3, tab4 = st.tabs([
+# Main Navigation Tabs (Dual Volcano tab removed per user request)
+tab1, tab2, tab3 = st.tabs([
     "📊 4-Quadrant Cross-Plot",
-    "🌋 Dual Volcano View",
     "📋 Data Explorer & Target Selector",
     "🤖 Gemini AI Biological Analyst"
 ])
 
 # Tab 1: Quadrant Plot & Gene Count KPI Cards BELOW Plot
 with tab1:
-    st.subheader("Interactive 4-Quadrant Cross-Plot (Real-Time Point Colors)")
+    st.subheader("Interactive 4-Quadrant Cross-Plot")
     fig_quad = build_quadrant_plot(df_merged, log2fc_cutoff, delta_psi_cutoff, color_by=color_by)
     st.plotly_chart(
         fig_quad,
@@ -251,14 +252,8 @@ with tab1:
     with col5:
         st.markdown(f'<div class="kpi-box" style="border-top:4px solid #94A3B8;"><div class="kpi-lbl" style="color:#64748B;">Q3: Invariant</div><div class="kpi-val" style="color:#64748B;">{kpis["Q3"]}</div></div>', unsafe_allow_html=True)
 
-# Tab 2: Dual Volcano
+# Tab 2: Data Explorer
 with tab2:
-    st.subheader("Parallel Dual Volcano View (Red: DEG | Blue: Splicing)")
-    fig_volc = build_dual_volcano_plot(df_merged, log2fc_cutoff, delta_psi_cutoff, deg_fdr_cutoff, as_fdr_cutoff)
-    st.plotly_chart(fig_volc, use_container_width=True)
-
-# Tab 3: Data Explorer
-with tab3:
     st.subheader("Transcriptomics Data Explorer")
     quad_filter = st.multiselect("Filter by Quadrant", options=["Q1", "Q2", "Q3", "Q4"], default=["Q2", "Q1"])
     
@@ -274,8 +269,8 @@ with tab3:
         hide_index=True
     )
 
-# Tab 4: Gemini AI Agent
-with tab4:
+# Tab 3: Gemini AI Agent
+with tab3:
     st.subheader("🤖 Google Gemini AI Biological Evaluator")
     st.markdown("Select a target gene (especially **Q2 Splicing-Driven** genes) to analyze functional domain loss, NMD, and qRT-PCR validation primers.")
     
