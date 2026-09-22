@@ -1,8 +1,9 @@
-# ==============================================================================
-# GenSplice-Agent Pipeline Configuration
-# ==============================================================================
+# GenSplice-Agent Auto-generated Configuration
+system:
+  total_cpu: 8
+  assigned_threads: 6
+  total_ram_gb: 16
 
-# Reference Genome Settings
 reference:
   organism: "human"
   ref_dir: "./human-ref"
@@ -10,16 +11,12 @@ reference:
   gtf: "./human-ref/Homo_sapiens.GRCh38.113.gtf"
   star_index: "./human-ref/star_index"
 
-# Computation Resources
-threads: 8
+threads: 6
 
-# Input Settings
 inputs:
   control_dir: "./inputs/control"
   treatment_dir: "./inputs/treatment"
-  read_type: "paired"
 
-# Output Settings
 outputs:
   clean_fq: "./outputs/01_clean_fq"
   aligned_bam: "./outputs/02_aligned_bam"

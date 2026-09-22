@@ -110,10 +110,11 @@ def main():
     config = load_config(args.config)
     
     cpu_cores = os.cpu_count() or 4
-    config_threads = config.get("threads", 8)
-    allocated_threads = min(cpu_cores, config_threads)
+    system_settings = config.get("system", {})
+    assigned_threads = system_settings.get("assigned_threads", config.get("threads", max(1, cpu_cores - 2)))
+    allocated_threads = min(cpu_cores, assigned_threads)
     
-    print(f"  {GREEN}✔ CPU Cores Detected: {cpu_cores} | Allocated Threads: {allocated_threads}{RESET}")
+    print(f"  {GREEN}✔ CPU Cores Detected: {cpu_cores} | Allocated Threads (n-2): {allocated_threads}{RESET}")
 
     ref_settings = config.get("reference", {})
     fasta_path = Path(ref_settings.get("fasta", ""))
