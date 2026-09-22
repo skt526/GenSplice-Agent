@@ -7,3 +7,11 @@ __pycache__/
 *.fa.gz
 *.gtf
 *.gtf.gz
+test_config.yaml
+outputs/*
+!outputs/*/.gitkeep
+inputs/control/*
+!inputs/control/.gitkeep
+inputs/treatment/*
+!inputs/treatment/.gitkeep
+test_data/
