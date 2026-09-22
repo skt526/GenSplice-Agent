@@ -1,7 +1,8 @@
 """
 GenSplice-Agent Standalone HTML Exporter Module
-Generates Light Mode interactive HTML reports with real-time JS threshold sliders
-and dynamic CSV gene list download right below the sliders.
+Light Mode interactive HTML report with:
+1. Gene count KPI cards placed directly BELOW the 4-Quadrant Cross-Plot.
+2. Real-time point marker color recalculation on threshold slider movement.
 """
 
 import os
@@ -22,8 +23,9 @@ def export_html_report(
 ) -> str:
     """
     Exports a self-contained Light Mode interactive HTML report:
-    - Threshold sliders & Dynamic CSV Download button on the RIGHT side.
-    - As sliders move, the downloadable CSV data dynamically updates in memory via JS.
+    - 4-Quadrant plot at top of chart section.
+    - Gene count KPI cards placed directly BELOW the 4-Quadrant plot.
+    - Real-time JS updates recalculating point marker colors (Red/Blue/Purple/Gray) on slider drag.
     """
     os.makedirs(os.path.dirname(output_html_path), exist_ok=True)
 
@@ -132,7 +134,8 @@ def export_html_report(
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 16px;
-            margin-bottom: 24px;
+            margin-top: 20px;
+            margin-bottom: 12px;
         }}
         .kpi-card {{
             background: var(--bg-card);
@@ -257,31 +260,7 @@ def export_html_report(
 <body>
     <div class="header">
         <h1>🧬 GenSplice-Agent Interactive Light Report</h1>
-        <p>Dynamic Real-Time Threshold Slider & CSV Download Engine</p>
-    </div>
-
-    <!-- Dynamic KPI Cards -->
-    <div class="kpi-container">
-        <div class="kpi-card">
-            <div class="label">Total Analyzed</div>
-            <div class="value" id="kpi-total">{kpis['total']}</div>
-        </div>
-        <div class="kpi-card" style="border-top: 4px solid var(--blue-as);">
-            <div class="label" style="color: var(--blue-as);">Q2: Splicing Only (Target)</div>
-            <div class="value" style="color: var(--blue-as);" id="kpi-q2">{kpis['Q2']}</div>
-        </div>
-        <div class="kpi-card" style="border-top: 4px solid var(--purple-both);">
-            <div class="label" style="color: var(--purple-both);">Q1: Dual Responders (Both)</div>
-            <div class="value" style="color: var(--purple-both);" id="kpi-q1">{kpis['Q1']}</div>
-        </div>
-        <div class="kpi-card" style="border-top: 4px solid var(--red-deg);">
-            <div class="label" style="color: var(--red-deg);">Q4: DEG Only</div>
-            <div class="value" style="color: var(--red-deg);" id="kpi-q4">{kpis['Q4']}</div>
-        </div>
-        <div class="kpi-card" style="border-top: 4px solid #94A3B8;">
-            <div class="label" style="color: #64748B;">Q3: Invariant</div>
-            <div class="value" style="color: #64748B;" id="kpi-q3">{kpis['Q3']}</div>
-        </div>
+        <p>Real-Time Point Color Recalculation & Gene Count KPI Placement Below Plot</p>
     </div>
 
     <!-- 4-Quadrant Plot with Right-Side Controls -->
@@ -293,7 +272,7 @@ def export_html_report(
                 {quad_html}
             </div>
 
-            <!-- Right: Interactive Control & Dynamic CSV Download Panel -->
+            <!-- Right: Interactive Controls & CSV Download Panel -->
             <div class="right-control-panel">
                 <h3>🎛️ Threshold Controls</h3>
                 
@@ -313,7 +292,6 @@ def export_html_report(
                     <input type="range" id="psi-slider" min="0.01" max="0.5" step="0.01" value="{delta_psi_cutoff}">
                 </div>
 
-                <!-- Dynamic CSV Download Button directly under Threshold Adjustment Sliders -->
                 <button class="btn-download-csv" id="download-csv-btn">
                     📥 Download Filtered Gene List (.csv)
                 </button>
@@ -339,6 +317,30 @@ def export_html_report(
                 </div>
             </div>
         </div>
+
+        <!-- KPI Cards Positioned DIRECTLY BELOW 4-Quadrant Plot -->
+        <div class="kpi-container">
+            <div class="kpi-card">
+                <div class="label">Total Analyzed</div>
+                <div class="value" id="kpi-total">{kpis['total']}</div>
+            </div>
+            <div class="kpi-card" style="border-top: 4px solid var(--blue-as);">
+                <div class="label" style="color: var(--blue-as);">Q2: Splicing Only (Target)</div>
+                <div class="value" style="color: var(--blue-as);" id="kpi-q2">{kpis['Q2']}</div>
+            </div>
+            <div class="kpi-card" style="border-top: 4px solid var(--purple-both);">
+                <div class="label" style="color: var(--purple-both);">Q1: Dual Responders (Both)</div>
+                <div class="value" style="color: var(--purple-both);" id="kpi-q1">{kpis['Q1']}</div>
+            </div>
+            <div class="kpi-card" style="border-top: 4px solid var(--red-deg);">
+                <div class="label" style="color: var(--red-deg);">Q4: DEG Only</div>
+                <div class="value" style="color: var(--red-deg);" id="kpi-q4">{kpis['Q4']}</div>
+            </div>
+            <div class="kpi-card" style="border-top: 4px solid #94A3B8;">
+                <div class="label" style="color: #64748B;">Q3: Invariant</div>
+                <div class="value" style="color: #64748B;" id="kpi-q3">{kpis['Q3']}</div>
+            </div>
+        </div>
     </div>
 
     <!-- Dual Volcano Plot -->
@@ -362,7 +364,7 @@ def export_html_report(
         Generated automatically by GenSplice-Agent Pipeline • Light Mode Theme
     </div>
 
-    <!-- Real-Time Threshold & Dynamic CSV Download Engine Script -->
+    <!-- Real-Time Threshold, Point Color Recalculation & Dynamic CSV Script -->
     <script>
         const rawGeneData = {raw_data_json};
         
@@ -381,6 +383,44 @@ def export_html_report(
             fcValLabel.textContent = fcCut.toFixed(2);
             psiValLabel.textContent = psiCut.toFixed(2);
 
+            let q1 = 0, q2 = 0, q3 = 0, q4 = 0;
+            currentFilteredGenes = [];
+
+            const quadPoints = {{
+                Q1: {{ x: [], y: [], text: [] }},
+                Q2: {{ x: [], y: [], text: [] }},
+                Q4: {{ x: [], y: [], text: [] }},
+                Q3: {{ x: [], y: [], text: [] }}
+            }};
+
+            rawGeneData.forEach(g => {{
+                const isDegSig = Math.abs(g.log2FoldChange) >= fcCut && (g.deg_fdr || 1.0) <= 0.05;
+                const isAsSig = Math.abs(g.delta_psi) >= psiCut && (g.as_fdr || 1.0) <= 0.05;
+
+                let quad = "Q3";
+                if (isDegSig && isAsSig) {{ quad = "Q1"; q1++; }}
+                else if (!isDegSig && isAsSig) {{ quad = "Q2"; q2++; }}
+                else if (isDegSig && !isAsSig) {{ quad = "Q4"; q4++; }}
+                else {{ quad = "Q3"; q3++; }}
+
+                const hoverText = `<b>Gene Symbol:</b> ${{g.geneSymbol}}<br><b>Gene ID:</b> ${{g.gene_id}}<br><b>Quadrant:</b> ${{quad}}<br><b>Log2FC (DEG):</b> ${{g.log2FoldChange.toFixed(3)}}<br><b>ΔPSI (Splicing):</b> ${{g.delta_psi.toFixed(3)}}<br><b>DEG FDR:</b> ${{(g.deg_fdr || 1.0).toExponential(2)}}<br><b>rMATS FDR:</b> ${{(g.as_fdr || 1.0).toExponential(2)}}<br><b>Event Type:</b> ${{g.event_type || 'None'}}`;
+
+                quadPoints[quad].x.push(g.log2FoldChange);
+                quadPoints[quad].y.push(g.delta_psi);
+                quadPoints[quad].text.push(hoverText);
+
+                const updatedGene = {{ ...g, current_quadrant: quad }};
+                currentFilteredGenes.push(updatedGene);
+            }});
+
+            // Update KPI counts below the plot
+            document.getElementById('kpi-total').textContent = rawGeneData.length;
+            document.getElementById('kpi-q1').textContent = q1;
+            document.getElementById('kpi-q2').textContent = q2;
+            document.getElementById('kpi-q3').textContent = q3;
+            document.getElementById('kpi-q4').textContent = q4;
+
+            // Recalculate and update Plotly Traces (Point Colors) & Shapes (Shaded Regions & Thresholds)
             const quadDiv = document.getElementById('plotly-quad-div');
             if (quadDiv && window.Plotly) {{
                 const max_x = 3.0;
@@ -402,34 +442,19 @@ def export_html_report(
                     {{ type: 'line', x0: -max_x, x1: max_x, y0: psiCut, y1: psiCut, line: {{ color: '#3B82F6', width: 2, dash: 'dash' }} }},
                     {{ type: 'line', x0: -max_x, x1: max_x, y0: -psiCut, y1: -psiCut, line: {{ color: '#3B82F6', width: 2, dash: 'dash' }} }}
                 ];
+
+                const updatedTraces = [
+                    {{ x: quadPoints.Q1.x, y: quadPoints.Q1.y, text: quadPoints.Q1.text, mode: 'markers', name: 'Q1: Dual Responders (Both)', marker: {{ color: '#A855F7', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text' }},
+                    {{ x: quadPoints.Q2.x, y: quadPoints.Q2.y, text: quadPoints.Q2.text, mode: 'markers', name: 'Q2: Splicing-Driven (Target)', marker: {{ color: '#3B82F6', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text' }},
+                    {{ x: quadPoints.Q4.x, y: quadPoints.Q4.y, text: quadPoints.Q4.text, mode: 'markers', name: 'Q4: Expression-Driven (DEG)', marker: {{ color: '#EF4444', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text' }},
+                    {{ x: quadPoints.Q3.x, y: quadPoints.Q3.y, text: quadPoints.Q3.text, mode: 'markers', name: 'Q3: Invariant Background', marker: {{ color: '#94A3B8', size: 6, opacity: 0.5, line: {{ width: 0.5, color: '#FFFFFF' }} }}, hoverinfo: 'text' }}
+                ];
+
+                Plotly.react(quadDiv, updatedTraces, quadDiv.layout);
                 Plotly.relayout(quadDiv, {{ shapes: newShapes }});
             }}
-
-            let q1 = 0, q2 = 0, q3 = 0, q4 = 0;
-            currentFilteredGenes = [];
-
-            rawGeneData.forEach(g => {{
-                const isDegSig = Math.abs(g.log2FoldChange) >= fcCut && (g.deg_fdr || 1.0) <= 0.05;
-                const isAsSig = Math.abs(g.delta_psi) >= psiCut && (g.as_fdr || 1.0) <= 0.05;
-
-                let quad = "Q3";
-                if (isDegSig && isAsSig) {{ quad = "Q1"; q1++; }}
-                else if (!isDegSig && isAsSig) {{ quad = "Q2"; q2++; }}
-                else if (isDegSig && !isAsSig) {{ quad = "Q4"; q4++; }}
-                else {{ q3++; }}
-
-                // Clone gene record with updated dynamic quadrant
-                const updatedGene = {{ ...g, current_quadrant: quad }};
-                currentFilteredGenes.push(updatedGene);
-            }});
-
-            document.getElementById('kpi-q1').textContent = q1;
-            document.getElementById('kpi-q2').textContent = q2;
-            document.getElementById('kpi-q3').textContent = q3;
-            document.getElementById('kpi-q4').textContent = q4;
         }}
 
-        // Dynamic CSV Exporter Function
         function downloadFilteredCSV() {{
             if (!currentFilteredGenes.length) return;
 
@@ -445,7 +470,7 @@ def export_html_report(
                     (g.delta_psi || 0).toFixed(4),
                     (g.deg_fdr || 1.0).toExponential(3),
                     (g.as_fdr || 1.0).toExponential(3),
-                    `"${{g.event_type || 'None'}}"`,\
+                    `"${{g.event_type || 'None'}}"`,
                     `"${{g.coordinates || 'N/A'}}"`
                 ];
                 csvContent += row.join(",") + "\\n";
@@ -468,7 +493,6 @@ def export_html_report(
         psiSlider.addEventListener('input', updateThresholds);
         downloadBtn.addEventListener('click', downloadFilteredCSV);
 
-        // Initial trigger
         updateThresholds();
     </script>
 </body>
@@ -478,5 +502,5 @@ def export_html_report(
     with open(output_html_path, "w", encoding="utf-8") as f:
         f.write(full_html)
 
-    print(f"  ✔ Standalone Light Mode HTML Report with dynamic CSV download exported to: {output_html_path}")
+    print(f"  ✔ Standalone Light Mode HTML Report updated with KPI boxes below plot and dynamic point colors: {output_html_path}")
     return output_html_path

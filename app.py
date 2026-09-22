@@ -1,7 +1,7 @@
 """
 GenSplice-Agent Streamlit Dashboard & AI Agent
 Light Mode Theme with Shaded Translucent Threshold Regions & Right-Side Control Panel
-Features Dynamic CSV Gene List Download directly under Threshold Adjustment Sliders.
+Features Gene Count KPI cards positioned directly BELOW the 4-Quadrant Cross-Plot.
 """
 
 import os
@@ -57,6 +57,7 @@ st.markdown(f"""
         border: 1px solid {THEME_BORDER};
         box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         text-align: center;
+        margin-top: 16px;
     }}
     .kpi-val {{
         font-size: 2.2rem;
@@ -189,23 +190,6 @@ with control_col:
     """)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# KPI Summary Bar
-kpis = get_quadrant_kpis(df_merged)
-col1, col2, col3, col4, col5 = st.columns(5)
-
-with col1:
-    st.markdown(f'<div class="kpi-box"><div class="kpi-lbl">Total Analyzed</div><div class="kpi-val" style="color:#0F172A;">{kpis["total"]}</div></div>', unsafe_allow_html=True)
-with col2:
-    st.markdown(f'<div class="kpi-box" style="border-top:4px solid #3B82F6;"><div class="kpi-lbl" style="color:#3B82F6;">Q2: Splicing Target</div><div class="kpi-val" style="color:#3B82F6;">{kpis["Q2"]}</div></div>', unsafe_allow_html=True)
-with col3:
-    st.markdown(f'<div class="kpi-box" style="border-top:4px solid #A855F7;"><div class="kpi-lbl" style="color:#A855F7;">Q1: Dual Responders</div><div class="kpi-val" style="color:#A855F7;">{kpis["Q1"]}</div></div>', unsafe_allow_html=True)
-with col4:
-    st.markdown(f'<div class="kpi-box" style="border-top:4px solid #EF4444;"><div class="kpi-lbl" style="color:#EF4444;">Q4: DEG Only</div><div class="kpi-val" style="color:#EF4444;">{kpis["Q4"]}</div></div>', unsafe_allow_html=True)
-with col5:
-    st.markdown(f'<div class="kpi-box" style="border-top:4px solid #94A3B8;"><div class="kpi-lbl" style="color:#64748B;">Q3: Invariant</div><div class="kpi-val" style="color:#64748B;">{kpis["Q3"]}</div></div>', unsafe_allow_html=True)
-
-st.markdown("<br>", unsafe_allow_html=True)
-
 # Export HTML Report Button
 export_col1, export_col2 = st.columns([3, 1])
 with export_col2:
@@ -236,9 +220,9 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "🤖 Gemini AI Biological Analyst"
 ])
 
-# Tab 1: Quadrant Plot
+# Tab 1: Quadrant Plot & Gene Count KPI Cards BELOW Plot
 with tab1:
-    st.subheader("Interactive 4-Quadrant Cross-Plot (Shaded Regions & Right Controls)")
+    st.subheader("Interactive 4-Quadrant Cross-Plot (Real-Time Point Colors)")
     fig_quad = build_quadrant_plot(df_merged, log2fc_cutoff, delta_psi_cutoff, color_by=color_by)
     st.plotly_chart(
         fig_quad,
@@ -249,6 +233,23 @@ with tab1:
             "displayModeBar": True
         }
     )
+
+    # KPI Summary Cards Positioned DIRECTLY BELOW 4-Quadrant Plot
+    st.markdown("---")
+    st.markdown("### 📊 Gene Count Summary Metrics (Updated in Real Time)")
+    kpis = get_quadrant_kpis(df_merged)
+    col1, col2, col3, col4, col5 = st.columns(5)
+
+    with col1:
+        st.markdown(f'<div class="kpi-box"><div class="kpi-lbl">Total Analyzed</div><div class="kpi-val" style="color:#0F172A;">{kpis["total"]}</div></div>', unsafe_allow_html=True)
+    with col2:
+        st.markdown(f'<div class="kpi-box" style="border-top:4px solid #3B82F6;"><div class="kpi-lbl" style="color:#3B82F6;">Q2: Splicing Target</div><div class="kpi-val" style="color:#3B82F6;">{kpis["Q2"]}</div></div>', unsafe_allow_html=True)
+    with col3:
+        st.markdown(f'<div class="kpi-box" style="border-top:4px solid #A855F7;"><div class="kpi-lbl" style="color:#A855F7;">Q1: Dual Responders</div><div class="kpi-val" style="color:#A855F7;">{kpis["Q1"]}</div></div>', unsafe_allow_html=True)
+    with col4:
+        st.markdown(f'<div class="kpi-box" style="border-top:4px solid #EF4444;"><div class="kpi-lbl" style="color:#EF4444;">Q4: DEG Only</div><div class="kpi-val" style="color:#EF4444;">{kpis["Q4"]}</div></div>', unsafe_allow_html=True)
+    with col5:
+        st.markdown(f'<div class="kpi-box" style="border-top:4px solid #94A3B8;"><div class="kpi-lbl" style="color:#64748B;">Q3: Invariant</div><div class="kpi-val" style="color:#64748B;">{kpis["Q3"]}</div></div>', unsafe_allow_html=True)
 
 # Tab 2: Dual Volcano
 with tab2:
