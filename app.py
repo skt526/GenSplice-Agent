@@ -1,6 +1,7 @@
 """
 GenSplice-Agent Streamlit Dashboard & AI Agent
 Light Mode Theme with Shaded Translucent Threshold Regions & Right-Side Control Panel
+Features Dynamic CSV Gene List Download directly under Threshold Adjustment Sliders.
 """
 
 import os
@@ -157,6 +158,28 @@ with control_col:
     as_fdr_cutoff = st.select_slider("rMATS FDR Cutoff", options=[0.001, 0.01, 0.05, 0.1], value=DEFAULT_AS_FDR_CUTOFF, key="as_fdr_slider")
     
     st.markdown("---")
+    
+    # Dynamic Merger calculation based on active sliders
+    df_merged = merge_deg_and_rmats(
+        df_deg=df_deg_raw,
+        df_rmats=df_rmats_raw,
+        log2fc_cutoff=log2fc_cutoff,
+        delta_psi_cutoff=delta_psi_cutoff,
+        deg_fdr_cutoff=deg_fdr_cutoff,
+        as_fdr_cutoff=as_fdr_cutoff
+    )
+
+    # Dynamic CSV Export Button placed directly below Threshold Sliders
+    csv_bytes = df_merged.to_pandas().to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Download Filtered Gene List (.csv)",
+        data=csv_bytes,
+        file_name=f"gensplice_genes_FC{log2fc_cutoff}_dPSI{delta_psi_cutoff}.csv",
+        mime="text/csv",
+        help="Click to download the current filtered gene list matching these exact threshold cutoffs"
+    )
+
+    st.markdown("---")
     st.markdown("### 📌 Shaded Region Legend")
     st.markdown("""
     - 🔴 **Q4 DEG Only:** Translucent Red Region
@@ -165,16 +188,6 @@ with control_col:
     - ⚪ **Q3 Invariant:** Soft Gray Center
     """)
     st.markdown('</div>', unsafe_allow_html=True)
-
-# Dynamic Merger
-df_merged = merge_deg_and_rmats(
-    df_deg=df_deg_raw,
-    df_rmats=df_rmats_raw,
-    log2fc_cutoff=log2fc_cutoff,
-    delta_psi_cutoff=delta_psi_cutoff,
-    deg_fdr_cutoff=deg_fdr_cutoff,
-    as_fdr_cutoff=as_fdr_cutoff
-)
 
 # KPI Summary Bar
 kpis = get_quadrant_kpis(df_merged)
@@ -225,7 +238,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
 
 # Tab 1: Quadrant Plot
 with tab1:
-    st.subheader("Interactive 4-Quadrant Cross-Plot (Shaded Regions & Right Legend)")
+    st.subheader("Interactive 4-Quadrant Cross-Plot (Shaded Regions & Right Controls)")
     fig_quad = build_quadrant_plot(df_merged, log2fc_cutoff, delta_psi_cutoff, color_by=color_by)
     st.plotly_chart(
         fig_quad,

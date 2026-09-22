@@ -1,8 +1,7 @@
 """
 GenSplice-Agent Standalone HTML Exporter Module
-Generates Light Mode interactive HTML reports openable in Chrome / browsers.
-Features translucent shaded quadrant regions, red (DEG) / blue (Splicing) / purple (Both) system,
-and right-side threshold controls.
+Generates Light Mode interactive HTML reports with real-time JS threshold sliders
+and dynamic CSV gene list download right below the sliders.
 """
 
 import os
@@ -23,24 +22,20 @@ def export_html_report(
 ) -> str:
     """
     Exports a self-contained Light Mode interactive HTML report:
-    1. Light Mode theme (#F8FAFC bg, #FFFFFF cards, #0F172A text)
-    2. Translucent shaded background regions for Q1, Q2, Q3, Q4
-    3. DEG = Red (#EF4444), Splicing = Blue (#3B82F6), Both = Purple (#A855F7)
-    4. Threshold Sliders & Plot Legend placed on the RIGHT side of the graph
+    - Threshold sliders & Dynamic CSV Download button on the RIGHT side.
+    - As sliders move, the downloadable CSV data dynamically updates in memory via JS.
     """
     os.makedirs(os.path.dirname(output_html_path), exist_ok=True)
 
-    # 1. Build Figures
     fig_quad = build_quadrant_plot(df_merged, log2fc_cutoff, delta_psi_cutoff, color_by="quadrant")
     fig_volc = build_dual_volcano_plot(df_merged, log2fc_cutoff, delta_psi_cutoff, deg_fdr_cutoff, as_fdr_cutoff)
 
     quad_html = fig_quad.to_html(full_html=False, include_plotlyjs="cdn", div_id="plotly-quad-div")
     volc_html = fig_volc.to_html(full_html=False, include_plotlyjs=False, div_id="plotly-volc-div")
 
-    # 2. Extract KPI Stats
     kpis = get_quadrant_kpis(df_merged)
 
-    # 3. Format Top Q2 Genes Table
+    # Format Top Q2 Genes Table
     q2_genes_html = ""
     if df_merged.height > 0:
         q2_df = df_merged.filter(pl.col("quadrant") == "Q2").sort(pl.col("delta_psi").abs(), descending=True).head(20)
@@ -80,7 +75,7 @@ def export_html_report(
         else:
             q2_genes_html = "<p class='no-data' id='q2-table' style='color:#64748B;'>No Q2 target genes detected with current cutoffs.</p>"
 
-    # 4. Format AI Section
+    # Format AI Section
     ai_section_html = ""
     if ai_insights:
         import markdown
@@ -96,7 +91,6 @@ def export_html_report(
 
     raw_data_json = df_merged.to_pandas().to_json(orient="records")
 
-    # 5. Full Light Mode HTML Template with Right-Side Controls
     full_html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -161,10 +155,9 @@ def export_html_report(
         }}
         .card h2 {{ margin-top: 0; font-size: 20px; color: var(--text-main); border-bottom: 2px solid var(--border-color); padding-bottom: 12px; }}
 
-        /* Chart & Right-Side Control Panel Layout */
         .chart-layout-grid {{
             display: grid;
-            grid-template-columns: 1fr 300px;
+            grid-template-columns: 1fr 320px;
             gap: 24px;
             align-items: start;
         }}
@@ -208,6 +201,27 @@ def export_html_report(
         .slider-deg input[type=range] {{ accent-color: var(--red-deg); }}
         .slider-as input[type=range] {{ accent-color: var(--blue-as); }}
 
+        .btn-download-csv {{
+            background-color: #3B82F6;
+            color: #FFFFFF;
+            border: none;
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
+            transition: all 0.2s ease;
+        }}
+        .btn-download-csv:hover {{
+            background-color: #2563EB;
+            transform: translateY(-1px);
+        }}
+
         .legend-guide {{
             background: #FFFFFF;
             border-radius: 8px;
@@ -243,7 +257,7 @@ def export_html_report(
 <body>
     <div class="header">
         <h1>🧬 GenSplice-Agent Interactive Light Report</h1>
-        <p>Shaded Region Overlays • Red (DEG) | Blue (Splicing) | Purple (Both)</p>
+        <p>Dynamic Real-Time Threshold Slider & CSV Download Engine</p>
     </div>
 
     <!-- Dynamic KPI Cards -->
@@ -270,22 +284,22 @@ def export_html_report(
         </div>
     </div>
 
-    <!-- 4-Quadrant Plot with Right-Side Sliders & Legend -->
+    <!-- 4-Quadrant Plot with Right-Side Controls -->
     <div class="card">
-        <h2>📊 4-Quadrant Transcriptomics Cross-Plot (Translucent Regions)</h2>
+        <h2>📊 4-Quadrant Transcriptomics Cross-Plot</h2>
         <div class="chart-layout-grid">
             <!-- Left: Plot Canvas -->
             <div id="plot-wrapper">
                 {quad_html}
             </div>
 
-            <!-- Right: Interactive Control & Legend Panel -->
+            <!-- Right: Interactive Control & Dynamic CSV Download Panel -->
             <div class="right-control-panel">
-                <h3>🎛️ Threshold Controls (Right)</h3>
+                <h3>🎛️ Threshold Controls</h3>
                 
                 <div class="slider-group slider-deg">
                     <label for="fc-slider">
-                        <span style="color: var(--red-deg);">Log₂FC Threshold (DEG):</span>
+                        <span style="color: var(--red-deg);">Log₂FC Cutoff (DEG):</span>
                         <span id="fc-val">{log2fc_cutoff:.2f}</span>
                     </label>
                     <input type="range" id="fc-slider" min="0.1" max="3.0" step="0.05" value="{log2fc_cutoff}">
@@ -293,11 +307,16 @@ def export_html_report(
 
                 <div class="slider-group slider-as">
                     <label for="psi-slider">
-                        <span style="color: var(--blue-as);">ΔPSI Threshold (AS):</span>
+                        <span style="color: var(--blue-as);">ΔPSI Cutoff (AS):</span>
                         <span id="psi-val">{delta_psi_cutoff:.2f}</span>
                     </label>
                     <input type="range" id="psi-slider" min="0.01" max="0.5" step="0.01" value="{delta_psi_cutoff}">
                 </div>
+
+                <!-- Dynamic CSV Download Button directly under Threshold Adjustment Sliders -->
+                <button class="btn-download-csv" id="download-csv-btn">
+                    📥 Download Filtered Gene List (.csv)
+                </button>
 
                 <h3>📌 Color System Legend</h3>
                 <div class="legend-guide">
@@ -343,7 +362,7 @@ def export_html_report(
         Generated automatically by GenSplice-Agent Pipeline • Light Mode Theme
     </div>
 
-    <!-- Real-Time Threshold & Shaded Region Scripting -->
+    <!-- Real-Time Threshold & Dynamic CSV Download Engine Script -->
     <script>
         const rawGeneData = {raw_data_json};
         
@@ -351,6 +370,9 @@ def export_html_report(
         const psiSlider = document.getElementById('psi-slider');
         const fcValLabel = document.getElementById('fc-val');
         const psiValLabel = document.getElementById('psi-val');
+        const downloadBtn = document.getElementById('download-csv-btn');
+
+        let currentFilteredGenes = [];
 
         function updateThresholds() {{
             const fcCut = parseFloat(fcSlider.value);
@@ -365,21 +387,16 @@ def export_html_report(
                 const max_y = 0.7;
 
                 const newShapes = [
-                    // Q3 Center Gray
                     {{ type: 'rect', x0: -fcCut, x1: fcCut, y0: -psiCut, y1: psiCut, fillcolor: 'rgba(241, 245, 249, 0.6)', line: {{ width: 0 }}, layer: 'below' }},
-                    // Q2 Blue Top & Bottom
                     {{ type: 'rect', x0: -fcCut, x1: fcCut, y0: psiCut, y1: max_y, fillcolor: 'rgba(59, 130, 246, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
                     {{ type: 'rect', x0: -fcCut, x1: fcCut, y0: -max_y, y1: -psiCut, fillcolor: 'rgba(59, 130, 246, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
-                    // Q4 Red Left & Right
                     {{ type: 'rect', x0: fcCut, x1: max_x, y0: -psiCut, y1: psiCut, fillcolor: 'rgba(239, 68, 68, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
                     {{ type: 'rect', x0: -max_x, x1: -fcCut, y0: -psiCut, y1: psiCut, fillcolor: 'rgba(239, 68, 68, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
-                    // Q1 Purple 4 Corners
                     {{ type: 'rect', x0: fcCut, x1: max_x, y0: psiCut, y1: max_y, fillcolor: 'rgba(168, 85, 247, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
                     {{ type: 'rect', x0: -max_x, x1: -fcCut, y0: psiCut, y1: max_y, fillcolor: 'rgba(168, 85, 247, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
                     {{ type: 'rect', x0: fcCut, x1: max_x, y0: -max_y, y1: -psiCut, fillcolor: 'rgba(168, 85, 247, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
                     {{ type: 'rect', x0: -max_x, x1: -fcCut, y0: -max_y, y1: -psiCut, fillcolor: 'rgba(168, 85, 247, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
 
-                    // Threshold Lines
                     {{ type: 'line', x0: fcCut, x1: fcCut, y0: -max_y, y1: max_y, line: {{ color: '#EF4444', width: 2, dash: 'dash' }} }},
                     {{ type: 'line', x0: -fcCut, x1: -fcCut, y0: -max_y, y1: max_y, line: {{ color: '#EF4444', width: 2, dash: 'dash' }} }},
                     {{ type: 'line', x0: -max_x, x1: max_x, y0: psiCut, y1: psiCut, line: {{ color: '#3B82F6', width: 2, dash: 'dash' }} }},
@@ -389,14 +406,21 @@ def export_html_report(
             }}
 
             let q1 = 0, q2 = 0, q3 = 0, q4 = 0;
+            currentFilteredGenes = [];
+
             rawGeneData.forEach(g => {{
                 const isDegSig = Math.abs(g.log2FoldChange) >= fcCut && (g.deg_fdr || 1.0) <= 0.05;
                 const isAsSig = Math.abs(g.delta_psi) >= psiCut && (g.as_fdr || 1.0) <= 0.05;
 
-                if (isDegSig && isAsSig) q1++;
-                else if (!isDegSig && isAsSig) q2++;
-                else if (isDegSig && !isAsSig) q4++;
-                else q3++;
+                let quad = "Q3";
+                if (isDegSig && isAsSig) {{ quad = "Q1"; q1++; }}
+                else if (!isDegSig && isAsSig) {{ quad = "Q2"; q2++; }}
+                else if (isDegSig && !isAsSig) {{ quad = "Q4"; q4++; }}
+                else {{ q3++; }}
+
+                // Clone gene record with updated dynamic quadrant
+                const updatedGene = {{ ...g, current_quadrant: quad }};
+                currentFilteredGenes.push(updatedGene);
             }});
 
             document.getElementById('kpi-q1').textContent = q1;
@@ -405,8 +429,47 @@ def export_html_report(
             document.getElementById('kpi-q4').textContent = q4;
         }}
 
+        // Dynamic CSV Exporter Function
+        function downloadFilteredCSV() {{
+            if (!currentFilteredGenes.length) return;
+
+            const headers = ["geneSymbol", "gene_id", "current_quadrant", "log2FoldChange", "delta_psi", "deg_fdr", "as_fdr", "event_type", "coordinates"];
+            let csvContent = headers.join(",") + "\\n";
+
+            currentFilteredGenes.forEach(g => {{
+                const row = [
+                    `"${{g.geneSymbol || ''}}"`,
+                    `"${{g.gene_id || ''}}"`,
+                    `"${{g.current_quadrant || ''}}"`,
+                    (g.log2FoldChange || 0).toFixed(4),
+                    (g.delta_psi || 0).toFixed(4),
+                    (g.deg_fdr || 1.0).toExponential(3),
+                    (g.as_fdr || 1.0).toExponential(3),
+                    `"${{g.event_type || 'None'}}"`,\
+                    `"${{g.coordinates || 'N/A'}}"`
+                ];
+                csvContent += row.join(",") + "\\n";
+            }});
+
+            const fcCut = fcSlider.value;
+            const psiCut = psiSlider.value;
+            const blob = new Blob([csvContent], {{ type: 'text/csv;charset=utf-8;' }});
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            
+            link.setAttribute("href", url);
+            link.setAttribute("download", `gensplice_genes_Log2FC${{fcCut}}_dPSI${{psiCut}}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }}
+
         fcSlider.addEventListener('input', updateThresholds);
         psiSlider.addEventListener('input', updateThresholds);
+        downloadBtn.addEventListener('click', downloadFilteredCSV);
+
+        // Initial trigger
+        updateThresholds();
     </script>
 </body>
 </html>
@@ -415,5 +478,5 @@ def export_html_report(
     with open(output_html_path, "w", encoding="utf-8") as f:
         f.write(full_html)
 
-    print(f"  ✔ Standalone Light Mode HTML Report exported to: {output_html_path}")
+    print(f"  ✔ Standalone Light Mode HTML Report with dynamic CSV download exported to: {output_html_path}")
     return output_html_path
