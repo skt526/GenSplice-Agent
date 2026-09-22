@@ -62,6 +62,13 @@ st.markdown("""
         border-radius: 8px;
         font-weight: 600;
     }
+    .threshold-container {
+        background-color: #F8FAFC;
+        border-radius: 12px;
+        padding: 16px 24px;
+        border: 2px solid #8E44AD;
+        margin-bottom: 16px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -83,13 +90,8 @@ if not os.path.exists(rmats_dir) and os.path.exists("test_data"):
 
 st.sidebar.markdown("---")
 
-# 2. Statistical Cutoffs
-st.sidebar.header("⚙️ Threshold Sliders")
-log2fc_cutoff = st.sidebar.slider("Log₂FC Cutoff (|Log₂FC|)", 0.5, 3.0, DEFAULT_LOG2FC_CUTOFF, 0.1)
-delta_psi_cutoff = st.sidebar.slider("ΔPSI Cutoff (|ΔPSI|)", 0.05, 0.5, DEFAULT_DELTA_PSI_CUTOFF, 0.05)
-deg_fdr_cutoff = st.sidebar.select_slider("DEG FDR Cutoff", options=[0.001, 0.01, 0.05, 0.1], value=DEFAULT_DEG_FDR_CUTOFF)
-as_fdr_cutoff = st.sidebar.select_slider("rMATS FDR Cutoff", options=[0.001, 0.01, 0.05, 0.1], value=DEFAULT_AS_FDR_CUTOFF)
-
+# 2. Sidebar Quick Controls
+st.sidebar.header("⚙️ Global Settings")
 color_option = st.sidebar.radio("Plot Color Palette", ["By Quadrant", "By Splicing Event Type"])
 color_by = "quadrant" if color_option == "By Quadrant" else "event_type"
 
@@ -101,35 +103,50 @@ api_key = st.sidebar.text_input("Gemini API Key (BYOK)", type="password", help="
 
 st.sidebar.markdown("---")
 
-# Data Loading & Merging Logic
+# Data Loading Engine
 @st.cache_data(ttl=60)
-def load_and_process_data(deg_f, rmats_d, fc_c, psi_c, deg_fdr_c, as_fdr_c):
+def load_and_process_raw(deg_f, rmats_d):
     if not os.path.exists(deg_f) or not os.path.exists(rmats_d):
-        return pl.DataFrame()
-    
+        return pl.DataFrame(), pl.DataFrame()
     df_deg = load_deg_data(deg_f)
     df_rmats = load_rmats_data(rmats_d)
     primary_rmats = select_primary_splicing_events(df_rmats)
-    
-    merged = merge_deg_and_rmats(
-        df_deg=df_deg,
-        df_rmats=primary_rmats,
-        log2fc_cutoff=fc_c,
-        delta_psi_cutoff=psi_c,
-        deg_fdr_cutoff=deg_fdr_c,
-        as_fdr_cutoff=as_fdr_c
-    )
-    return merged
+    return df_deg, primary_rmats
 
-df_merged = load_and_process_data(deg_path, rmats_dir, log2fc_cutoff, delta_psi_cutoff, deg_fdr_cutoff, as_fdr_cutoff)
+df_deg_raw, df_rmats_raw = load_and_process_raw(deg_path, rmats_dir)
 
 # Main Dashboard Layout
 st.markdown('<div class="main-header">🧬 GenSplice-Agent Platform</div>', unsafe_allow_html=True)
 st.markdown("Integrative Quantitative (DEG) & Qualitative (Alternative Splicing) Transcriptomics Dashboard")
 
-if df_merged.height == 0:
+if df_deg_raw.height == 0 and df_rmats_raw.height == 0:
     st.warning("⚠️ No valid DEG or rMATS data found. Please run `./GenSplice` or `./test` to generate output data.")
     st.stop()
+
+# Real-Time Interactive Threshold Adjustment Panel directly at top
+st.markdown('<div class="threshold-container">', unsafe_allow_html=True)
+st.subheader("🎛️ Real-Time Interactive Threshold Adjustment")
+tcol1, tcol2, tcol3, tcol4 = st.columns(4)
+
+with tcol1:
+    log2fc_cutoff = st.slider("Log₂FC Cutoff (|Log₂FC|)", 0.1, 3.0, DEFAULT_LOG2FC_CUTOFF, 0.05, key="log2fc_slider")
+with tcol2:
+    delta_psi_cutoff = st.slider("ΔPSI Cutoff (|ΔPSI|)", 0.01, 0.5, DEFAULT_DELTA_PSI_CUTOFF, 0.01, key="psi_slider")
+with tcol3:
+    deg_fdr_cutoff = st.select_slider("DEG FDR Cutoff", options=[0.001, 0.01, 0.05, 0.1], value=DEFAULT_DEG_FDR_CUTOFF, key="deg_fdr_slider")
+with tcol4:
+    as_fdr_cutoff = st.select_slider("rMATS FDR Cutoff", options=[0.001, 0.01, 0.05, 0.1], value=DEFAULT_AS_FDR_CUTOFF, key="as_fdr_slider")
+st.markdown('</div>', unsafe_allow_html=True)
+
+# Merge dataset dynamically based on live slider values
+df_merged = merge_deg_and_rmats(
+    df_deg=df_deg_raw,
+    df_rmats=df_rmats_raw,
+    log2fc_cutoff=log2fc_cutoff,
+    delta_psi_cutoff=delta_psi_cutoff,
+    deg_fdr_cutoff=deg_fdr_cutoff,
+    as_fdr_cutoff=as_fdr_cutoff
+)
 
 # Summary KPI Cards
 kpis = get_quadrant_kpis(df_merged)
@@ -151,7 +168,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 # Export HTML Report Button in Top Action Bar
 export_col1, export_col2 = st.columns([3, 1])
 with export_col2:
-    if st.button("🌐 Generate Standalone HTML Report"):
+    if st.button("🌐 Export Interactive Chrome HTML Report"):
         html_out_path = export_html_report(
             df_merged=df_merged,
             output_html_path="outputs/gensplice_report.html",
@@ -164,7 +181,7 @@ with export_col2:
         with open(html_out_path, "r", encoding="utf-8") as f:
             html_bytes = f.read().encode("utf-8")
         st.download_button(
-            label="💾 Download HTML Report",
+            label="💾 Download Chrome HTML Report",
             data=html_bytes,
             file_name="gensplice_report.html",
             mime="text/html"
@@ -180,9 +197,17 @@ tab1, tab2, tab3, tab4 = st.tabs([
 
 # Tab 1: Quadrant Plot
 with tab1:
-    st.subheader("Interactive 4-Quadrant Cross-Plot")
+    st.subheader("Interactive 4-Quadrant Cross-Plot (Real-Time Drag & Update)")
     fig_quad = build_quadrant_plot(df_merged, log2fc_cutoff, delta_psi_cutoff, color_by=color_by)
-    st.plotly_chart(fig_quad, use_container_width=True)
+    st.plotly_chart(
+        fig_quad,
+        use_container_width=True,
+        config={
+            "editable": True,
+            "edits": {"shapePosition": True},
+            "displayModeBar": True
+        }
+    )
 
 # Tab 2: Dual Volcano
 with tab2:
@@ -212,7 +237,6 @@ with tab4:
     st.subheader("🤖 Google Gemini AI Biological Evaluator")
     st.markdown("Select a target gene (especially **Q2 Splicing-Driven** genes) to analyze functional domain loss, NMD, and qRT-PCR validation primers.")
     
-    # Filter Q2 / Q1 target genes for selection dropdown
     target_genes = df_merged.filter(pl.col("quadrant").is_in(["Q2", "Q1"])).select("geneSymbol").to_series().to_list()
     if not target_genes:
         target_genes = df_merged.select("geneSymbol").to_series().to_list()
@@ -220,8 +244,6 @@ with tab4:
     selected_gene_symbol = st.selectbox("Select Target Gene for AI Evaluation", options=target_genes)
     
     if selected_gene_symbol:
-        gene_row = df_merged.filter(pl.col("geneSymbol") == selected_gene_symbol).to_dummies().to_pandas().iloc[0].to_dict() if df_merged.filter(pl.col("geneSymbol") == selected_gene_symbol).height > 0 else {}
-        # Fetch clean dict
         sub_df = df_merged.filter(pl.col("geneSymbol") == selected_gene_symbol)
         if sub_df.height > 0:
             gene_dict = sub_df.to_pandas().iloc[0].to_dict()

@@ -58,7 +58,7 @@ def build_quadrant_plot(
                     name=QUADRANT_LABELS.get(quad, quad),
                     marker=dict(
                         color=QUADRANT_COLORS.get(quad, "#999999"),
-                        size=8 if quad in ["Q1", "Q2"] else 6,
+                        size=9 if quad in ["Q1", "Q2"] else 6,
                         opacity=0.85 if quad in ["Q1", "Q2"] else 0.5,
                         line=dict(width=0.5, color="white")
                     ),
@@ -91,14 +91,33 @@ def build_quadrant_plot(
     max_x = max(abs(pdf["log2FoldChange"].max() if len(pdf) > 0 else 2), 2.5) + 0.5
     max_y = max(abs(pdf["delta_psi"].max() if len(pdf) > 0 else 0.5), 0.6) + 0.1
 
-    # Add Dashed Threshold Lines
-    # Vertical lines for Log2FC cutoffs
-    fig.add_vline(x=log2fc_cutoff, line_dash="dash", line_color="#E74C3C", opacity=0.7)
-    fig.add_vline(x=-log2fc_cutoff, line_dash="dash", line_color="#E74C3C", opacity=0.7)
-
-    # Horizontal lines for Delta_PSI cutoffs
-    fig.add_hline(y=delta_psi_cutoff, line_dash="dash", line_color="#9B59B6", opacity=0.7)
-    fig.add_hline(y=-delta_psi_cutoff, line_dash="dash", line_color="#9B59B6", opacity=0.7)
+    # Add Dashed Threshold Lines (Draggable shapes)
+    shapes = [
+        # Right Log2FC Threshold Line
+        dict(
+            type="line", x0=log2fc_cutoff, x1=log2fc_cutoff, y0=-max_y, y1=max_y,
+            line=dict(color="#E74C3C", width=2, dash="dash"),
+            name="log2fc_pos"
+        ),
+        # Left Log2FC Threshold Line
+        dict(
+            type="line", x0=-log2fc_cutoff, x1=-log2fc_cutoff, y0=-max_y, y1=max_y,
+            line=dict(color="#E74C3C", width=2, dash="dash"),
+            name="log2fc_neg"
+        ),
+        # Upper Delta PSI Threshold Line
+        dict(
+            type="line", x0=-max_x, x1=max_x, y0=delta_psi_cutoff, y1=delta_psi_cutoff,
+            line=dict(color="#9B59B6", width=2, dash="dash"),
+            name="psi_pos"
+        ),
+        # Lower Delta PSI Threshold Line
+        dict(
+            type="line", x0=-max_x, x1=max_x, y0=-delta_psi_cutoff, y1=-delta_psi_cutoff,
+            line=dict(color="#9B59B6", width=2, dash="dash"),
+            name="psi_neg"
+        )
+    ]
 
     # Add Quadrant Corner Labels / Badges
     annotations = [
@@ -142,7 +161,7 @@ def build_quadrant_plot(
 
     fig.update_layout(
         title=dict(
-            text="<b>GenSplice 4-Quadrant Transcriptomics Cross-Plot</b>",
+            text="<b>GenSplice 4-Quadrant Cross-Plot (Real-Time Interactive Thresholds)</b>",
             x=0.5,
             font=dict(size=18, family="sans-serif")
         ),
@@ -150,6 +169,7 @@ def build_quadrant_plot(
         yaxis_title=dict(text="<b>ΔPSI (Alternative Splicing Quality)</b>", font=dict(size=14)),
         xaxis=dict(range=[-max_x, max_x], zeroline=True, zerolinecolor="#CBD5E1", gridcolor="#F1F5F9"),
         yaxis=dict(range=[-max_y, max_y], zeroline=True, zerolinecolor="#CBD5E1", gridcolor="#F1F5F9"),
+        shapes=shapes,
         annotations=annotations,
         legend=dict(
             orientation="h",
