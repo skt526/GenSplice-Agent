@@ -1,9 +1,8 @@
 """
 GenSplice-Agent Quadrant Cross-Plot Visualizer (Plotly)
 Light Mode Theme with Shaded Translucent Threshold Regions
-- Canvas corner description boxes removed.
-- Legend title explains color system.
-- One-line descriptions for Q1, Q2, Q3, Q4 in legend.
+- In-plot legend title set to 'On/Off'
+- In-plot legend item names set strictly to 'Q1', 'Q2', 'Q3', 'Q4'
 """
 
 import polars as pl
@@ -15,14 +14,6 @@ from config import (
     DEG_THRESHOLD_COLOR, AS_THRESHOLD_COLOR, REGION_FILL_COLORS
 )
 
-# Concise one-line labels for Q1 - Q4
-QUADRANT_SHORT_DESCS = {
-    "Q1": "Q1: Both DEG & Splicing",
-    "Q2": "Q2: Splicing Only (Target)",
-    "Q3": "Q3: Invariant Background",
-    "Q4": "Q4: DEG Only"
-}
-
 def build_quadrant_plot(
     df_merged: pl.DataFrame,
     log2fc_cutoff: float = 1.0,
@@ -30,7 +21,9 @@ def build_quadrant_plot(
     color_by: str = "quadrant"  # 'quadrant' or 'event_type'
 ) -> go.Figure:
     """
-    Creates a 2D scatter plot with translucent shaded regions and Q1 - Q4 color descriptions.
+    Creates a 2D scatter plot with translucent shaded regions:
+    - In-canvas legend title: 'On/Off'
+    - In-canvas legend trace names: 'Q1', 'Q2', 'Q3', 'Q4'
     """
     pdf = df_merged.to_pandas() if df_merged.height > 0 else pd.DataFrame(columns=[
         "geneSymbol", "gene_id", "quadrant", "log2FoldChange", "delta_psi",
@@ -125,7 +118,7 @@ def build_quadrant_plot(
         )
     ]
 
-    # 3. Add Traces for all 4 quadrants (Q1, Q2, Q3, Q4)
+    # 3. Add Traces for all 4 quadrants (Q1, Q2, Q3, Q4) - strictly Q1, Q2, Q3, Q4 names inside plot
     if color_by == "quadrant":
         all_quadrants = ["Q1", "Q2", "Q3", "Q4"]
         for quad in all_quadrants:
@@ -135,7 +128,7 @@ def build_quadrant_plot(
                     x=sub["log2FoldChange"] if len(sub) > 0 else [],
                     y=sub["delta_psi"] if len(sub) > 0 else [],
                     mode="markers",
-                    name=QUADRANT_SHORT_DESCS.get(quad, quad),
+                    name=quad, # Strictly Q1, Q2, Q3, Q4 inside plot canvas legend
                     marker=dict(
                         color=QUADRANT_COLORS.get(quad, "#94A3B8"),
                         size=10 if quad in ["Q1", "Q2", "Q4"] else 6,
@@ -192,7 +185,7 @@ def build_quadrant_plot(
         shapes=shapes,
         annotations=[],
         legend=dict(
-            title=dict(text="<b>Quadrant Classification & Color System</b>", font=dict(size=13, color="#0F172A")),
+            title=dict(text="<b>On/Off</b>", font=dict(size=13, color="#0F172A")), # Inside plot canvas legend title: On/Off
             orientation="v",
             yanchor="top",
             y=1.0,
@@ -201,12 +194,12 @@ def build_quadrant_plot(
             bgcolor="#FFFFFF",
             bordercolor="#E2E8F0",
             borderwidth=1,
-            font=dict(color="#0F172A", size=12)
+            font=dict(color="#0F172A", size=13)
         ),
         template="plotly_white",
         paper_bgcolor="#FFFFFF",
         plot_bgcolor="#FFFFFF",
-        margin=dict(l=60, r=260, t=80, b=60),
+        margin=dict(l=60, r=220, t=80, b=60),
         height=680
     )
 

@@ -1,9 +1,8 @@
 """
 GenSplice-Agent Standalone HTML Exporter Module
 Light Mode interactive HTML report with:
-- Dual Volcano Parallel View removed per user request.
-- Legend Header explaining color meanings.
-- One-line concise descriptions for Q1, Q2, Q3, Q4.
+- Outside plot header: 'Color Classification' (with Q1-Q4 descriptions)
+- Inside plot legend title: 'On/Off' (strictly Q1, Q2, Q3, Q4)
 """
 
 import os
@@ -22,10 +21,7 @@ def export_html_report(
     as_fdr_cutoff: float = 0.05
 ) -> str:
     """
-    Exports a self-contained Light Mode interactive HTML report:
-    - 4-Quadrant plot at top.
-    - Dual Volcano view removed per user request.
-    - Legend title explains color system with concise one-line Q1-Q4 descriptions.
+    Exports a self-contained Light Mode interactive HTML report.
     """
     os.makedirs(os.path.dirname(output_html_path), exist_ok=True)
 
@@ -223,8 +219,8 @@ def export_html_report(
         }}
 
         .legend-title-desc {{
-            font-size: 13.5px;
-            font-weight: 700;
+            font-size: 14px;
+            font-weight: 800;
             color: #0F172A;
             margin-bottom: 6px;
         }}
@@ -265,7 +261,7 @@ def export_html_report(
 <body>
     <div class="header">
         <h1>🧬 GenSplice-Agent Interactive Light Report</h1>
-        <p>Quadrant Classification & Color Meaning System</p>
+        <p>Color Classification Guide & On/Off Interactive Cross-Plot</p>
     </div>
 
     <!-- 4-Quadrant Plot with Right-Side Controls -->
@@ -301,9 +297,9 @@ def export_html_report(
                     📥 Download Filtered Gene List (.csv)
                 </button>
 
-                <!-- Color System Title & One-line descriptions -->
+                <!-- Color Classification Section (Outside Plot) -->
                 <div>
-                    <div class="legend-title-desc">Quadrant Classification & Color System:</div>
+                    <div class="legend-title-desc">Color Classification:</div>
                     <div class="legend-guide">
                         <div class="legend-item">
                             <span class="legend-dot" style="background: var(--purple-both);"></span>
@@ -366,7 +362,7 @@ def export_html_report(
         Generated automatically by GenSplice-Agent Pipeline • Light Mode Theme
     </div>
 
-    <!-- Real-Time Threshold & Dynamic CSV Script -->
+    <!-- Real-Time Threshold, Point Color Recalculation & Dynamic CSV Script -->
     <script>
         const rawGeneData = {raw_data_json};
         
@@ -443,11 +439,12 @@ def export_html_report(
                     {{ type: 'line', x0: -max_x, x1: max_x, y0: -psiCut, y1: -psiCut, line: {{ color: '#3B82F6', width: 2, dash: 'dash' }} }}
                 ];
 
+                // Strictly Q1, Q2, Q3, Q4 trace names inside plot canvas
                 const updatedTraces = [
-                    {{ x: quadPoints.Q1.x, y: quadPoints.Q1.y, text: quadPoints.Q1.text, mode: 'markers', name: 'Q1: Both DEG & Splicing', marker: {{ color: '#A855F7', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text' }},
-                    {{ x: quadPoints.Q2.x, y: quadPoints.Q2.y, text: quadPoints.Q2.text, mode: 'markers', name: 'Q2: Splicing Only', marker: {{ color: '#3B82F6', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text' }},
-                    {{ x: quadPoints.Q3.x, y: quadPoints.Q3.y, text: quadPoints.Q3.text, mode: 'markers', name: 'Q3: Invariant Background', marker: {{ color: '#94A3B8', size: 6, opacity: 0.5, line: {{ width: 0.5, color: '#FFFFFF' }} }}, hoverinfo: 'text' }},
-                    {{ x: quadPoints.Q4.x, y: quadPoints.Q4.y, text: quadPoints.Q4.text, mode: 'markers', name: 'Q4: DEG Only', marker: {{ color: '#EF4444', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text' }}
+                    {{ x: quadPoints.Q1.x, y: quadPoints.Q1.y, text: quadPoints.Q1.text, mode: 'markers', name: 'Q1', marker: {{ color: '#A855F7', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text' }},
+                    {{ x: quadPoints.Q2.x, y: quadPoints.Q2.y, text: quadPoints.Q2.text, mode: 'markers', name: 'Q2', marker: {{ color: '#3B82F6', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text' }},
+                    {{ x: quadPoints.Q3.x, y: quadPoints.Q3.y, text: quadPoints.Q3.text, mode: 'markers', name: 'Q3', marker: {{ color: '#94A3B8', size: 6, opacity: 0.5, line: {{ width: 0.5, color: '#FFFFFF' }} }}, hoverinfo: 'text' }},
+                    {{ x: quadPoints.Q4.x, y: quadPoints.Q4.y, text: quadPoints.Q4.text, mode: 'markers', name: 'Q4', marker: {{ color: '#EF4444', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text' }}
                 ];
 
                 Plotly.react(quadDiv, updatedTraces, quadDiv.layout);
@@ -502,5 +499,5 @@ def export_html_report(
     with open(output_html_path, "w", encoding="utf-8") as f:
         f.write(full_html)
 
-    print(f"  ✔ Standalone Light Mode HTML Report updated with color title & one-line Q1-Q4 descriptions: {output_html_path}")
+    print(f"  ✔ Standalone Light Mode HTML Report updated: {output_html_path}")
     return output_html_path

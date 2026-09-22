@@ -1,10 +1,8 @@
 """
 GenSplice-Agent Streamlit Dashboard & AI Agent
 Light Mode Theme with Shaded Translucent Threshold Regions & Right-Side Control Panel
-Features:
-- Dual Volcano tab removed per user request.
-- Legend Header explaining color meanings.
-- One-line concise descriptions for Q1, Q2, Q3, Q4.
+- Outside plot header: 'Color Classification' (with Q1-Q4 descriptions)
+- Inside plot legend title: 'On/Off' (strictly Q1, Q2, Q3, Q4)
 """
 
 import os
@@ -183,10 +181,11 @@ with control_col:
     )
 
     st.markdown("---")
-    st.markdown("### 📌 Quadrant Color System")
+    # Outside plot header strictly: Color Classification
+    st.markdown("### 📌 Color Classification")
     st.markdown("""
     - 🟣 **Q1:** Both DEG & Splicing
-    - 🔵 **Q2:** Splicing Only (Target)
+    - 🔵 **Q2:** Splicing Only
     - ⚪ **Q3:** Invariant Background
     - 🔴 **Q4:** DEG Only
     """)
@@ -214,7 +213,7 @@ with export_col2:
             mime="text/html"
         )
 
-# Main Navigation Tabs (Dual Volcano tab removed per user request)
+# Main Navigation Tabs
 tab1, tab2, tab3 = st.tabs([
     "📊 4-Quadrant Cross-Plot",
     "📋 Data Explorer & Target Selector",
