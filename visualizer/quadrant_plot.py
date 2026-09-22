@@ -1,6 +1,9 @@
 """
 GenSplice-Agent Quadrant Cross-Plot Visualizer (Plotly)
-Light Mode Theme with Shaded Translucent Threshold Regions & Right Legend
+Light Mode Theme with Shaded Translucent Threshold Regions
+- Canvas corner description boxes removed.
+- All 4 quadrants (Q1, Q2, Q3, Q4) always exposed in legend/toggle even if 0 genes.
+- Simplified legend names ("Q1", "Q2", "Q3", "Q4").
 """
 
 import polars as pl
@@ -8,7 +11,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 from config import (
-    QUADRANT_COLORS, QUADRANT_LABELS, EVENT_COLORS,
+    QUADRANT_COLORS, EVENT_COLORS,
     DEG_THRESHOLD_COLOR, AS_THRESHOLD_COLOR, REGION_FILL_COLORS
 )
 
@@ -19,43 +22,34 @@ def build_quadrant_plot(
     color_by: str = "quadrant"  # 'quadrant' or 'event_type'
 ) -> go.Figure:
     """
-    Creates a Light Mode 2D scatter plot with translucent shaded quadrant regions:
-    - Q1 (Both DEG & Splicing): Purple Translucent Region (rgba(168, 85, 247, 0.12))
-    - Q2 (Splicing Only): Blue Translucent Region (rgba(59, 130, 246, 0.12))
-    - Q4 (DEG Only): Red Translucent Region (rgba(239, 68, 68, 0.12))
-    - Q3 (Invariant): Soft Gray Translucent Region
-    - Threshold Lines: Red vertical (DEG), Blue horizontal (Splicing)
-    - Legend: Right side
+    Creates a 2D scatter plot with translucent shaded regions and simple Q1, Q2, Q3, Q4 toggles:
+    - Removes quadrant text boxes inside the graph canvas.
+    - Always includes Q1, Q2, Q3, Q4 in the legend regardless of gene count.
     """
-    if df_merged.height == 0:
-        fig = go.Figure()
-        fig.update_layout(
-            title="No data available for Quadrant Plot",
-            template="plotly_white",
-            paper_bgcolor="#FFFFFF",
-            plot_bgcolor="#FFFFFF"
-        )
-        return fig
+    pdf = df_merged.to_pandas() if df_merged.height > 0 else pd.DataFrame(columns=[
+        "geneSymbol", "gene_id", "quadrant", "log2FoldChange", "delta_psi",
+        "deg_fdr", "as_fdr", "event_type", "coordinates"
+    ])
 
-    pdf = df_merged.to_pandas()
-
-    # Hover text
-    hover_texts = []
-    for _, row in pdf.iterrows():
-        ht = (
-            f"<b>Gene Symbol:</b> {row['geneSymbol']}<br>"
-            f"<b>Gene ID:</b> {row['gene_id']}<br>"
-            f"<b>Quadrant:</b> {row['quadrant']}<br>"
-            f"<b>Log2FC (DEG):</b> {row['log2FoldChange']:.3f}<br>"
-            f"<b>ΔPSI (Splicing):</b> {row['delta_psi']:.3f}<br>"
-            f"<b>DEG FDR:</b> {row['deg_fdr']:.2e}<br>"
-            f"<b>rMATS FDR:</b> {row['as_fdr']:.2e}<br>"
-            f"<b>Event Type:</b> {row['event_type']}<br>"
-            f"<b>Coordinates:</b> {row['coordinates']}"
-        )
-        hover_texts.append(ht)
-
-    pdf["hover_text"] = hover_texts
+    # Hover text generator
+    if len(pdf) > 0:
+        hover_texts = []
+        for _, row in pdf.iterrows():
+            ht = (
+                f"<b>Gene Symbol:</b> {row['geneSymbol']}<br>"
+                f"<b>Gene ID:</b> {row['gene_id']}<br>"
+                f"<b>Quadrant:</b> {row['quadrant']}<br>"
+                f"<b>Log2FC (DEG):</b> {row['log2FoldChange']:.3f}<br>"
+                f"<b>ΔPSI (Splicing):</b> {row['delta_psi']:.3f}<br>"
+                f"<b>DEG FDR:</b> {row['deg_fdr']:.2e}<br>"
+                f"<b>rMATS FDR:</b> {row['as_fdr']:.2e}<br>"
+                f"<b>Event Type:</b> {row['event_type']}<br>"
+                f"<b>Coordinates:</b> {row['coordinates']}"
+            )
+            hover_texts.append(ht)
+        pdf["hover_text"] = hover_texts
+    else:
+        pdf["hover_text"] = []
 
     fig = go.Figure()
 
@@ -63,16 +57,14 @@ def build_quadrant_plot(
     max_x = max(abs(pdf["log2FoldChange"].max() if len(pdf) > 0 else 2), 2.5) + 0.5
     max_y = max(abs(pdf["delta_psi"].max() if len(pdf) > 0 else 0.5), 0.6) + 0.1
 
-    # -------------------------------------------------------------
-    # 1. Translucent Quadrant Shaded Regions (Background Layer)
-    # -------------------------------------------------------------
+    # 1. Translucent Background Shaded Quadrant Regions
     shapes = [
-        # Q3 (Center Invariant: Soft Gray)
+        # Q3 Center Soft Gray
         dict(
             type="rect", x0=-log2fc_cutoff, x1=log2fc_cutoff, y0=-delta_psi_cutoff, y1=delta_psi_cutoff,
             fillcolor=REGION_FILL_COLORS["Q3"], line=dict(width=0), layer="below"
         ),
-        # Q2 (Top & Bottom Center Splicing Only: Translucent Blue)
+        # Q2 Splicing Only Translucent Blue
         dict(
             type="rect", x0=-log2fc_cutoff, x1=log2fc_cutoff, y0=delta_psi_cutoff, y1=max_y,
             fillcolor=REGION_FILL_COLORS["Q2"], line=dict(width=0), layer="below"
@@ -81,7 +73,7 @@ def build_quadrant_plot(
             type="rect", x0=-log2fc_cutoff, x1=log2fc_cutoff, y0=-max_y, y1=-delta_psi_cutoff,
             fillcolor=REGION_FILL_COLORS["Q2"], line=dict(width=0), layer="below"
         ),
-        # Q4 (Left & Right Center DEG Only: Translucent Red)
+        # Q4 DEG Only Translucent Red
         dict(
             type="rect", x0=log2fc_cutoff, x1=max_x, y0=-delta_psi_cutoff, y1=delta_psi_cutoff,
             fillcolor=REGION_FILL_COLORS["Q4"], line=dict(width=0), layer="below"
@@ -90,7 +82,7 @@ def build_quadrant_plot(
             type="rect", x0=-max_x, x1=-log2fc_cutoff, y0=-delta_psi_cutoff, y1=delta_psi_cutoff,
             fillcolor=REGION_FILL_COLORS["Q4"], line=dict(width=0), layer="below"
         ),
-        # Q1 (4 Corner Dual Responders: Translucent Purple)
+        # Q1 Dual Responders Translucent Purple
         dict(
             type="rect", x0=log2fc_cutoff, x1=max_x, y0=delta_psi_cutoff, y1=max_y,
             fillcolor=REGION_FILL_COLORS["Q1"], line=dict(width=0), layer="below"
@@ -108,10 +100,7 @@ def build_quadrant_plot(
             fillcolor=REGION_FILL_COLORS["Q1"], line=dict(width=0), layer="below"
         ),
 
-        # -------------------------------------------------------------
         # 2. Dashed Threshold Lines
-        # -------------------------------------------------------------
-        # Vertical DEG Threshold Lines (RED)
         dict(
             type="line", x0=log2fc_cutoff, x1=log2fc_cutoff, y0=-max_y, y1=max_y,
             line=dict(color=DEG_THRESHOLD_COLOR, width=2, dash="dash")
@@ -120,7 +109,6 @@ def build_quadrant_plot(
             type="line", x0=-log2fc_cutoff, x1=-log2fc_cutoff, y0=-max_y, y1=max_y,
             line=dict(color=DEG_THRESHOLD_COLOR, width=2, dash="dash")
         ),
-        # Horizontal Splicing Threshold Lines (BLUE)
         dict(
             type="line", x0=-max_x, x1=max_x, y0=delta_psi_cutoff, y1=delta_psi_cutoff,
             line=dict(color=AS_THRESHOLD_COLOR, width=2, dash="dash")
@@ -131,36 +119,35 @@ def build_quadrant_plot(
         )
     ]
 
-    # Add Scatter Traces
+    # 3. Add Traces: ALWAYS add all 4 quadrants (Q1, Q2, Q3, Q4) so On/Off options are ALWAYS visible
     if color_by == "quadrant":
-        for quad in ["Q1", "Q2", "Q4", "Q3"]:
-            sub = pdf[pdf["quadrant"] == quad]
-            if len(sub) == 0:
-                continue
+        all_quadrants = ["Q1", "Q2", "Q3", "Q4"]
+        for quad in all_quadrants:
+            sub = pdf[pdf["quadrant"] == quad] if len(pdf) > 0 and "quadrant" in pdf.columns else pd.DataFrame()
             fig.add_trace(
                 go.Scatter(
-                    x=sub["log2FoldChange"],
-                    y=sub["delta_psi"],
+                    x=sub["log2FoldChange"] if len(sub) > 0 else [],
+                    y=sub["delta_psi"] if len(sub) > 0 else [],
                     mode="markers",
-                    name=QUADRANT_LABELS.get(quad, quad),
+                    name=quad, # Simplified name: Q1, Q2, Q3, Q4
                     marker=dict(
                         color=QUADRANT_COLORS.get(quad, "#94A3B8"),
                         size=10 if quad in ["Q1", "Q2", "Q4"] else 6,
                         opacity=0.9 if quad in ["Q1", "Q2", "Q4"] else 0.5,
                         line=dict(width=0.8, color="#FFFFFF")
                     ),
-                    text=sub["hover_text"],
+                    text=sub["hover_text"] if len(sub) > 0 else [],
                     hoverinfo="text"
                 )
             )
     else:
-        event_types = pdf["event_type"].unique()
+        event_types = ["SE", "RI", "MXE", "A5SS", "A3SS"]
         for et in event_types:
-            sub = pdf[pdf["event_type"] == et]
+            sub = pdf[pdf["event_type"] == et] if len(pdf) > 0 and "event_type" in pdf.columns else pd.DataFrame()
             fig.add_trace(
                 go.Scatter(
-                    x=sub["log2FoldChange"],
-                    y=sub["delta_psi"],
+                    x=sub["log2FoldChange"] if len(sub) > 0 else [],
+                    y=sub["delta_psi"] if len(sub) > 0 else [],
                     mode="markers",
                     name=et,
                     marker=dict(
@@ -169,50 +156,10 @@ def build_quadrant_plot(
                         opacity=0.85,
                         line=dict(width=0.5, color="#FFFFFF")
                     ),
-                    text=sub["hover_text"],
+                    text=sub["hover_text"] if len(sub) > 0 else [],
                     hoverinfo="text"
                 )
             )
-
-    # Quadrant Badges
-    annotations = [
-        # Q2 (Top-Left): Splicing-Driven Target (BLUE)
-        dict(
-            x=-max_x * 0.72, y=max_y * 0.85,
-            text="<b>Q2: Splicing-Driven</b><br>(Alternative Splicing Only)",
-            showarrow=False,
-            font=dict(size=11, color="#2563EB"),
-            align="center",
-            bordercolor="#3B82F6", borderwidth=1, borderpad=4, bgcolor="rgba(255, 255, 255, 0.9)"
-        ),
-        # Q1 (Top-Right): Dual Responders (PURPLE)
-        dict(
-            x=max_x * 0.72, y=max_y * 0.85,
-            text="<b>Q1: Dual Responders</b><br>(Both DEG & Splicing)",
-            showarrow=False,
-            font=dict(size=11, color="#7C3AED"),
-            align="center",
-            bordercolor="#A855F7", borderwidth=1, borderpad=4, bgcolor="rgba(255, 255, 255, 0.9)"
-        ),
-        # Q3 (Bottom-Left): Invariant (GRAY)
-        dict(
-            x=-max_x * 0.72, y=-max_y * 0.85,
-            text="<b>Q3: Background Invariant</b>",
-            showarrow=False,
-            font=dict(size=10, color="#64748B"),
-            align="center",
-            bordercolor="#CBD5E1", borderwidth=1, borderpad=4, bgcolor="rgba(255, 255, 255, 0.9)"
-        ),
-        # Q4 (Bottom-Right): Expression-Driven (RED)
-        dict(
-            x=max_x * 0.72, y=-max_y * 0.85,
-            text="<b>Q4: Expression-Driven</b><br>(DEG Only)",
-            showarrow=False,
-            font=dict(size=10, color="#DC2626"),
-            align="center",
-            bordercolor="#EF4444", borderwidth=1, borderpad=4, bgcolor="rgba(255, 255, 255, 0.9)"
-        ),
-    ]
 
     fig.update_layout(
         title=dict(
@@ -237,9 +184,10 @@ def build_quadrant_plot(
             tickfont=dict(color="#0F172A")
         ),
         shapes=shapes,
-        annotations=annotations,
-        # Legend on the RIGHT side
+        annotations=[], # Canvas corner text boxes removed per user request
+        # Legend on the RIGHT side with legend title
         legend=dict(
+            title=dict(text="<b>Quadrant On/Off Toggle</b><br><span style='font-size:11px;color:#64748B;'>Click to toggle visibility</span>", font=dict(size=12, color="#0F172A")),
             orientation="v",
             yanchor="top",
             y=1.0,
@@ -248,12 +196,12 @@ def build_quadrant_plot(
             bgcolor="#FFFFFF",
             bordercolor="#E2E8F0",
             borderwidth=1,
-            font=dict(color="#0F172A", size=12)
+            font=dict(color="#0F172A", size=13)
         ),
         template="plotly_white",
         paper_bgcolor="#FFFFFF",
         plot_bgcolor="#FFFFFF",
-        margin=dict(l=60, r=220, t=80, b=60), # Right margin for legend & sliders
+        margin=dict(l=60, r=220, t=80, b=60),
         height=680
     )
 

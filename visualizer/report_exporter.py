@@ -1,8 +1,9 @@
 """
 GenSplice-Agent Standalone HTML Exporter Module
 Light Mode interactive HTML report with:
-1. Gene count KPI cards placed directly BELOW the 4-Quadrant Cross-Plot.
-2. Real-time point marker color recalculation on threshold slider movement.
+- Canvas corner description boxes removed.
+- All 4 quadrants (Q1, Q2, Q3, Q4) always exposed in legend/toggle list.
+- One-line description above the legend box, simplified labels Q1, Q2, Q3, Q4.
 """
 
 import os
@@ -23,9 +24,8 @@ def export_html_report(
 ) -> str:
     """
     Exports a self-contained Light Mode interactive HTML report:
-    - 4-Quadrant plot at top of chart section.
-    - Gene count KPI cards placed directly BELOW the 4-Quadrant plot.
-    - Real-time JS updates recalculating point marker colors (Red/Blue/Purple/Gray) on slider drag.
+    - In-canvas quadrant text boxes removed.
+    - Simplified Q1, Q2, Q3, Q4 legend labels with one-line description above.
     """
     os.makedirs(os.path.dirname(output_html_path), exist_ok=True)
 
@@ -225,6 +225,13 @@ def export_html_report(
             transform: translateY(-1px);
         }}
 
+        .legend-title-desc {{
+            font-size: 13px;
+            font-weight: 700;
+            color: #0F172A;
+            margin-bottom: 4px;
+        }}
+
         .legend-guide {{
             background: #FFFFFF;
             border-radius: 8px;
@@ -239,6 +246,7 @@ def export_html_report(
             display: flex;
             align-items: center;
             gap: 8px;
+            font-weight: 600;
         }}
         .legend-dot {{
             width: 12px;
@@ -260,7 +268,7 @@ def export_html_report(
 <body>
     <div class="header">
         <h1>🧬 GenSplice-Agent Interactive Light Report</h1>
-        <p>Real-Time Point Color Recalculation & Gene Count KPI Placement Below Plot</p>
+        <p>Always Exposed Q1 - Q4 Toggle System & Dynamic Point Color Recalculation</p>
     </div>
 
     <!-- 4-Quadrant Plot with Right-Side Controls -->
@@ -296,23 +304,26 @@ def export_html_report(
                     📥 Download Filtered Gene List (.csv)
                 </button>
 
-                <h3>📌 Color System Legend</h3>
-                <div class="legend-guide">
-                    <div class="legend-item">
-                        <span class="legend-dot" style="background: var(--blue-as);"></span>
-                        <span><b>Q2 (Blue):</b> Splicing Only</span>
-                    </div>
-                    <div class="legend-item">
-                        <span class="legend-dot" style="background: var(--red-deg);"></span>
-                        <span><b>Q4 (Red):</b> DEG Only</span>
-                    </div>
-                    <div class="legend-item">
-                        <span class="legend-dot" style="background: var(--purple-both);"></span>
-                        <span><b>Q1 (Purple):</b> Both DEG & AS</span>
-                    </div>
-                    <div class="legend-item">
-                        <span class="legend-dot" style="background: #94A3B8;"></span>
-                        <span><b>Q3 (Gray):</b> Invariant</span>
+                <!-- One-line description directly above the On/Off toggle box -->
+                <div>
+                    <div class="legend-title-desc">Click items below to toggle quadrant visibility:</div>
+                    <div class="legend-guide">
+                        <div class="legend-item">
+                            <span class="legend-dot" style="background: var(--purple-both);"></span>
+                            <span>Q1</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-dot" style="background: var(--blue-as);"></span>
+                            <span>Q2</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-dot" style="background: #94A3B8;"></span>
+                            <span>Q3</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-dot" style="background: var(--red-deg);"></span>
+                            <span>Q4</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -325,11 +336,11 @@ def export_html_report(
                 <div class="value" id="kpi-total">{kpis['total']}</div>
             </div>
             <div class="kpi-card" style="border-top: 4px solid var(--blue-as);">
-                <div class="label" style="color: var(--blue-as);">Q2: Splicing Only (Target)</div>
+                <div class="label" style="color: var(--blue-as);">Q2: Splicing Target</div>
                 <div class="value" style="color: var(--blue-as);" id="kpi-q2">{kpis['Q2']}</div>
             </div>
             <div class="kpi-card" style="border-top: 4px solid var(--purple-both);">
-                <div class="label" style="color: var(--purple-both);">Q1: Dual Responders (Both)</div>
+                <div class="label" style="color: var(--purple-both);">Q1: Dual Responders</div>
                 <div class="value" style="color: var(--purple-both);" id="kpi-q1">{kpis['Q1']}</div>
             </div>
             <div class="kpi-card" style="border-top: 4px solid var(--red-deg);">
@@ -389,8 +400,8 @@ def export_html_report(
             const quadPoints = {{
                 Q1: {{ x: [], y: [], text: [] }},
                 Q2: {{ x: [], y: [], text: [] }},
-                Q4: {{ x: [], y: [], text: [] }},
-                Q3: {{ x: [], y: [], text: [] }}
+                Q3: {{ x: [], y: [], text: [] }},
+                Q4: {{ x: [], y: [], text: [] }}
             }};
 
             rawGeneData.forEach(g => {{
@@ -413,14 +424,12 @@ def export_html_report(
                 currentFilteredGenes.push(updatedGene);
             }});
 
-            // Update KPI counts below the plot
             document.getElementById('kpi-total').textContent = rawGeneData.length;
             document.getElementById('kpi-q1').textContent = q1;
             document.getElementById('kpi-q2').textContent = q2;
             document.getElementById('kpi-q3').textContent = q3;
             document.getElementById('kpi-q4').textContent = q4;
 
-            // Recalculate and update Plotly Traces (Point Colors) & Shapes (Shaded Regions & Thresholds)
             const quadDiv = document.getElementById('plotly-quad-div');
             if (quadDiv && window.Plotly) {{
                 const max_x = 3.0;
@@ -443,11 +452,12 @@ def export_html_report(
                     {{ type: 'line', x0: -max_x, x1: max_x, y0: -psiCut, y1: -psiCut, line: {{ color: '#3B82F6', width: 2, dash: 'dash' }} }}
                 ];
 
+                // ALWAYS generate all 4 traces: Q1, Q2, Q3, Q4 with simplified names
                 const updatedTraces = [
-                    {{ x: quadPoints.Q1.x, y: quadPoints.Q1.y, text: quadPoints.Q1.text, mode: 'markers', name: 'Q1: Dual Responders (Both)', marker: {{ color: '#A855F7', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text' }},
-                    {{ x: quadPoints.Q2.x, y: quadPoints.Q2.y, text: quadPoints.Q2.text, mode: 'markers', name: 'Q2: Splicing-Driven (Target)', marker: {{ color: '#3B82F6', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text' }},
-                    {{ x: quadPoints.Q4.x, y: quadPoints.Q4.y, text: quadPoints.Q4.text, mode: 'markers', name: 'Q4: Expression-Driven (DEG)', marker: {{ color: '#EF4444', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text' }},
-                    {{ x: quadPoints.Q3.x, y: quadPoints.Q3.y, text: quadPoints.Q3.text, mode: 'markers', name: 'Q3: Invariant Background', marker: {{ color: '#94A3B8', size: 6, opacity: 0.5, line: {{ width: 0.5, color: '#FFFFFF' }} }}, hoverinfo: 'text' }}
+                    {{ x: quadPoints.Q1.x, y: quadPoints.Q1.y, text: quadPoints.Q1.text, mode: 'markers', name: 'Q1', marker: {{ color: '#A855F7', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text' }},
+                    {{ x: quadPoints.Q2.x, y: quadPoints.Q2.y, text: quadPoints.Q2.text, mode: 'markers', name: 'Q2', marker: {{ color: '#3B82F6', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text' }},
+                    {{ x: quadPoints.Q3.x, y: quadPoints.Q3.y, text: quadPoints.Q3.text, mode: 'markers', name: 'Q3', marker: {{ color: '#94A3B8', size: 6, opacity: 0.5, line: {{ width: 0.5, color: '#FFFFFF' }} }}, hoverinfo: 'text' }},
+                    {{ x: quadPoints.Q4.x, y: quadPoints.Q4.y, text: quadPoints.Q4.text, mode: 'markers', name: 'Q4', marker: {{ color: '#EF4444', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text' }}
                 ];
 
                 Plotly.react(quadDiv, updatedTraces, quadDiv.layout);
@@ -502,5 +512,5 @@ def export_html_report(
     with open(output_html_path, "w", encoding="utf-8") as f:
         f.write(full_html)
 
-    print(f"  ✔ Standalone Light Mode HTML Report updated with KPI boxes below plot and dynamic point colors: {output_html_path}")
+    print(f"  ✔ Standalone Light Mode HTML Report updated with simplified Q1-Q4 legend & top description: {output_html_path}")
     return output_html_path
