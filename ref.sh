@@ -121,6 +121,7 @@ TARGET_DIR="./${ORGANISM_NAME}-ref"
 
 echo -e "\n${BOLD}[1/4] Target Reference Folder:${RESET} ${GREEN}${TARGET_DIR}${RESET}"
 echo -e "${DIM}Species: ${SPECIES_DESC}${RESET}"
+echo -e "${YELLOW}${BOLD}⚠ Notice: Downloading reference genome FASTA/GTF (5GB+) and building STAR index may take 15 to 30+ minutes depending on your internet connection and hardware environment.${RESET}"
 
 # Step 1: Create target directory
 mkdir -p "$TARGET_DIR"
@@ -179,6 +180,29 @@ cat <<EOF > "${TARGET_DIR}/metadata.json"
 }
 EOF
 
+# Auto-update config.yaml reference section
+if [ -f "config.yaml" ]; then
+    echo -e "\n${BOLD}[Auto-Config] Updating 'config.yaml' reference configuration...${RESET}"
+    python3 -c "
+import yaml
+try:
+    with open('config.yaml', 'r') as f:
+        cfg = yaml.safe_load(f) or {}
+    if 'reference' not in cfg:
+        cfg['reference'] = {}
+    cfg['reference']['organism'] = '${ORGANISM_NAME}'
+    cfg['reference']['ref_dir'] = '${TARGET_DIR}'
+    cfg['reference']['fasta'] = '${TARGET_DIR}/${FASTA_UNCOMPRESSED}'
+    cfg['reference']['gtf'] = '${TARGET_DIR}/${GTF_UNCOMPRESSED}'
+    cfg['reference']['star_index'] = '${TARGET_DIR}/star_index'
+    with open('config.yaml', 'w') as f:
+        yaml.dump(cfg, f, default_flow_style=False)
+    print('  ✔ Automatically updated config.yaml to target reference: ${ORGANISM_NAME}')
+except Exception as e:
+    print('  ⚠ Notice: Could not update config.yaml:', e)
+"
+fi
+
 # Completion Notice
 echo -e "\n${CYAN}${BOLD}======================================================================"
 echo "           Reference Download Complete! 🧬                            "
@@ -188,4 +212,5 @@ echo -e "Files saved in: ${GREEN}${TARGET_DIR}/${RESET}"
 echo -e "  - FASTA: ${TARGET_DIR}/${FASTA_UNCOMPRESSED}"
 echo -e "  - GTF:   ${TARGET_DIR}/${GTF_UNCOMPRESSED}"
 echo -e "  - Meta:  ${TARGET_DIR}/metadata.json"
+echo -e "  - Config: config.yaml updated"
 echo -e ""

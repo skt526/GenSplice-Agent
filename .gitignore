@@ -9,6 +9,7 @@ __pycache__/
 *.gtf.gz
 test_config.yaml
 outputs/*
+outputs_*
 !outputs/*/.gitkeep
 inputs/control/*
 !inputs/control/.gitkeep

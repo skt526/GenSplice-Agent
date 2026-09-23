@@ -78,7 +78,7 @@ def update_checkpoint(step_key: str, status: str = "COMPLETED", details: dict = 
         json.dump(checkpoint, f, indent=2)
     log_pipeline_status(f"Step '{step_key}' status updated to {status}.")
 
-def run_command_step(cmd_list, step_name: str, log_file=None, allow_mock_fallback: bool = True):
+def run_command_step(cmd_list, step_name: str, allow_mock_fallback: bool = False, log_file=None):
     tool_bin = find_binary(cmd_list[0])
     cmd_list[0] = tool_bin
     
@@ -94,7 +94,8 @@ def run_command_step(cmd_list, step_name: str, log_file=None, allow_mock_fallbac
             print(f"  {GREEN}✔ Completed {step_name} (simulated).{RESET}")
             return True
         else:
-            print(f"  {RED}✘ Executable '{cmd_list[0]}' not found. Please activate conda env: conda activate gensplice-agent{RESET}")
+            print(f"  {RED}✘ ERROR: Executable '{cmd_list[0]}' not found in PATH.{RESET}")
+            print(f"  {RED}  Please activate the conda environment using: conda activate gensplice-agent{RESET}")
             sys.exit(1)
 
     try:
@@ -111,7 +112,7 @@ def run_command_step(cmd_list, step_name: str, log_file=None, allow_mock_fallbac
             print(f"  {YELLOW}⚠ Notice: Executed {step_name} with fallback status.{RESET}")
             return True
         else:
-            print(f"  {RED}✘ Step '{step_name}' failed with return code {e.returncode}.${RESET}")
+            print(f"  {RED}✘ ERROR: Step '{step_name}' failed with return code {e.returncode}.{RESET}")
             sys.exit(e.returncode)
 
 def main():
@@ -127,18 +128,40 @@ def main():
 
     parser = argparse.ArgumentParser(description="GenSplice-Agent Automated Upstream Pipeline Orchestrator")
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
-    parser.add_argument("--skip-confirmation", action="store_true", help="Skip interactive terminal confirmation prompt")
+    parser.add_argument("--skip-confirmation", "-y", action="store_true", help="Skip interactive terminal confirmation prompt")
     parser.add_argument("--dry-run", action="store_true", help="Print pipeline execution plan without running shell commands")
-    parser.add_argument("--force-restart", action="store_true", help="Ignore existing checkpoints and force restart from Step 1")
+    parser.add_argument("--keep-outputs", action="store_true", help="Keep existing outputs directory without resetting")
+    parser.add_argument("--allow-mock", action="store_true", help="Allow simulated mock execution if tools are missing")
     args = parser.parse_args()
 
-    # Load existing Checkpoint
-    checkpoint = {} if args.force_restart else load_checkpoint()
+    # --------------------------------------------------------------------------
+    # Output Reset & Confirmation Warning (Clean is default)
+    # --------------------------------------------------------------------------
+    outputs_dir = Path("outputs")
+    has_existing_outputs = outputs_dir.exists() and any(outputs_dir.iterdir())
+
+    if has_existing_outputs and not args.keep_outputs:
+        if not args.skip_confirmation:
+            print(f"{RED}{BOLD}WARNING: Running GenSplice will reset the existing 'outputs/' directory.{RESET}")
+            print(f"{YELLOW}{BOLD}Are you sure you want to proceed? [y/N]: {RESET}", end="")
+            choice = input().strip().lower()
+            if choice not in ['y', 'yes']:
+                print("Pipeline execution cancelled by user. Exiting...")
+                sys.exit(0)
+
+        # Reset outputs directory and checkpoint
+        if os.path.exists(CHECKPOINT_FILE):
+            try:
+                os.remove(CHECKPOINT_FILE)
+            except Exception:
+                pass
+
+    checkpoint = {} if not args.keep_outputs else load_checkpoint()
 
     # --------------------------------------------------------------------------
     # Step 1: Input Validation & Hardware Resource Allocation
     # --------------------------------------------------------------------------
-    print(f"{BOLD}[Step 1/5] Input Validation & Hardware Resource Allocation...{RESET}")
+    print(f"\n{BOLD}[Step 1/5] Input Validation & Hardware Resource Allocation...{RESET}")
     config = load_config(args.config)
     
     cpu_cores = os.cpu_count() or 4
@@ -157,7 +180,7 @@ def main():
     print(f"  Reference GTF:   {gtf_path} ({'FOUND' if gtf_path.exists() else 'NOT FOUND'})")
 
     if not fasta_path.exists() or not gtf_path.exists():
-        print(f"  {RED}✘ Error: Reference FASTA or GTF file is missing. Please run './ref <organism>' first.{RESET}")
+        print(f"  {RED}✘ Error: Reference FASTA or GTF file is missing. Please run './ref' first.{RESET}")
         sys.exit(1)
 
     scan_res = scan_all_inputs("./inputs")
@@ -179,13 +202,6 @@ def main():
         r1_name = os.path.basename(s['read1']) if s['read1'] else 'NONE'
         r2_name = os.path.basename(s['read2']) if s['read2'] else 'NONE'
         print(f"    [{s['group'].upper()}] Sample: {s['sample_name']:<18} | R1: {r1_name:<25} | R2: {r2_name:<25} ({s['read_type']})")
-
-    if not args.skip_confirmation:
-        print(f"\n{YELLOW}{BOLD}[?] Is the above sample pairing and reference genome setup correct? [y/N]: {RESET}", end="")
-        choice = input().strip().lower()
-        if choice not in ['y', 'yes']:
-            print(f"Pipeline execution cancelled by user. Exiting...")
-            sys.exit(0)
 
     outputs_config = config.get("outputs", {})
     clean_fq_dir = Path(outputs_config.get("clean_fq", "./outputs/01_clean_fq"))
@@ -238,7 +254,7 @@ def main():
                 cmd_fastp.extend(["--in2", r2_in, "--out2", str(out_r2)])
 
             print(f"  Running fastp for [{group}] {s_name}...")
-            run_command_step(cmd_fastp, f"fastp_{s_name}")
+            run_command_step(cmd_fastp, f"fastp_{s_name}", allow_mock_fallback=args.allow_mock)
             
             if not out_r1.exists():
                 shutil.copyfile(r1_in, out_r1)
@@ -274,7 +290,7 @@ def main():
             "--sjdbGTFfile", str(gtf_path),
             "--runThreadN", str(allocated_threads)
         ]
-        run_command_step(cmd_star_idx, "STAR_genomeGenerate")
+        run_command_step(cmd_star_idx, "STAR_genomeGenerate", allow_mock_fallback=args.allow_mock)
 
     bam_files = {"control": [], "treatment": []}
     for cs in clean_samples:
@@ -305,7 +321,7 @@ def main():
                 "--runThreadN", str(allocated_threads)
             ]
             print(f"  Running STAR 2-pass alignment for [{group}] {s_name}...")
-            run_command_step(cmd_star_align, f"STAR_align_{s_name}")
+            run_command_step(cmd_star_align, f"STAR_align_{s_name}", allow_mock_fallback=args.allow_mock)
 
             if not sorted_bam.exists():
                 sorted_bam.touch()
@@ -336,7 +352,7 @@ def main():
             *all_bams
         ]
         print("  Quantifying gene counts with featureCounts...")
-        run_command_step(cmd_fc, "featureCounts")
+        run_command_step(cmd_fc, "featureCounts", allow_mock_fallback=args.allow_mock)
 
         print("  Calculating Differential Gene Expression (Size Factor Normalization & Dispersion Shrinkage)...")
         from core.deg_calculator import run_deg_analysis
@@ -381,9 +397,23 @@ def main():
             "--tmp", str(rmats_dir / "tmp")
         ]
         print(f"  Running rMATS with auto readLength={auto_read_len} bp, libType={lib_type}...")
-        run_command_step(cmd_rmats, "rMATS_analysis")
+        run_command_step(cmd_rmats, "rMATS_analysis", allow_mock_fallback=args.allow_mock)
 
     update_checkpoint("step5_rmats", "COMPLETED")
+
+    # --------------------------------------------------------------------------
+    # Copy/Archive outputs/ to outputs_{YYMMDD}_{HHMMSS}
+    # --------------------------------------------------------------------------
+    archive_suffix = datetime.now().strftime("%y%m%d_%H%M%S")
+    archive_dir = Path(f"outputs_{archive_suffix}")
+    try:
+        if outputs_dir.exists():
+            if archive_dir.exists():
+                shutil.rmtree(archive_dir)
+            shutil.copytree(outputs_dir, archive_dir, ignore=shutil.ignore_patterns('*_STARtmp', '*.fifo*'))
+            print(f"  {GREEN}✔ Archived pipeline output copy to {archive_dir}/{RESET}")
+    except Exception as e:
+        print(f"  {YELLOW}⚠ Notice: Could not archive outputs directory: {e}{RESET}")
 
     print(f"\n{CYAN}{BOLD}======================================================================")
     print("           GenSplice-Agent Upstream Pipeline Complete! 🎉             ")
@@ -396,6 +426,7 @@ def main():
     print(f"  - rMATS Events:  {rmats_dir}/ (SE, RI, A5SS, A3SS, MXE)")
     print(f"  - Checkpoint:    {CHECKPOINT_FILE}")
     print(f"  - Status Log:    {STATUS_LOG_FILE}")
+    print(f"  - Archived Copy: {archive_dir}/")
     print(f"\nYou can now launch the dashboard using: streamlit run app.py\n")
 
 if __name__ == "__main__":

@@ -74,6 +74,34 @@ GenSplice-Agent/
 
 ---
 
+## 📥 입력 데이터 포맷 명세 (Input FASTQ Specification)
+
+실제 RNA-seq 데이터를 분석할 때, `inputs/` 디렉터리에 대조군(Control)과 실험군(Treatment) 샘플 파일들을 배치합니다:
+
+```text
+inputs/
+├── control/
+│   ├── sampleA_1.fq.gz
+│   └── sampleA_2.fq.gz
+└── treatment/
+    ├── sampleB_1.fq.gz
+    └── sampleB_2.fq.gz
+```
+
+### 1. 지원 파일 확장자 (File Extensions)
+- **압축 파일 (권장)**: `.fq.gz`, `.fastq.gz`
+- **비압축 파일**: `.fq`, `.fastq`
+
+### 2. 페어드 엔드 (Paired-End) 파일 명명 규칙
+자동 샘플 쌍 매핑을 위해 아래 접미사 패턴 중 하나를 사용해야 합니다:
+- **패턴 1**: `*_1.fq.gz` / `*_2.fq.gz` 또는 `*_1.fastq.gz` / `*_2.fastq.gz`
+- **패턴 2**: `*_R1.fastq.gz` / `*_R2.fastq.gz` 또는 `*_R1_001.fastq.gz` / `*_R2_001.fastq.gz`
+
+### 3. 싱글 엔드 (Single-End) 지원
+- `sampleA.fq.gz` 와 같이 단일 파일로 투입된 경우 자동으로 Single-End 데이터로 감지되어 QC 및 Alignment가 수행됩니다.
+
+---
+
 ## 📄 문서
 - [BLUEPRINT.md](BLUEPRINT.md): GenSplice-Agent 시스템 설계 청사진 및 알고리즘 명세
 - [environment.yml](environment.yml): Conda/Bioconda 환경 명세서

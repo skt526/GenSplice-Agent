@@ -101,7 +101,7 @@ EOF
 
 # Step 3: Run Pipeline Execution Test
 echo -e "\n${BOLD}[2/4] Running Pipeline Execution Test...${RESET}"
-"$PYTHON_BIN" run_pipeline.py --config test_config.yaml --skip-confirmation
+"$PYTHON_BIN" run_pipeline.py --config test_config.yaml --skip-confirmation --allow-mock
 
 # Step 4: Generate Rich rMATS 5-Event Dataset & DESeq2 DEG Dataset
 echo -e "\n${BOLD}[3/4] Generating & Populating Full rMATS 5-Event Dataset...${RESET}"
