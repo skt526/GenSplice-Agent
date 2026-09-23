@@ -47,14 +47,18 @@ def export_html_report(
     df_go_q2 = fetch_enrichment(q2_genes if q2_genes else all_genes, gene_sets=["GO_Biological_Process_2023"], top_n=8)
     df_go_q4 = fetch_enrichment(q4_genes if q4_genes else all_genes, gene_sets=["GO_Biological_Process_2023"], top_n=8)
 
-    df_go = df_go_q1
-    df_kegg = fetch_enrichment(q1_genes if q1_genes else all_genes, gene_sets=["KEGG_2021_Human"], top_n=8)
+    df_kegg_q1 = fetch_enrichment(q1_genes if q1_genes else all_genes, gene_sets=["KEGG_2021_Human"], top_n=8)
+    df_kegg_q2 = fetch_enrichment(q2_genes if q2_genes else all_genes, gene_sets=["KEGG_2021_Human"], top_n=8)
+    df_kegg_q4 = fetch_enrichment(q4_genes if q4_genes else all_genes, gene_sets=["KEGG_2021_Human"], top_n=8)
 
-    # Build Interactive Plotly Comparative Dot Plot for GO (X-axis: Q1, Q2, Q4) and Bar Chart for KEGG
-    fig_go = build_combined_quadrant_dot_plot(df_go_q1, df_go_q2, df_go_q4, "Comparative GO Biological Process Dot + Bubble Plot (X-axis: Q1, Q2, Q4)")
+    df_go = df_go_q1
+    df_kegg = df_kegg_q1
+
+    # Build Interactive Plotly Comparative Dot Plots for GO & KEGG (X-axis: Q1, Q2, Q4)
+    fig_go = build_combined_quadrant_dot_plot(df_go_q1, df_go_q2, df_go_q4, "Comparative GO Biological Process Dot + Bubble Plot (X-axis: Q1, Q2, Q4)", y_title="GO Biological Process Term")
     go_chart_html = fig_go.to_html(full_html=False, include_plotlyjs=False, div_id="plotly-go-div")
 
-    fig_kegg = build_enrichment_chart(df_kegg, "Top KEGG Pathways (Q1: Both DEG & Splicing)", bar_color="#A855F7")
+    fig_kegg = build_combined_quadrant_dot_plot(df_kegg_q1, df_kegg_q2, df_kegg_q4, "Comparative KEGG Pathway Dot + Bubble Plot (X-axis: Q1, Q2, Q4)", y_title="KEGG Pathway Term")
     kegg_chart_html = fig_kegg.to_html(full_html=False, include_plotlyjs=False, div_id="plotly-kegg-div")
 
     go_records = []
@@ -778,15 +782,35 @@ def export_html_report(
                 }});
             }}
 
-            // Re-render Plotly KEGG Bar Chart
+            // Re-render Plotly KEGG Dot + Bubble Plot (X-axis: Q1, Q2, Q4)
             const keggDiv = document.getElementById('plotly-kegg-div');
             if (keggDiv && window.Plotly && sortedKegg.length) {{
-                const xVal = sortedKegg.map(item => parseFloat(item.logP)).reverse();
+                const xVal = sortedKegg.map(() => 'Q1');
                 const yVal = sortedKegg.map(item => item.term.length > 45 ? item.term.slice(0,45) + '...' : item.term).reverse();
+                const markerSizes = sortedKegg.map(item => Math.min(Math.max(item.count * 4, 10), 26)).reverse();
+                const colorVals = sortedKegg.map(item => parseFloat(item.logP)).reverse();
                 Plotly.react(keggDiv, [{{
-                    x: xVal, y: yVal, type: 'bar', orientation: 'h',
-                    marker: {{ color: '#A855F7', opacity: 0.85, line: {{ color: '#6B21A8', width: 1 }} }}
-                }}], keggDiv.layout);
+                    x: xVal,
+                    y: yVal,
+                    mode: 'markers',
+                    type: 'scatter',
+                    marker: {{
+                        size: markerSizes,
+                        color: colorVals,
+                        colorscale: 'Purples',
+                        showscale: true,
+                        colorbar: {{ title: '-log₁₀(p-val)' }},
+                        line: {{ color: '#4C1D95', width: 1.5 }}
+                    }}
+                }}], {{
+                    ...keggDiv.layout,
+                    xaxis: {{
+                        type: 'category',
+                        categoryorder: 'array',
+                        categoryarray: ['Q1', 'Q2', 'Q4'],
+                        title: '<b>Quadrant Category (X-axis: Q1, Q2, Q4)</b>'
+                    }}
+                }});
             }}
 
             // Update AI Insights Summary Text if card is present

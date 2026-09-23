@@ -250,11 +250,14 @@ if "go_q1_df" not in st.session_state or gen_enrich_btn:
         st.session_state["go_q4_df"] = fetch_enrichment(q4_current_genes if q4_current_genes else df_merged.select("geneSymbol").to_series().to_list(), gene_sets=["GO_Biological_Process_2023"], top_n=10)
         
         st.session_state["go_results_df"] = st.session_state["go_q1_df"]
-        st.session_state["kegg_results_df"] = fetch_enrichment(q1_current_genes if q1_current_genes else df_merged.select("geneSymbol").to_series().to_list(), gene_sets=["KEGG_2021_Human"], top_n=10)
+        st.session_state["kegg_q1_df"] = fetch_enrichment(q1_current_genes if q1_current_genes else df_merged.select("geneSymbol").to_series().to_list(), gene_sets=["KEGG_2021_Human"], top_n=10)
+        st.session_state["kegg_q2_df"] = fetch_enrichment(q2_current_genes if q2_current_genes else df_merged.select("geneSymbol").to_series().to_list(), gene_sets=["KEGG_2021_Human"], top_n=10)
+        st.session_state["kegg_q4_df"] = fetch_enrichment(q4_current_genes if q4_current_genes else df_merged.select("geneSymbol").to_series().to_list(), gene_sets=["KEGG_2021_Human"], top_n=10)
+        st.session_state["kegg_results_df"] = st.session_state["kegg_q1_df"]
         st.session_state["enrichment_q1_count"] = len(q1_current_genes)
         st.session_state["enrichment_cutoffs_str"] = f"Log₂FC ≥ {log2fc_cutoff:.2f}, ΔPSI ≥ {delta_psi_cutoff:.2f}"
     if gen_enrich_btn:
-        st.toast(f"✨ Quadrant GO Enrichments Updated! (Q1:{len(q1_current_genes)}, Q2:{len(q2_current_genes)}, Q3:{len(q3_current_genes)})", icon="🚀")
+        st.toast(f"✨ Quadrant Enrichments Updated! (Q1:{len(q1_current_genes)}, Q2:{len(q2_current_genes)}, Q4:{len(q4_current_genes)})", icon="🚀")
 
 # Export HTML Report Button
 export_col1, export_col2 = st.columns([3, 1])
@@ -355,54 +358,42 @@ def render_go_section(df_merged_data):
     )
     st.plotly_chart(fig_combined, use_container_width=True)
 
-# Helper function to render KEGG Section (Default Q1, ONLY graph on page + Download button on header right)
+# Helper function to render KEGG Section (Comparative Dot + Bubble Plot with X-axis Q1, Q2, Q4)
 def render_kegg_section(df_merged_data):
-    st.subheader("🛤️ KEGG Pathway Analysis (Q1: Both DEG & Splicing)")
-    st.markdown("Perform KEGG pathway enrichment focusing on **Q1 (Dual Responders: Both DEG & Splicing)** target genes.")
+    st.subheader("🛤️ KEGG Pathway Comparative Dot + Bubble Plot (X-axis: Q1, Q2, Q4)")
+    st.markdown("KEGG Pathway enrichment comparing active target quadrants **Q1, Q2, and Q4 on the X-axis** as an interactive **Dot + Bubble Plot**.")
     
-    st.info(f"💡 **Current KEGG Analysis Scope:** {st.session_state.get('enrichment_q1_count', 0)} Q1 genes ({st.session_state.get('enrichment_cutoffs_str', '')}). Adjust threshold sliders on the right panel and click **🚀 Generate GO / KEGG** to re-calculate.")
+    q1_cnt = len(df_merged_data.filter(pl.col("quadrant") == "Q1"))
+    q2_cnt = len(df_merged_data.filter(pl.col("quadrant") == "Q2"))
+    q3_cnt = len(df_merged_data.filter(pl.col("quadrant") == "Q3"))
+    q4_cnt = len(df_merged_data.filter(pl.col("quadrant") == "Q4"))
     
-    df_kegg = st.session_state.get("kegg_results_df", pd.DataFrame())
+    st.info(f"💡 **Analysis Scopes:** Q1 (Dual Responders): {q1_cnt} genes | Q2 (Splicing Target): {q2_cnt} genes | Q4 (DEG Only): {q4_cnt} genes | Q3 (Invariant): {q3_cnt} genes. Adjust threshold sliders on the right panel and click **🚀 Generate GO / KEGG** to re-calculate.")
 
-    # Prominently Visible Controls Bar with Download CSV Button on the right
-    ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([2, 1, 1])
-    with ctrl_col1:
-        q_filter_kegg = st.multiselect(
-            "Select Quadrants for KEGG Analysis",
-            options=["Q1", "Q2", "Q3", "Q4"],
-            default=["Q1"],
-            key="q_filter_kegg_select"
-        )
-    with ctrl_col2:
-        chart_style = st.radio(
-            "📊 Chart Style",
-            ["Bar Chart", "Dot / Bubble Plot"],
-            horizontal=True,
-            key="kegg_chart_type"
-        )
-    with ctrl_col3:
-        if df_kegg is not None and not df_kegg.empty:
-            kegg_csv_bytes = df_kegg[["Term", "Overlap", "P-value", "Adjusted P-value", "Genes"]].to_csv(index=False).encode('utf-8')
+    df_kegg_q1 = st.session_state.get("kegg_q1_df", pd.DataFrame())
+    df_kegg_q2 = st.session_state.get("kegg_q2_df", pd.DataFrame())
+    df_kegg_q4 = st.session_state.get("kegg_q4_df", pd.DataFrame())
+
+    # Download Button Bar
+    dl_col1, dl_col2 = st.columns([3, 1])
+    with dl_col2:
+        if df_kegg_q1 is not None and not df_kegg_q1.empty:
+            kegg_csv_bytes = df_kegg_q1[["Term", "Overlap", "P-value", "Adjusted P-value", "Genes"]].to_csv(index=False).encode('utf-8')
             st.download_button(
-                label="📥 Download KEGG Table (.csv)",
+                label="📥 Download Q1 KEGG Table (.csv)",
                 data=kegg_csv_bytes,
                 file_name=f"kegg_pathways_Q1_FC{log2fc_cutoff:.2f}_dPSI{delta_psi_cutoff:.2f}.csv",
                 mime="text/csv",
                 key="dl_kegg_csv_btn",
                 use_container_width=True
             )
-    
-    if not q_filter_kegg:
-        st.info("Please select at least one quadrant to analyze KEGG pathways.")
-        return
-        
-    if chart_style == "Dot / Bubble Plot":
-        fig_kegg = build_enrichment_dot_plot(df_kegg, f"KEGG Pathway Dot Plot ({', '.join(q_filter_kegg)})")
-    else:
-        fig_kegg = build_enrichment_chart(df_kegg, f"Top KEGG Pathways ({', '.join(q_filter_kegg)})", bar_color="#A855F7")
-        
-    # ONLY display the graph on the result page
-    st.plotly_chart(fig_kegg, use_container_width=True)
+
+    fig_kegg_combined = build_combined_quadrant_dot_plot(
+        df_kegg_q1, df_kegg_q2, df_kegg_q4, 
+        title="Comparative KEGG Pathway Dot + Bubble Plot (X-axis: Q1, Q2, Q4)",
+        y_title="KEGG Pathway Term"
+    )
+    st.plotly_chart(fig_kegg_combined, use_container_width=True)
 
     # Prominently Visible KEGG Pathway Explorer Box on Main Canvas
     st.markdown("---")

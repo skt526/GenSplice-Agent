@@ -154,12 +154,13 @@ def build_combined_quadrant_dot_plot(
     df_q1: pd.DataFrame, 
     df_q2: pd.DataFrame, 
     df_q4: pd.DataFrame, 
-    title: str = "GO Term Biological Process Comparative Dot + Bubble Plot"
+    title: str = "GO Term Biological Process Comparative Dot + Bubble Plot",
+    y_title: str = "Enriched Term / Pathway"
 ) -> go.Figure:
     """
     Builds a multi-quadrant comparative Dot / Bubble Plot:
     X-axis: Quadrants (Q1, Q2, Q4) - STRICTLY CATEGORICAL X-AXIS
-    Y-axis: Enriched GO Biological Process Terms
+    Y-axis: Enriched Terms / Pathways
     Bubble Size: Gene Count Overlap
     Bubble Color: -log10(p-value)
     """
@@ -177,7 +178,7 @@ def build_combined_quadrant_dot_plot(
     if not frames:
         fig = go.Figure()
         fig.add_annotation(
-            text="No enriched GO terms found across Q1, Q2, Q4.",
+            text="No enriched terms found across Q1, Q2, Q4.",
             xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
             font=dict(size=14, color="#64748B")
         )
@@ -232,7 +233,7 @@ def build_combined_quadrant_dot_plot(
         category_orders={"Display_Term": term_order, "Quadrant": ["Q1", "Q2", "Q4"]},
         labels={
             "log_p": "-log₁₀(p-value)",
-            "Display_Term": "GO Biological Process Term",
+            "Display_Term": y_title,
             "Quadrant": "Quadrant Category",
             "Gene_Count": "Gene Count",
             "Gene_Ratio_Pct": "Gene Ratio (Overlap %)"
