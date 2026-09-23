@@ -12,7 +12,7 @@ import json
 import polars as pl
 import pandas as pd
 from visualizer.quadrant_plot import build_quadrant_plot
-from visualizer.enrichment_plot import build_enrichment_chart, build_enrichment_dot_plot
+from visualizer.enrichment_plot import build_enrichment_chart, build_enrichment_dot_plot, build_combined_quadrant_dot_plot
 from core.merger import get_quadrant_kpis
 from core.enrichment import fetch_enrichment
 from core.ai_summary import generate_biological_insights, fetch_ncbi_gene_summary, fetch_pubmed_literature, generate_detailed_bio_prompt
@@ -37,16 +37,21 @@ def export_html_report(
 
     kpis = get_quadrant_kpis(df_merged)
 
-    # Pre-generate GO & KEGG Enrichment for Q1 Genes (Both DEG & Splicing)
+    # Pre-generate GO & KEGG Enrichment for target quadrants Q1, Q2, Q4
     q1_genes = df_merged.filter(pl.col("quadrant") == "Q1").select("geneSymbol").to_series().to_list()
-    if not q1_genes:
-        q1_genes = df_merged.select("geneSymbol").to_series().to_list()
+    q2_genes = df_merged.filter(pl.col("quadrant") == "Q2").select("geneSymbol").to_series().to_list()
+    q4_genes = df_merged.filter(pl.col("quadrant") == "Q4").select("geneSymbol").to_series().to_list()
+    all_genes = df_merged.select("geneSymbol").to_series().to_list()
 
-    df_go = fetch_enrichment(q1_genes, gene_sets=["GO_Biological_Process_2023"], top_n=8)
-    df_kegg = fetch_enrichment(q1_genes, gene_sets=["KEGG_2021_Human"], top_n=8)
+    df_go_q1 = fetch_enrichment(q1_genes if q1_genes else all_genes, gene_sets=["GO_Biological_Process_2023"], top_n=8)
+    df_go_q2 = fetch_enrichment(q2_genes if q2_genes else all_genes, gene_sets=["GO_Biological_Process_2023"], top_n=8)
+    df_go_q4 = fetch_enrichment(q4_genes if q4_genes else all_genes, gene_sets=["GO_Biological_Process_2023"], top_n=8)
 
-    # Build Interactive Plotly Dot Plot for GO and Bar Chart for KEGG
-    fig_go = build_enrichment_dot_plot(df_go, "Top GO Biological Processes Dot Plot (Q1: Both DEG & Splicing)", color_scale="Purples_r", border_color="#6B21A8")
+    df_go = df_go_q1
+    df_kegg = fetch_enrichment(q1_genes if q1_genes else all_genes, gene_sets=["KEGG_2021_Human"], top_n=8)
+
+    # Build Interactive Plotly Comparative Dot Plot for GO (X-axis: Q1, Q2, Q4) and Bar Chart for KEGG
+    fig_go = build_combined_quadrant_dot_plot(df_go_q1, df_go_q2, df_go_q4, "Comparative GO Biological Process Dot + Bubble Plot (X-axis: Q1, Q2, Q4)")
     go_chart_html = fig_go.to_html(full_html=False, include_plotlyjs=False, div_id="plotly-go-div")
 
     fig_kegg = build_enrichment_chart(df_kegg, "Top KEGG Pathways (Q1: Both DEG & Splicing)", bar_color="#A855F7")
@@ -746,15 +751,35 @@ def export_html_report(
                 }};
             }});
 
-            // Re-render Plotly GO Bar Chart
+            // Re-render Plotly GO Dot + Bubble Plot (X-axis: Q1, Q2, Q4)
             const goDiv = document.getElementById('plotly-go-div');
             if (goDiv && window.Plotly && sortedGo.length) {{
-                const xVal = sortedGo.map(item => parseFloat(item.logP)).reverse();
+                const xVal = sortedGo.map(() => 'Q1');
                 const yVal = sortedGo.map(item => item.term.length > 45 ? item.term.slice(0,45) + '...' : item.term).reverse();
+                const markerSizes = sortedGo.map(item => Math.min(Math.max(item.count * 4, 10), 26)).reverse();
+                const colorVals = sortedGo.map(item => parseFloat(item.logP)).reverse();
                 Plotly.react(goDiv, [{{
-                    x: xVal, y: yVal, type: 'bar', orientation: 'h',
-                    marker: {{ color: '#A855F7', opacity: 0.85, line: {{ color: '#6B21A8', width: 1 }} }}
-                }}], goDiv.layout);
+                    x: xVal,
+                    y: yVal,
+                    mode: 'markers',
+                    type: 'scatter',
+                    marker: {{
+                        size: markerSizes,
+                        color: colorVals,
+                        colorscale: 'Purples',
+                        showscale: true,
+                        colorbar: {{ title: '-log₁₀(p-val)' }},
+                        line: {{ color: '#4C1D95', width: 1.5 }}
+                    }}
+                }}], {{
+                    ...goDiv.layout,
+                    xaxis: {{
+                        type: 'category',
+                        categoryorder: 'array',
+                        categoryarray: ['Q1', 'Q2', 'Q4'],
+                        title: '<b>Quadrant Category (X-axis: Q1, Q2, Q4)</b>'
+                    }}
+                }});
             }}
 
             // Re-render Plotly KEGG Bar Chart

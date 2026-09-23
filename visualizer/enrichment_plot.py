@@ -158,7 +158,7 @@ def build_combined_quadrant_dot_plot(
 ) -> go.Figure:
     """
     Builds a multi-quadrant comparative Dot / Bubble Plot:
-    X-axis: Quadrants (Q1, Q2, Q4)
+    X-axis: Quadrants (Q1, Q2, Q4) - STRICTLY CATEGORICAL X-AXIS
     Y-axis: Enriched GO Biological Process Terms
     Bubble Size: Gene Count Overlap
     Bubble Color: -log10(p-value)
@@ -181,7 +181,17 @@ def build_combined_quadrant_dot_plot(
             xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
             font=dict(size=14, color="#64748B")
         )
-        fig.update_layout(paper_bgcolor="#FFFFFF", plot_bgcolor="#F8FAFC", height=350)
+        fig.update_layout(
+            paper_bgcolor="#FFFFFF",
+            plot_bgcolor="#F8FAFC",
+            height=350,
+            xaxis=dict(
+                type="category",
+                categoryorder="array",
+                categoryarray=["Q1", "Q2", "Q4"],
+                title="<b>Quadrant Category (X-axis: Q1, Q2, Q4)</b>"
+            )
+        )
         return fig
         
     combined = pd.concat(frames, ignore_index=True)
@@ -192,7 +202,18 @@ def build_combined_quadrant_dot_plot(
         except Exception:
             return 5
 
+    def parse_gene_ratio(val):
+        try:
+            parts = str(val).split("/")
+            num = float(parts[0])
+            den = float(parts[1])
+            return round(num / den, 4) if den > 0 else 0.1
+        except Exception:
+            return 0.1
+
     combined["Gene_Count"] = combined["Overlap"].apply(parse_overlap_num)
+    combined["Gene_Ratio"] = combined["Overlap"].apply(parse_gene_ratio)
+    combined["Gene_Ratio_Pct"] = combined["Gene_Ratio"].apply(lambda r: f"{r*100:.1f}%")
     combined["Display_Term"] = combined["Term"].apply(
         lambda t: t[:48] + "..." if len(str(t)) > 50 else str(t)
     )
@@ -209,8 +230,22 @@ def build_combined_quadrant_dot_plot(
         color_continuous_scale="Purples",
         size_max=24,
         category_orders={"Display_Term": term_order, "Quadrant": ["Q1", "Q2", "Q4"]},
-        labels={"log_p": "-log₁₀(p-value)", "Display_Term": "GO Biological Process Term", "Quadrant": "Quadrant Category", "Gene_Count": "Gene Count"},
-        hover_data={"Term": True, "P-value": ":.4f", "Adjusted P-value": ":.4f", "Overlap": True, "Genes": True},
+        labels={
+            "log_p": "-log₁₀(p-value)",
+            "Display_Term": "GO Biological Process Term",
+            "Quadrant": "Quadrant Category",
+            "Gene_Count": "Gene Count",
+            "Gene_Ratio_Pct": "Gene Ratio (Overlap %)"
+        },
+        hover_data={
+            "Quadrant": True,
+            "Term": True,
+            "P-value": ":.4f",
+            "Adjusted P-value": ":.4f",
+            "Overlap": True,
+            "Gene_Ratio_Pct": True,
+            "Genes": True
+        },
         title=f"<b>{title}</b>"
     )
 
@@ -224,6 +259,9 @@ def build_combined_quadrant_dot_plot(
         font=dict(family="Inter, Roboto, sans-serif", color="#0F172A", size=13),
         margin=dict(l=20, r=20, t=50, b=50),
         xaxis=dict(
+            type="category",
+            categoryorder="array",
+            categoryarray=["Q1", "Q2", "Q4"],
             title="<b>Quadrant Category (X-axis: Q1, Q2, Q4)</b>",
             gridcolor="#E2E8F0",
             zerolinecolor="#CBD5E1"
