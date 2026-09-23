@@ -317,9 +317,9 @@ with tab1:
     with col5:
         st.markdown(f'<div class="kpi-box" style="border-top:4px solid #94A3B8;"><div class="kpi-lbl" style="color:#64748B;">Q3: Invariant</div><div class="kpi-val" style="color:#64748B;">{kpis["Q3"]}</div></div>', unsafe_allow_html=True)
 
-# Helper function to render GO Term Section (Separately per Quadrant with Dot Plots & Q1/Q2/Q4 X-axis Comparative Dot+Bubble Plot)
+# Helper function to render GO Term Section (Comparative Dot + Bubble Plot with X-axis Q1, Q2, Q4)
 def render_go_section(df_merged_data):
-    st.subheader("🧬 GO Term Biological Process Comparative Dot + Bubble Plot")
+    st.subheader("🧬 GO Term Biological Process Comparative Dot + Bubble Plot (X-axis: Q1, Q2, Q4)")
     st.markdown("Gene Ontology (GO Biological Process) enrichment comparing active target quadrants **Q1, Q2, and Q4 on the X-axis** as an interactive **Dot + Bubble Plot**.")
     
     q1_cnt = len(df_merged_data.filter(pl.col("quadrant") == "Q1"))
@@ -334,16 +334,9 @@ def render_go_section(df_merged_data):
     df_q3 = st.session_state.get("go_q3_df", pd.DataFrame())
     df_q4 = st.session_state.get("go_q4_df", pd.DataFrame())
 
-    # Controls Bar: View mode & CSV Download
-    ctrl_col1, ctrl_col2 = st.columns([3, 1])
-    with ctrl_col1:
-        selected_view_mode = st.radio(
-            "📐 Quadrant Display Layout",
-            ["🔥 Combined Comparative Dot + Bubble Plot (X-axis: Q1, Q2, Q4)", "Tabbed Quadrant Views (Q1, Q2, Q3, Q4)", "Side-by-Side Comparison Grid"],
-            horizontal=True,
-            key="go_display_layout"
-        )
-    with ctrl_col2:
+    # Download Buttons Bar
+    dl_col1, dl_col2 = st.columns([3, 1])
+    with dl_col2:
         if df_q1 is not None and not df_q1.empty:
             csv_bytes = df_q1[["Term", "Overlap", "P-value", "Adjusted P-value", "Genes"]].to_csv(index=False).encode('utf-8')
             st.download_button(
@@ -355,58 +348,12 @@ def render_go_section(df_merged_data):
                 use_container_width=True
             )
 
-    if selected_view_mode == "🔥 Combined Comparative Dot + Bubble Plot (X-axis: Q1, Q2, Q4)":
-        st.markdown("#### 🎯 Comparative GO Biological Process Dot + Bubble Plot (X-axis: Q1, Q2, Q4)")
-        fig_combined = build_combined_quadrant_dot_plot(
-            df_q1, df_q2, df_q4, 
-            title="Comparative GO Biological Process Dot + Bubble Plot (X-axis: Q1, Q2, Q4)"
-        )
-        st.plotly_chart(fig_combined, use_container_width=True)
-
-    elif selected_view_mode == "Tabbed Quadrant Views (Q1, Q2, Q3, Q4)":
-        go_tab1, go_tab2, go_tab3, go_tab4 = st.tabs([
-            "🟣 Q1: Dual Responders (DEG & Splicing)",
-            "🔵 Q2: Splicing Target Only",
-            "⚪ Q3: Invariant / Control",
-            "🔴 Q4: DEG Only"
-        ])
-        
-        with go_tab1:
-            st.markdown(f"#### 🟣 Q1: Dual Responders GO Biological Process Dot Plot ({len(q1_current_genes)} genes)")
-            fig_q1 = build_enrichment_dot_plot(df_q1, "Q1 (Dual Responders) GO Biological Process Dot Plot", color_scale="Purples_r", border_color="#6B21A8")
-            st.plotly_chart(fig_q1, use_container_width=True)
-
-        with go_tab2:
-            st.markdown(f"#### 🔵 Q2: Splicing Target Only GO Biological Process Dot Plot ({len(q2_current_genes)} genes)")
-            fig_q2 = build_enrichment_dot_plot(df_q2, "Q2 (Splicing Target Only) GO Biological Process Dot Plot", color_scale="Blues_r", border_color="#1E3A8A")
-            st.plotly_chart(fig_q2, use_container_width=True)
-
-        with go_tab3:
-            st.markdown(f"#### ⚪ Q3: Invariant Control GO Biological Process Dot Plot ({len(q3_current_genes)} genes)")
-            fig_q3 = build_enrichment_dot_plot(df_q3, "Q3 (Invariant / Control) GO Biological Process Dot Plot", color_scale="Greys_r", border_color="#475569")
-            st.plotly_chart(fig_q3, use_container_width=True)
-
-        with go_tab4:
-            st.markdown(f"#### 🔴 Q4: DEG Only GO Biological Process Dot Plot ({len(q4_current_genes)} genes)")
-            fig_q4 = build_enrichment_dot_plot(df_q4, "Q4 (DEG Only) GO Biological Process Dot Plot", color_scale="Reds_r", border_color="#991B1B")
-            st.plotly_chart(fig_q4, use_container_width=True)
-
-    else:
-        # Side-by-Side Comparison Grid
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.markdown("#### 🟣 Q1: Dual Responders (DEG & Splicing)")
-            st.plotly_chart(build_enrichment_dot_plot(df_q1, "Q1 (Dual Responders) GO Dot Plot", color_scale="Purples_r", border_color="#6B21A8"), use_container_width=True)
-
-            st.markdown("#### ⚪ Q3: Invariant Control")
-            st.plotly_chart(build_enrichment_dot_plot(df_q3, "Q3 (Invariant Control) GO Dot Plot", color_scale="Greys_r", border_color="#475569"), use_container_width=True)
-
-        with col_b:
-            st.markdown("#### 🔵 Q2: Splicing Target Only")
-            st.plotly_chart(build_enrichment_dot_plot(df_q2, "Q2 (Splicing Target Only) GO Dot Plot", color_scale="Blues_r", border_color="#1E3A8A"), use_container_width=True)
-
-            st.markdown("#### 🔴 Q4: DEG Only")
-            st.plotly_chart(build_enrichment_dot_plot(df_q4, "Q4 (DEG Only) GO Dot Plot", color_scale="Reds_r", border_color="#991B1B"), use_container_width=True)
+    # Directly render the main Comparative Dot + Bubble Plot with X-axis Q1, Q2, Q4
+    fig_combined = build_combined_quadrant_dot_plot(
+        df_q1, df_q2, df_q4, 
+        title="Comparative GO Biological Process Dot + Bubble Plot (X-axis: Q1, Q2, Q4)"
+    )
+    st.plotly_chart(fig_combined, use_container_width=True)
 
 # Helper function to render KEGG Section (Default Q1, ONLY graph on page + Download button on header right)
 def render_kegg_section(df_merged_data):
