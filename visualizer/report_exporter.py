@@ -12,7 +12,7 @@ import json
 import polars as pl
 import pandas as pd
 from visualizer.quadrant_plot import build_quadrant_plot
-from visualizer.enrichment_plot import build_enrichment_chart
+from visualizer.enrichment_plot import build_enrichment_chart, build_enrichment_dot_plot
 from core.merger import get_quadrant_kpis
 from core.enrichment import fetch_enrichment
 from core.ai_summary import generate_biological_insights, fetch_ncbi_gene_summary, fetch_pubmed_literature, generate_detailed_bio_prompt
@@ -45,8 +45,8 @@ def export_html_report(
     df_go = fetch_enrichment(q1_genes, gene_sets=["GO_Biological_Process_2023"], top_n=8)
     df_kegg = fetch_enrichment(q1_genes, gene_sets=["KEGG_2021_Human"], top_n=8)
 
-    # Build Interactive Plotly Bar Charts for GO and KEGG
-    fig_go = build_enrichment_chart(df_go, "Top GO Biological Processes (Q1: Both DEG & Splicing)", bar_color="#A855F7")
+    # Build Interactive Plotly Dot Plot for GO and Bar Chart for KEGG
+    fig_go = build_enrichment_dot_plot(df_go, "Top GO Biological Processes Dot Plot (Q1: Both DEG & Splicing)", color_scale="Purples_r", border_color="#6B21A8")
     go_chart_html = fig_go.to_html(full_html=False, include_plotlyjs=False, div_id="plotly-go-div")
 
     fig_kegg = build_enrichment_chart(df_kegg, "Top KEGG Pathways (Q1: Both DEG & Splicing)", bar_color="#A855F7")

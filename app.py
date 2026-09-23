@@ -234,21 +234,27 @@ with control_col:
     
     st.markdown('</div>', unsafe_allow_html=True)
 
-# Manage Session State for GO & KEGG Enrichment Calculation
+# Manage Session State for GO & KEGG Enrichment Calculation (Separately per Quadrant)
 q1_current_genes = df_merged.filter(pl.col("quadrant") == "Q1").select("geneSymbol").to_series().to_list()
-if not q1_current_genes:
-    q1_current_genes = df_merged.select("geneSymbol").to_series().to_list()
+q2_current_genes = df_merged.filter(pl.col("quadrant") == "Q2").select("geneSymbol").to_series().to_list()
+q3_current_genes = df_merged.filter(pl.col("quadrant") == "Q3").select("geneSymbol").to_series().to_list()
+q4_current_genes = df_merged.filter(pl.col("quadrant") == "Q4").select("geneSymbol").to_series().to_list()
 
-if "go_results_df" not in st.session_state or gen_enrich_btn:
+if "go_q1_df" not in st.session_state or gen_enrich_btn:
     if gen_enrich_btn:
-        st.toast("⚡ Recalculating GO Term & KEGG Pathway Enrichments...", icon="🧬")
-    with st.spinner("⚡ Re-calculating GO & KEGG Pathways for active Q1 genes..."):
-        st.session_state["go_results_df"] = fetch_enrichment(q1_current_genes, gene_sets=["GO_Biological_Process_2023"], top_n=10)
-        st.session_state["kegg_results_df"] = fetch_enrichment(q1_current_genes, gene_sets=["KEGG_2021_Human"], top_n=10)
+        st.toast("⚡ Recalculating Quadrant-Specific GO Term & KEGG Enrichments...", icon="🧬")
+    with st.spinner("⚡ Re-calculating GO Biological Processes separately for Q1, Q2, Q3, Q4..."):
+        st.session_state["go_q1_df"] = fetch_enrichment(q1_current_genes if q1_current_genes else df_merged.select("geneSymbol").to_series().to_list(), gene_sets=["GO_Biological_Process_2023"], top_n=10)
+        st.session_state["go_q2_df"] = fetch_enrichment(q2_current_genes if q2_current_genes else df_merged.select("geneSymbol").to_series().to_list(), gene_sets=["GO_Biological_Process_2023"], top_n=10)
+        st.session_state["go_q3_df"] = fetch_enrichment(q3_current_genes if q3_current_genes else df_merged.select("geneSymbol").to_series().to_list(), gene_sets=["GO_Biological_Process_2023"], top_n=10)
+        st.session_state["go_q4_df"] = fetch_enrichment(q4_current_genes if q4_current_genes else df_merged.select("geneSymbol").to_series().to_list(), gene_sets=["GO_Biological_Process_2023"], top_n=10)
+        
+        st.session_state["go_results_df"] = st.session_state["go_q1_df"]
+        st.session_state["kegg_results_df"] = fetch_enrichment(q1_current_genes if q1_current_genes else df_merged.select("geneSymbol").to_series().to_list(), gene_sets=["KEGG_2021_Human"], top_n=10)
         st.session_state["enrichment_q1_count"] = len(q1_current_genes)
         st.session_state["enrichment_cutoffs_str"] = f"Log₂FC ≥ {log2fc_cutoff:.2f}, ΔPSI ≥ {delta_psi_cutoff:.2f}"
     if gen_enrich_btn:
-        st.toast(f"✨ GO & KEGG Enrichment Updated! ({len(q1_current_genes)} Q1 genes)", icon="🚀")
+        st.toast(f"✨ Quadrant GO Enrichments Updated! (Q1:{len(q1_current_genes)}, Q2:{len(q2_current_genes)}, Q3:{len(q3_current_genes)})", icon="🚀")
 
 # Export HTML Report Button
 export_col1, export_col2 = st.columns([3, 1])
@@ -272,10 +278,10 @@ with export_col2:
             mime="text/html"
         )
 
-# Main Navigation Tabs (Updated Section Titles highlighting Q1)
+# Main Navigation Tabs
 tab1, tab2, tab3, tab4 = st.tabs([
     "📊 4-Quadrant Cross-Plot",
-    "🧬 GO Term Analysis (Q1: Both DEG & Splicing)",
+    "🧬 GO Term Analysis (Q1, Q2, Q3 Quadrant Dot Plots)",
     "🛤️ KEGG Pathway Analysis (Q1: Both DEG & Splicing)",
     "📋 Data Explorer & Target Selector"
 ])
@@ -311,54 +317,120 @@ with tab1:
     with col5:
         st.markdown(f'<div class="kpi-box" style="border-top:4px solid #94A3B8;"><div class="kpi-lbl" style="color:#64748B;">Q3: Invariant</div><div class="kpi-val" style="color:#64748B;">{kpis["Q3"]}</div></div>', unsafe_allow_html=True)
 
-# Helper function to render GO Term Section (Default Q1, ONLY graph on page + Download button on header right)
+# Helper function to render GO Term Section (Separately per Quadrant with Dot Plots)
 def render_go_section(df_merged_data):
-    st.subheader("🧬 GO Term Analysis (Q1: Both DEG & Splicing)")
-    st.markdown("Perform Gene Ontology enrichment focusing primarily on **Q1 (Dual Responders: Both DEG & Splicing)** genes.")
+    st.subheader("🧬 GO Term Biological Process Analysis (Quadrant-Specific Dot Plots)")
+    st.markdown("Gene Ontology (GO Biological Process) enrichment calculated **separately for Q1, Q2, Q3, and Q4** and rendered as interactive **Dot / Bubble Plots**.")
     
-    st.info(f"💡 **Current GO Analysis Scope:** {st.session_state.get('enrichment_q1_count', 0)} Q1 genes ({st.session_state.get('enrichment_cutoffs_str', '')}). Adjust threshold sliders on the right panel and click **🚀 Generate GO / KEGG** to re-calculate.")
+    q1_cnt = len(df_merged_data.filter(pl.col("quadrant") == "Q1"))
+    q2_cnt = len(df_merged_data.filter(pl.col("quadrant") == "Q2"))
+    q3_cnt = len(df_merged_data.filter(pl.col("quadrant") == "Q3"))
+    q4_cnt = len(df_merged_data.filter(pl.col("quadrant") == "Q4"))
     
-    df_go = st.session_state.get("go_results_df", pd.DataFrame())
+    st.info(f"💡 **Analysis Scopes:** Q1 (Dual Responders): {q1_cnt} genes | Q2 (Splicing Target): {q2_cnt} genes | Q3 (Invariant): {q3_cnt} genes | Q4 (DEG Only): {q4_cnt} genes. Adjust threshold sliders on the right panel and click **🚀 Generate GO / KEGG** to re-calculate.")
 
-    # Prominently Visible Controls Bar with Download CSV Button on the right
+    # Controls Bar: View mode & Chart style
     ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([2, 1, 1])
     with ctrl_col1:
-        q_filter_go = st.multiselect(
-            "Select Quadrants for GO Analysis",
-            options=["Q1", "Q2", "Q3", "Q4"],
-            default=["Q1"],
-            key="q_filter_go_select"
+        selected_view_mode = st.radio(
+            "📐 Quadrant Display Layout",
+            ["Tabbed Quadrant Views (Q1, Q2, Q3, Q4)", "Side-by-Side Comparison Grid"],
+            horizontal=True,
+            key="go_display_layout"
         )
     with ctrl_col2:
         chart_style = st.radio(
             "📊 Chart Style",
-            ["Bar Chart", "Dot / Bubble Plot"],
+            ["Dot / Bubble Plot", "Bar Chart"],
             horizontal=True,
             key="go_chart_type"
         )
     with ctrl_col3:
-        if df_go is not None and not df_go.empty:
-            go_csv_bytes = df_go[["Term", "Overlap", "P-value", "Adjusted P-value", "Genes"]].to_csv(index=False).encode('utf-8')
+        df_q1_dl = st.session_state.get("go_q1_df", pd.DataFrame())
+        if df_q1_dl is not None and not df_q1_dl.empty:
+            csv_bytes = df_q1_dl[["Term", "Overlap", "P-value", "Adjusted P-value", "Genes"]].to_csv(index=False).encode('utf-8')
             st.download_button(
-                label="📥 Download GO Table (.csv)",
-                data=go_csv_bytes,
+                label="📥 Download Q1 GO Table (.csv)",
+                data=csv_bytes,
                 file_name=f"go_terms_Q1_FC{log2fc_cutoff:.2f}_dPSI{delta_psi_cutoff:.2f}.csv",
                 mime="text/csv",
-                key="dl_go_csv_btn",
+                key="dl_go_q1_csv",
                 use_container_width=True
             )
-    
-    if not q_filter_go:
-        st.info("Please select at least one quadrant to analyze GO terms.")
-        return
+
+    df_q1 = st.session_state.get("go_q1_df", pd.DataFrame())
+    df_q2 = st.session_state.get("go_q2_df", pd.DataFrame())
+    df_q3 = st.session_state.get("go_q3_df", pd.DataFrame())
+    df_q4 = st.session_state.get("go_q4_df", pd.DataFrame())
+
+    if selected_view_mode == "Tabbed Quadrant Views (Q1, Q2, Q3, Q4)":
+        go_tab1, go_tab2, go_tab3, go_tab4 = st.tabs([
+            "🟣 Q1: Dual Responders (DEG & Splicing)",
+            "🔵 Q2: Splicing Target Only",
+            "⚪ Q3: Invariant / Control",
+            "🔴 Q4: DEG Only"
+        ])
         
-    if chart_style == "Dot / Bubble Plot":
-        fig_go = build_enrichment_dot_plot(df_go, f"GO Biological Process Dot Plot ({', '.join(q_filter_go)})")
+        with go_tab1:
+            st.markdown(f"#### 🟣 Q1: Dual Responders GO Biological Process Dot Plot ({len(q1_current_genes)} genes)")
+            if chart_style == "Dot / Bubble Plot":
+                fig_q1 = build_enrichment_dot_plot(df_q1, "Q1 (Dual Responders) GO Biological Process Dot Plot", color_scale="Purples_r", border_color="#6B21A8")
+            else:
+                fig_q1 = build_enrichment_chart(df_q1, "Q1 (Dual Responders) GO Bar Chart", bar_color="#A855F7")
+            st.plotly_chart(fig_q1, use_container_width=True)
+
+        with go_tab2:
+            st.markdown(f"#### 🔵 Q2: Splicing Target Only GO Biological Process Dot Plot ({len(q2_current_genes)} genes)")
+            if chart_style == "Dot / Bubble Plot":
+                fig_q2 = build_enrichment_dot_plot(df_q2, "Q2 (Splicing Target Only) GO Biological Process Dot Plot", color_scale="Blues_r", border_color="#1E3A8A")
+            else:
+                fig_q2 = build_enrichment_chart(df_q2, "Q2 (Splicing Target Only) GO Bar Chart", bar_color="#3B82F6")
+            st.plotly_chart(fig_q2, use_container_width=True)
+
+        with go_tab3:
+            st.markdown(f"#### ⚪ Q3: Invariant Control GO Biological Process Dot Plot ({len(q3_current_genes)} genes)")
+            if chart_style == "Dot / Bubble Plot":
+                fig_q3 = build_enrichment_dot_plot(df_q3, "Q3 (Invariant / Control) GO Biological Process Dot Plot", color_scale="Greys_r", border_color="#475569")
+            else:
+                fig_q3 = build_enrichment_chart(df_q3, "Q3 (Invariant / Control) GO Bar Chart", bar_color="#94A3B8")
+            st.plotly_chart(fig_q3, use_container_width=True)
+
+        with go_tab4:
+            st.markdown(f"#### 🔴 Q4: DEG Only GO Biological Process Dot Plot ({len(q4_current_genes)} genes)")
+            if chart_style == "Dot / Bubble Plot":
+                fig_q4 = build_enrichment_dot_plot(df_q4, "Q4 (DEG Only) GO Biological Process Dot Plot", color_scale="Reds_r", border_color="#991B1B")
+            else:
+                fig_q4 = build_enrichment_chart(df_q4, "Q4 (DEG Only) GO Bar Chart", bar_color="#EF4444")
+            st.plotly_chart(fig_q4, use_container_width=True)
+
     else:
-        fig_go = build_enrichment_chart(df_go, f"Top GO Biological Processes ({', '.join(q_filter_go)})", bar_color="#A855F7")
-        
-    # ONLY display the graph on the result page
-    st.plotly_chart(fig_go, use_container_width=True)
+        # Side-by-Side Comparison Grid
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown("#### 🟣 Q1: Dual Responders (DEG & Splicing)")
+            if chart_style == "Dot / Bubble Plot":
+                st.plotly_chart(build_enrichment_dot_plot(df_q1, "Q1 (Dual Responders) GO Dot Plot", color_scale="Purples_r", border_color="#6B21A8"), use_container_width=True)
+            else:
+                st.plotly_chart(build_enrichment_chart(df_q1, "Q1 GO Bar Chart", bar_color="#A855F7"), use_container_width=True)
+
+            st.markdown("#### ⚪ Q3: Invariant Control")
+            if chart_style == "Dot / Bubble Plot":
+                st.plotly_chart(build_enrichment_dot_plot(df_q3, "Q3 (Invariant Control) GO Dot Plot", color_scale="Greys_r", border_color="#475569"), use_container_width=True)
+            else:
+                st.plotly_chart(build_enrichment_chart(df_q3, "Q3 GO Bar Chart", bar_color="#94A3B8"), use_container_width=True)
+
+        with col_b:
+            st.markdown("#### 🔵 Q2: Splicing Target Only")
+            if chart_style == "Dot / Bubble Plot":
+                st.plotly_chart(build_enrichment_dot_plot(df_q2, "Q2 (Splicing Target Only) GO Dot Plot", color_scale="Blues_r", border_color="#1E3A8A"), use_container_width=True)
+            else:
+                st.plotly_chart(build_enrichment_chart(df_q2, "Q2 GO Bar Chart", bar_color="#3B82F6"), use_container_width=True)
+
+            st.markdown("#### 🔴 Q4: DEG Only")
+            if chart_style == "Dot / Bubble Plot":
+                st.plotly_chart(build_enrichment_dot_plot(df_q4, "Q4 (DEG Only) GO Dot Plot", color_scale="Reds_r", border_color="#991B1B"), use_container_width=True)
+            else:
+                st.plotly_chart(build_enrichment_chart(df_q4, "Q4 GO Bar Chart", bar_color="#EF4444"), use_container_width=True)
 
 # Helper function to render KEGG Section (Default Q1, ONLY graph on page + Download button on header right)
 def render_kegg_section(df_merged_data):
