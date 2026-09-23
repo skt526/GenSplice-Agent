@@ -144,6 +144,8 @@ mkdir -p inputs/control inputs/treatment outputs
 echo -e "\n${BLUE}[1/2] Detecting Conda / Miniforge Environment...${NC}"
 
 CONDA_CMD=""
+CONDA_PROFILE=""
+CONDA_BASE_DIR=""
 
 # A. Check existing command in PATH
 if command -v mamba &>/dev/null; then
@@ -156,13 +158,16 @@ fi
 
 # B. Check standard installation directories if not in PATH
 if [ -z "$CONDA_CMD" ]; then
-    for candidate in "$HOME/miniforge3" "$HOME/miniconda3" "$HOME/anaconda3" "/opt/conda"; do
+    for candidate in "$HOME/miniforge3" "$HOME/miniconda3" "$HOME/anaconda3" "/root/miniconda3" "/opt/conda"; do
         if [ -f "$candidate/etc/profile.d/conda.sh" ]; then
             echo -e "  Found Conda installation at ${candidate}. Sourcing profile..."
-            source "$candidate/etc/profile.d/conda.sh"
+            CONDA_PROFILE="$candidate/etc/profile.d/conda.sh"
+            CONDA_BASE_DIR="$candidate"
+            source "$CONDA_PROFILE"
             CONDA_CMD="conda"
             break
         elif [ -x "$candidate/bin/conda" ]; then
+            CONDA_BASE_DIR="$candidate"
             export PATH="$candidate/bin:$PATH"
             CONDA_CMD="conda"
             break
@@ -194,9 +199,11 @@ if [ -z "$CONDA_CMD" ]; then
     bash "$INSTALLER_SCRIPT" -b -p "$HOME/miniforge3"
     rm -f "$INSTALLER_SCRIPT"
     
-    if [ -f "$HOME/miniforge3/etc/profile.d/conda.sh" ]; then
-        source "$HOME/miniforge3/etc/profile.d/conda.sh"
-        "$HOME/miniforge3/bin/conda" init bash 2>/dev/null || true
+    CONDA_BASE_DIR="$HOME/miniforge3"
+    CONDA_PROFILE="$HOME/miniforge3/etc/profile.d/conda.sh"
+    
+    if [ -f "$CONDA_PROFILE" ]; then
+        source "$CONDA_PROFILE"
         CONDA_CMD="conda"
         echo -e "${GREEN}✔ Successfully installed Miniforge3 at \$HOME/miniforge3!${NC}"
     else
@@ -205,44 +212,76 @@ if [ -z "$CONDA_CMD" ]; then
     fi
 fi
 
-# 9. Create or Update Conda Environment
+# D. Permanent Shell Initialization (~/.bashrc)
+if [ -n "$CONDA_BASE_DIR" ] && [ -x "$CONDA_BASE_DIR/bin/conda" ]; then
+    "$CONDA_BASE_DIR/bin/conda" init bash 2>/dev/null || true
+    "$CONDA_BASE_DIR/bin/conda" init zsh 2>/dev/null || true
+fi
+
+BASHRC="$HOME/.bashrc"
+if [ -n "$CONDA_PROFILE" ] && [ -f "$BASHRC" ]; then
+    if ! grep -q "profile.d/conda.sh" "$BASHRC" 2>/dev/null; then
+        echo "" >> "$BASHRC"
+        echo "# GenSplice-Agent Conda Environment Init" >> "$BASHRC"
+        echo "source \"$CONDA_PROFILE\" 2>/dev/null || true" >> "$BASHRC"
+        echo -e "  ${GREEN}✔ Configured permanent Conda sourcing in ${BASHRC}${NC}"
+    fi
+fi
+
+# 9. Create or Update Conda Environment using Fast Solver
 echo -e "\n${BLUE}[2/2] Managing Conda Environment '${ENV_NAME}'...${NC}"
+
+# Enable fast libmamba solver if standard conda is used
+if [ "$CONDA_CMD" = "conda" ]; then
+    echo -e "  ${DIM}Enabling fast libmamba solver & channel priorities...${RESET}"
+    $CONDA_CMD config --set channel_priority strict 2>/dev/null || true
+    $CONDA_CMD config --set solver libmamba 2>/dev/null || true
+fi
+
+# Prefer mamba if available
+SOLVER_CMD="$CONDA_CMD"
+if command -v mamba &>/dev/null; then
+    SOLVER_CMD="mamba"
+fi
 
 ENV_EXISTS=false
 if $CONDA_CMD env list | grep -qE "^${ENV_NAME}\s"; then
     ENV_EXISTS=true
 fi
 
-# Check if environment binaries are present
-ENV_BIN_DIR="$HOME/miniforge3/envs/${ENV_NAME}/bin"
-if [ ! -d "$ENV_BIN_DIR" ]; then
-    ENV_BIN_DIR="$HOME/miniconda3/envs/${ENV_NAME}/bin"
-fi
+# Find environment binary folder
+ENV_BIN_DIR=""
+for check_path in "$CONDA_BASE_DIR/envs/${ENV_NAME}/bin" "$HOME/miniforge3/envs/${ENV_NAME}/bin" "$HOME/miniconda3/envs/${ENV_NAME}/bin" "/root/miniconda3/envs/${ENV_NAME}/bin" "/opt/conda/envs/${ENV_NAME}/bin"; do
+    if [ -d "$check_path" ]; then
+        ENV_BIN_DIR="$check_path"
+        break
+    fi
+done
 
 IS_ENV_COMPLETE=false
-if [ "$ENV_EXISTS" = true ] && [ -x "${ENV_BIN_DIR}/fastp" ] && [ -x "${ENV_BIN_DIR}/STAR" ] && [ -x "${ENV_BIN_DIR}/rmats.py" ]; then
+if [ "$ENV_EXISTS" = true ] && [ -n "$ENV_BIN_DIR" ] && [ -x "${ENV_BIN_DIR}/fastp" ] && [ -x "${ENV_BIN_DIR}/STAR" ] && [ -x "${ENV_BIN_DIR}/rmats.py" ]; then
     IS_ENV_COMPLETE=true
 fi
 
 if [ "$ENV_EXISTS" = true ]; then
     if [ "$FORCE_INSTALL" = true ] || [ "$IS_ENV_COMPLETE" = false ]; then
         echo -e "Updating existing '${ENV_NAME}' Conda environment from environment.yml..."
-        $CONDA_CMD env update -n "$ENV_NAME" -f environment.yml --prune
+        $SOLVER_CMD env update -n "$ENV_NAME" -f environment.yml --prune
     else
         echo -e "${GREEN}✔ Environment '${ENV_NAME}' is already installed and verified. Skipping re-creation.${NC}"
         echo -e "${DIM}(Use './install --force' to force re-updating all dependencies)${RESET}"
     fi
 else
     echo -e "Creating new '${ENV_NAME}' Conda environment from environment.yml..."
-    $CONDA_CMD env create -f environment.yml
+    $SOLVER_CMD env create -f environment.yml
 fi
 
 echo -e "\n${GREEN}====================================================${NC}"
 echo -e "${GREEN}  GenSplice-Agent One-Click Setup Completed! 🎉    ${NC}"
 echo -e "${GREEN}====================================================${NC}"
 echo -e "Next steps:"
-echo -e "  1. Activate Conda Environment:"
-echo -e "     ${CYAN}source \$HOME/miniforge3/etc/profile.d/conda.sh && conda activate ${ENV_NAME}${NC}"
+echo -e "  1. Reload your shell or run:"
+echo -e "     ${CYAN}source ~/.bashrc && conda activate ${ENV_NAME}${NC}"
 echo -e "  2. Test Pipeline:"
 echo -e "     ${CYAN}./test${NC}"
 echo -e "  3. Download Reference Genome & Run Analysis:"

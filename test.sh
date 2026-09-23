@@ -47,15 +47,18 @@ fi
 
 # Detect Python in gensplice-agent conda env or virtualenv
 PYTHON_BIN="python3"
-if [ -x "$HOME/miniconda3/envs/gensplice-agent/bin/python" ]; then
-    PYTHON_BIN="$HOME/miniconda3/envs/gensplice-agent/bin/python"
-elif [ -d ".venv" ] && [ -x ".venv/bin/python" ]; then
-    PYTHON_BIN=".venv/bin/python"
-elif [ -n "$CONDA_PREFIX" ] && [ -x "$CONDA_PREFIX/bin/python" ]; then
-    PYTHON_BIN="$CONDA_PREFIX/bin/python"
-elif [ -x "$HOME/miniforge3/envs/gensplice-agent/bin/python" ]; then
-    PYTHON_BIN="$HOME/miniforge3/envs/gensplice-agent/bin/python"
-fi
+for candidate in \
+    "$HOME/miniforge3/envs/gensplice-agent/bin/python" \
+    "$HOME/miniconda3/envs/gensplice-agent/bin/python" \
+    "/root/miniconda3/envs/gensplice-agent/bin/python" \
+    "/opt/conda/envs/gensplice-agent/bin/python" \
+    "$CONDA_PREFIX/bin/python" \
+    ".venv/bin/python"; do
+    if [ -x "$candidate" ]; then
+        PYTHON_BIN="$candidate"
+        break
+    fi
+done
 
 if [ "$MODE" = "--real" ] || [ "$MODE" = "real" ]; then
     echo -e "${BOLD}[1/4] Preparing REAL SRA Data Test Mode (SRR1039508 & SRR1039512)...${RESET}"
