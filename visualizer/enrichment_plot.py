@@ -77,8 +77,11 @@ def build_enrichment_dot_plot(
     border_color: str = "#6B21A8"
 ) -> go.Figure:
     """
-    Builds a dynamic Dot / Bubble plot for enrichment results.
-    X: -log10(p-value), Y: Term, Size: Gene Count Overlap, Color: Adjusted P-value
+    Builds a dynamic Dot / Bubble plot for single-quadrant enrichment results.
+    X-axis: Gene Ratio (Overlap Ratio)
+    Y-axis: Enriched Term
+    Size: Gene Count Overlap
+    Color: Adjusted P-value
     """
     if df_enr is None or df_enr.empty:
         fig = go.Figure()
@@ -105,20 +108,28 @@ def build_enrichment_dot_plot(
         except Exception:
             return 5
 
+    def parse_gene_ratio(val):
+        try:
+            parts = str(val).split("/")
+            return round(float(parts[0]) / float(parts[1]), 3)
+        except Exception:
+            return 0.1
+
     df_sorted["Gene_Count"] = df_sorted["Overlap"].apply(parse_overlap_num)
+    df_sorted["Gene_Ratio"] = df_sorted["Overlap"].apply(parse_gene_ratio)
     df_sorted["Display_Term"] = df_sorted["Term"].apply(
         lambda t: t[:50] + "..." if len(str(t)) > 53 else str(t)
     )
 
     fig = px.scatter(
         df_sorted,
-        x="log_p",
+        x="Gene_Ratio",
         y="Display_Term",
         size="Gene_Count",
         color="Adjusted P-value",
         color_continuous_scale=color_scale,
         size_max=22,
-        labels={"log_p": "-log₁₀(p-value)", "Display_Term": "Enriched Term / Pathway"},
+        labels={"Gene_Ratio": "Gene Ratio (Overlap Ratio)", "Display_Term": "Enriched Term / Pathway"},
         hover_data={"Term": True, "P-value": ":.4f", "Adjusted P-value": ":.4f", "Overlap": True, "Genes": True},
         title=f"<b>{title}</b>"
     )
@@ -133,7 +144,7 @@ def build_enrichment_dot_plot(
         font=dict(family="Inter, Roboto, sans-serif", color="#0F172A", size=12),
         margin=dict(l=20, r=20, t=50, b=40),
         xaxis=dict(
-            title="<b>-log₁₀ (p-value)</b>",
+            title="<b>Gene Ratio (Overlap Ratio)</b>",
             gridcolor="#E2E8F0",
             zerolinecolor="#CBD5E1"
         ),
@@ -157,7 +168,7 @@ def build_combined_quadrant_dot_plot(
     X-axis: Quadrants (Q1, Q2, Q4)
     Y-axis: Enriched GO Terms
     Bubble Size: Gene Count Overlap
-    Bubble Color: -log10(p-value)
+    Bubble Color: Adjusted P-value
     """
     frames = []
     for df, q_label in [
@@ -201,11 +212,11 @@ def build_combined_quadrant_dot_plot(
         x="Quadrant",
         y="Display_Term",
         size="Gene_Count",
-        color="log_p",
-        color_continuous_scale="Purples",
+        color="Adjusted P-value",
+        color_continuous_scale="Purples_r",
         size_max=24,
         category_orders={"Display_Term": term_order, "Quadrant": ["Q1", "Q2", "Q4"]},
-        labels={"log_p": "-log₁₀(p-value)", "Display_Term": "GO Biological Process Term", "Quadrant": "Quadrant Category", "Gene_Count": "Gene Count"},
+        labels={"Adjusted P-value": "Adjusted P-value", "Display_Term": "GO Biological Process Term", "Quadrant": "Quadrant Category", "Gene_Count": "Gene Count"},
         hover_data={"Term": True, "P-value": ":.4f", "Adjusted P-value": ":.4f", "Overlap": True, "Genes": True},
         title=f"<b>{title}</b>"
     )
