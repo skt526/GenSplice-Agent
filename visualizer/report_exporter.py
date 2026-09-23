@@ -452,7 +452,6 @@ def export_html_report(
                 📥 Download GO Table (.csv)
             </button>
         </div>
-        <span class="enrichment-notice" id="go-notice">Showing enrichment for current threshold cutoffs</span>
         <div id="go-chart-container" style="margin-top: 16px;">
             {go_chart_html}
         </div>
@@ -466,7 +465,6 @@ def export_html_report(
                 📥 Download KEGG Table (.csv)
             </button>
         </div>
-        <span class="enrichment-notice" id="kegg-notice">Showing enrichment for current threshold cutoffs</span>
         <div id="kegg-chart-container" style="margin-top: 16px;">
             {kegg_chart_html}
         </div>
@@ -475,7 +473,6 @@ def export_html_report(
     <!-- SECTION 1: NCBI / PubMed Automated Gene & Literature Explorer Card -->
     <div class="card" id="ncbi-pubmed-card">
         <h2 style="color: #0F172A; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-top: 0;">📚 NCBI / PubMed Automated Gene & Literature Explorer</h2>
-        <span class="enrichment-notice">100% Free NIH E-utilities API Integration • Clickable PubMed Paper Links</span>
         
         <div style="margin-top: 16px; margin-bottom: 16px;">
             <label for="ncbi-gene-select" style="font-weight: 700; font-size: 14px; margin-right: 10px;">🔍 Select Q1 Target Gene:</label>
@@ -501,7 +498,6 @@ def export_html_report(
     <!-- SECTION 2: Event-Level Isoform Annotation & NMD Prediction Card -->
     <div class="card" id="isoform-annotation-card">
         <h2 style="color: #0F172A; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-top: 0;">🧬 Event-Level Isoform Annotation & NMD Prediction Matrix</h2>
-        <span class="enrichment-notice">Includes Transcript ID, Event Type (SE/RI/MXE/A5SS/A3SS), Coordinates, CDS Frame, PTC Position, NMD Prediction, Protein Domain Overlap & Subcellular Localization Consequences</span>
         <div style="overflow-x: auto; overflow-y: auto; max-height: 420px; margin-top: 16px; border: 1px solid #CBD5E1; border-radius: 8px;">
             <table class="data-table" id="isoform-table">
                 <thead>
@@ -810,8 +806,10 @@ def export_html_report(
             }}
 
             const noticeText = `✔ Re-calculated & Graph Updated for Log₂FC ≥ ${{fcCut}}, ΔPSI ≥ ${{psiCut}} • Active Q1 Genes: ${{q1Genes.length}}`;
-            document.getElementById('go-notice').textContent = noticeText;
-            document.getElementById('kegg-notice').textContent = noticeText;
+            const goNot = document.getElementById('go-notice');
+            const keggNot = document.getElementById('kegg-notice');
+            if (goNot) goNot.textContent = noticeText;
+            if (keggNot) keggNot.textContent = noticeText;
         }}
 
         function triggerEnrichmentWithAction() {{

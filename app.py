@@ -465,7 +465,6 @@ with tab4:
 
     st.markdown("---")
     st.subheader("🧬 Event-Level Isoform Annotation & NMD Prediction Matrix")
-    st.caption("Includes Transcript ID, Event Type (SE/RI/MXE/A5SS/A3SS), Exon Coordinates, CDS Frame, PTC Position, NMD Prediction, Protein Domain Overlap & Subcellular Localization Consequences.")
 
     isoform_annot_df = annotate_isoform_events(filtered_df)
     
@@ -504,7 +503,6 @@ with tab4:
 # ==============================================================================
 st.markdown("---")
 st.subheader("📚 NCBI / PubMed Automated Gene & Literature Explorer")
-st.caption("100% Free NIH E-utilities API Integration • Official NCBI Descriptions & Clickable PubMed Papers")
 
 target_gene_options = q1_current_genes if q1_current_genes else df_merged.select("geneSymbol").to_series().to_list()
 selected_ncbi_gene = st.selectbox(
