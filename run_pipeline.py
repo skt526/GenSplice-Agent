@@ -390,6 +390,13 @@ def main():
     if step5_done and any((rmats_dir / f"{e}.MATS.JC.txt").exists() for e in ["SE", "RI", "MXE"]):
         print(f"  {GREEN}✔ [CHECKPOINT] rMATS Alternative Splicing results already exist in {rmats_dir}/. Skipping...{RESET}")
     else:
+        # Clean tmp directory to prevent duplicate BAM entries across old .rmats files
+        tmp_dir = rmats_dir / "tmp"
+        if tmp_dir.exists():
+            import shutil
+            shutil.rmtree(tmp_dir)
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+
         cmd_rmats = [
             "rmats.py",
             "--b1", str(b1_file),
@@ -400,7 +407,7 @@ def main():
             "--libType", lib_type,
             "--nthread", str(allocated_threads),
             "--od", str(rmats_dir),
-            "--tmp", str(rmats_dir / "tmp")
+            "--tmp", str(tmp_dir)
         ]
         print(f"  Running rMATS with auto readLength={auto_read_len} bp, libType={lib_type}...")
         run_command_step(cmd_rmats, "rMATS_analysis", allow_mock_fallback=args.allow_mock)
