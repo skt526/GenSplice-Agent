@@ -408,6 +408,25 @@ def main():
     update_checkpoint("step5_rmats", "COMPLETED")
 
     # --------------------------------------------------------------------------
+    # Step 6: Generate Standalone HTML Interactive Report inside outputs/
+    # --------------------------------------------------------------------------
+    html_report_path = outputs_dir / "gensplice_report.html"
+    try:
+        from core.deg_loader import load_deg_data
+        from core.rmats_loader import load_rmats_data, select_primary_splicing_events
+        from core.merger import merge_deg_and_rmats
+        from visualizer.report_exporter import export_html_report
+        
+        df_deg_raw = load_deg_data(str(deg_result_csv))
+        df_rmats_raw = select_primary_splicing_events(load_rmats_data(str(rmats_dir)))
+        df_merged_report = merge_deg_and_rmats(df_deg_raw, df_rmats_raw)
+        
+        export_html_report(df_merged_report, str(html_report_path))
+        print(f"  {GREEN}✔ Standalone Interactive HTML Report generated: {html_report_path}{RESET}")
+    except Exception as e:
+        print(f"  {YELLOW}⚠ Notice: Could not pre-generate HTML report: {e}{RESET}")
+
+    # --------------------------------------------------------------------------
     # Copy/Archive outputs/ to outputs_{YYMMDD}_{HHMMSS}
     # --------------------------------------------------------------------------
     archive_suffix = datetime.now().strftime("%y%m%d_%H%M%S")
@@ -417,7 +436,7 @@ def main():
             if archive_dir.exists():
                 shutil.rmtree(archive_dir)
             shutil.copytree(outputs_dir, archive_dir, ignore=shutil.ignore_patterns('*_STARtmp', '*.fifo*'))
-            print(f"  {GREEN}✔ Archived pipeline output copy to {archive_dir}/{RESET}")
+            print(f"  {GREEN}✔ Archived pipeline output copy to {archive_dir}/ (includes gensplice_report.html){RESET}")
     except Exception as e:
         print(f"  {YELLOW}⚠ Notice: Could not archive outputs directory: {e}{RESET}")
 
@@ -430,9 +449,10 @@ def main():
     print(f"  - Aligned BAM:   {aligned_bam_dir}/")
     print(f"  - DEG Result:    {deg_result_csv}")
     print(f"  - rMATS Events:  {rmats_dir}/ (SE, RI, A5SS, A3SS, MXE)")
+    print(f"  - HTML Report:   {html_report_path}")
     print(f"  - Checkpoint:    {CHECKPOINT_FILE}")
     print(f"  - Status Log:    {STATUS_LOG_FILE}")
-    print(f"  - Archived Copy: {archive_dir}/")
+    print(f"  - Archived Copy: {archive_dir}/ (contains gensplice_report.html)")
     print(f"\nYou can now launch the dashboard using: streamlit run app.py\n")
 
 if __name__ == "__main__":

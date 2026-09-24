@@ -85,7 +85,11 @@ def export_html_report(
 
     go_records_json = json.dumps(go_records)
     kegg_records_json = json.dumps(kegg_records)
-    raw_data_json = df_merged.to_pandas().to_json(orient="records")
+
+    # Select ONLY essential numeric & categorization columns for client-side JS engine (drops HTML size from ~200MB to ~2MB)
+    essential_cols = [c for c in ["geneSymbol", "gene_id", "log2FoldChange", "delta_psi", "deg_fdr", "as_fdr", "quadrant", "event_type", "coordinates"] if c in df_merged.columns]
+    df_compact = df_merged.select(essential_cols)
+    raw_data_json = df_compact.to_pandas().to_json(orient="records")
 
     # Pre-build gene -> pathways dictionary for client-side JavaScript engine
     gene_pathway_map = {
@@ -998,6 +1002,11 @@ def export_html_report(
 
     with open(output_html_path, "w", encoding="utf-8") as f:
         f.write(full_html)
+
+    try:
+        os.chmod(output_html_path, 0o644)
+    except Exception:
+        pass
 
     print(f"  ✔ Standalone Light Mode HTML Report updated: {output_html_path}")
     return output_html_path
