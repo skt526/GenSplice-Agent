@@ -48,11 +48,17 @@ fi
 # Detect Python in gensplice-agent conda env or virtualenv
 PYTHON_BIN="python3"
 for candidate in \
+    "$HOME/miniforge3/envs/gensplice-agent/bin/python3" \
     "$HOME/miniforge3/envs/gensplice-agent/bin/python" \
+    "$HOME/miniconda3/envs/gensplice-agent/bin/python3" \
     "$HOME/miniconda3/envs/gensplice-agent/bin/python" \
+    "/root/miniconda3/envs/gensplice-agent/bin/python3" \
     "/root/miniconda3/envs/gensplice-agent/bin/python" \
+    "/opt/conda/envs/gensplice-agent/bin/python3" \
     "/opt/conda/envs/gensplice-agent/bin/python" \
+    "$CONDA_PREFIX/bin/python3" \
     "$CONDA_PREFIX/bin/python" \
+    ".venv/bin/python3" \
     ".venv/bin/python"; do
     if [ -x "$candidate" ]; then
         PYTHON_BIN="$candidate"
@@ -77,23 +83,39 @@ if [ "$MODE" = "--real" ] || [ "$MODE" = "real" ]; then
 
     echo -e "\n${BOLD}Downloading Real FASTQ Data from ENA/NCBI SRA...${RESET}"
     
+    find_existing_fastq() {
+        local dir="$1"
+        local key="$2"
+        find "$dir" -maxdepth 1 \( -name "*${key}*.fq.gz" -o -name "*${key}*.fastq.gz" \) -size +1000k 2>/dev/null | head -n 1
+    }
+
     download_if_missing() {
         local file="$1"
         local url="$2"
         local name="$3"
-        if [ -f "$file" ] && [ -s "$file" ]; then
-            echo -e "  ${GREEN}✔ ${name} already downloaded: ${file}${RESET}"
+        local key="$4"
+        local dir="$(dirname "$file")"
+
+        local existing=""
+        if [ -n "$key" ]; then
+            existing=$(find_existing_fastq "$dir" "$key")
+        fi
+
+        if [ -f "$file" ] && [ -s "$file" ] && [ $(wc -c < "$file" 2>/dev/null || echo 0) -gt 1048576 ]; then
+            echo -e "  ${GREEN}✔ ${name} already downloaded: ${file} (Skipping download)${RESET}"
+        elif [ -n "$existing" ]; then
+            echo -e "  ${GREEN}✔ ${name} already exists in ${dir}: ${existing} (Skipping download)${RESET}"
         else
             echo -e "  ${DIM}Downloading ${name} (${url})...${RESET}"
-            curl -L --progress-bar "$url" -o "$file"
+            curl -L -C - --progress-bar "$url" -o "$file"
             echo -e "  ${GREEN}✔ Downloaded ${name}${RESET}"
         fi
     }
 
-    download_if_missing "$CTRL_R1" "$URL_CTRL_R1" "Control Read 1 (SRR1039508_1)"
-    download_if_missing "$CTRL_R2" "$URL_CTRL_R2" "Control Read 2 (SRR1039508_2)"
-    download_if_missing "$TREAT_R1" "$URL_TREAT_R1" "Treatment Read 1 (SRR1039512_1)"
-    download_if_missing "$TREAT_R2" "$URL_TREAT_R2" "Treatment Read 2 (SRR1039512_2)"
+    download_if_missing "$CTRL_R1" "$URL_CTRL_R1" "Control Read 1 (SRR1039508_1)" "SRR1039508_1"
+    download_if_missing "$CTRL_R2" "$URL_CTRL_R2" "Control Read 2 (SRR1039508_2)" "SRR1039508_2"
+    download_if_missing "$TREAT_R1" "$URL_TREAT_R1" "Treatment Read 1 (SRR1039512_1)" "SRR1039512_1"
+    download_if_missing "$TREAT_R2" "$URL_TREAT_R2" "Treatment Read 2 (SRR1039512_2)" "SRR1039512_2"
 
     # Ensure Reference Genome is ready
     if [ ! -d "human-ref" ] || [ ! -f "human-ref/Homo_sapiens.GRCh38.dna.primary_assembly.fa" ]; then

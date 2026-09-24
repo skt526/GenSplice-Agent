@@ -79,13 +79,19 @@ def update_checkpoint(step_key: str, status: str = "COMPLETED", details: dict = 
     log_pipeline_status(f"Step '{step_key}' status updated to {status}.")
 
 def run_command_step(cmd_list, step_name: str, allow_mock_fallback: bool = False, log_file=None):
-    tool_bin = find_binary(cmd_list[0])
-    cmd_list[0] = tool_bin
+    tool_name = cmd_list[0]
+    tool_bin = find_binary(tool_name)
     
-    print(f"  {DIM}Executing: {' '.join(cmd_list)}{RESET}")
+    # If binary is a python script (e.g. rmats.py), execute via sys.executable to bypass shebang issues
+    if tool_bin.endswith(".py") or tool_name.endswith(".py"):
+        exec_cmd = [sys.executable, tool_bin] + cmd_list[1:]
+    else:
+        exec_cmd = [tool_bin] + cmd_list[1:]
+    
+    print(f"  {DIM}Executing: {' '.join(exec_cmd)}{RESET}")
     start_time = time.time()
     
-    executable_exists = os.path.exists(tool_bin) and os.access(tool_bin, os.X_OK)
+    executable_exists = os.path.exists(tool_bin)
 
     if not executable_exists:
         if allow_mock_fallback:
@@ -101,9 +107,9 @@ def run_command_step(cmd_list, step_name: str, allow_mock_fallback: bool = False
     try:
         if log_file:
             with open(log_file, "w") as f_out:
-                result = subprocess.run(cmd_list, stdout=f_out, stderr=subprocess.STDOUT, text=True, check=True)
+                result = subprocess.run(exec_cmd, stdout=f_out, stderr=subprocess.STDOUT, text=True, check=True)
         else:
-            result = subprocess.run(cmd_list, check=True)
+            result = subprocess.run(exec_cmd, check=True)
         elapsed = time.time() - start_time
         print(f"  {GREEN}✔ Completed {step_name} in {elapsed:.2f}s.{RESET}")
         return True
