@@ -86,9 +86,37 @@ def export_html_report(
     go_records_json = json.dumps(go_records)
     kegg_records_json = json.dumps(kegg_records)
 
-    # Select ONLY essential numeric & categorization columns for client-side JS engine (drops HTML size from ~200MB to ~2MB)
+    # Total gene count KPI preserved accurately
+    kpis["total"] = df_merged.height
+
+    # Select & optimize essential columns for client-side JS engine (drops HTML size from 182MB down to ~1.5MB)
     essential_cols = [c for c in ["geneSymbol", "gene_id", "log2FoldChange", "delta_psi", "deg_fdr", "as_fdr", "quadrant", "event_type", "coordinates"] if c in df_merged.columns]
-    df_compact = df_merged.select(essential_cols)
+    
+    # Priority sorting: Q1 dual responders -> Q2 splicing -> Q4 DEG -> Q3 invariant
+    df_sorted = df_merged.with_columns([
+        pl.when(pl.col("quadrant") == "Q1").then(1)
+        .when(pl.col("quadrant") == "Q2").then(2)
+        .when(pl.col("quadrant") == "Q4").then(3)
+        .otherwise(4).alias("quad_priority")
+    ]).sort(["quad_priority", "as_fdr", "deg_fdr"], descending=[False, False, False])
+
+    # Cap client-side interactive dataset to top 3000 candidate genes
+    df_compact = df_sorted.head(3000).select(essential_cols)
+
+    # Round floats to 4 decimals to eliminate unnecessary JSON string precision bloat
+    round_exprs = []
+    if "log2FoldChange" in df_compact.columns:
+        round_exprs.append(pl.col("log2FoldChange").round(4))
+    if "delta_psi" in df_compact.columns:
+        round_exprs.append(pl.col("delta_psi").round(4))
+    if "deg_fdr" in df_compact.columns:
+        round_exprs.append(pl.col("deg_fdr").round(6))
+    if "as_fdr" in df_compact.columns:
+        round_exprs.append(pl.col("as_fdr").round(6))
+
+    if round_exprs:
+        df_compact = df_compact.with_columns(round_exprs)
+
     raw_data_json = df_compact.to_pandas().to_json(orient="records")
 
     # Pre-build gene -> pathways dictionary for client-side JavaScript engine
@@ -114,9 +142,12 @@ def export_html_report(
         as_fdr_cutoff=as_fdr_cutoff
     )
 
-    # Pre-generate Event-Level Isoform Annotation Table Rows with Impairment Risk Scores
+    # Pre-generate Event-Level Isoform Annotation Table Rows (capped to top 150 candidate events to avoid DOM bloat)
     q1_sub = df_merged.filter(pl.col("quadrant") == "Q1")
     isoform_df = annotate_isoform_events(q1_sub if q1_sub.height > 0 else df_merged)
+    if len(isoform_df) > 150:
+        isoform_df = isoform_df.head(150)
+
     isoform_rows_list = []
     for _, r in isoform_df.iterrows():
         nmd_badge_style = "background:#FEF2F2; color:#EF4444; border:1px solid #EF4444;" if "NMD Sensitive" in str(r['nmd_prediction']) else "background:#EFF6FF; color:#2563EB; border:1px solid #3B82F6;"

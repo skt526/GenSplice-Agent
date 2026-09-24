@@ -30,22 +30,16 @@ def build_quadrant_plot(
         "deg_fdr", "as_fdr", "event_type", "coordinates"
     ])
 
-    # Hover text generator
+    # Hover text generator (concise format to minimize JSON bloat)
     if len(pdf) > 0:
-        hover_texts = []
-        for _, row in pdf.iterrows():
-            ht = (
-                f"<b>Gene Symbol:</b> {row['geneSymbol']}<br>"
-                f"<b>Gene ID:</b> {row['gene_id']}<br>"
-                f"<b>Quadrant:</b> {row['quadrant']}<br>"
-                f"<b>Log2FC (DEG):</b> {row['log2FoldChange']:.3f}<br>"
-                f"<b>ΔPSI (Splicing):</b> {row['delta_psi']:.3f}<br>"
-                f"<b>DEG FDR:</b> {row['deg_fdr']:.2e}<br>"
-                f"<b>rMATS FDR:</b> {row['as_fdr']:.2e}<br>"
-                f"<b>Event Type:</b> {row['event_type']}<br>"
-                f"<b>Coordinates:</b> {row['coordinates']}"
-            )
-            hover_texts.append(ht)
+        hover_texts = [
+            f"<b>{r['geneSymbol']}</b> ({r['gene_id']})<br>"
+            f"Quadrant: {r['quadrant']}<br>"
+            f"Log2FC: {r['log2FoldChange']:.3f} | ΔPSI: {r['delta_psi']:.3f}<br>"
+            f"DEG FDR: {r['deg_fdr']:.2e} | AS FDR: {r['as_fdr']:.2e}<br>"
+            f"Event: {r['event_type']} ({r['coordinates']})"
+            for _, r in pdf.iterrows()
+        ]
         pdf["hover_text"] = hover_texts
     else:
         pdf["hover_text"] = []
@@ -118,17 +112,20 @@ def build_quadrant_plot(
         )
     ]
 
-    # 3. Add Traces for all 4 quadrants (Q1, Q2, Q3, Q4) - strictly Q1, Q2, Q3, Q4 names inside plot
+    # 3. Add Traces for all 4 quadrants (Q1, Q2, Q3, Q4)
+    # Note: Downsample Q3 background dots if >2500 to keep HTML lightweight
     if color_by == "quadrant":
         all_quadrants = ["Q1", "Q2", "Q3", "Q4"]
         for quad in all_quadrants:
             sub = pdf[pdf["quadrant"] == quad] if len(pdf) > 0 and "quadrant" in pdf.columns else pd.DataFrame()
+            if quad == "Q3" and len(sub) > 2500:
+                sub = sub.sample(n=2500, random_state=42)
             fig.add_trace(
                 go.Scatter(
                     x=sub["log2FoldChange"] if len(sub) > 0 else [],
                     y=sub["delta_psi"] if len(sub) > 0 else [],
                     mode="markers",
-                    name=quad, # Strictly Q1, Q2, Q3, Q4 inside plot canvas legend
+                    name=quad,
                     marker=dict(
                         color=QUADRANT_COLORS.get(quad, "#94A3B8"),
                         size=10 if quad in ["Q1", "Q2", "Q4"] else 6,
