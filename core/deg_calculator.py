@@ -97,25 +97,53 @@ def run_deg_analysis(feature_counts_path: str, control_bams: list, treatment_bam
         except Exception as e:
             print(f"  Warning: PyDESeq2 calculation encountered exception ({e}). Using standard fallback...")
 
-    # Fallback Welch t-test & CPM Normalization if PyDESeq2 is unavailable or sample size < 2
-    print("  Running CPM & Welch t-test DEG calculation...")
-    ctrl_counts = df_counts[control_cols].values
-    treat_counts = df_counts[treatment_cols].values
+    # CPM Normalization & Robust DEG Calculation (Supports PyDESeq2, Multi-replicates Welch t-test, & Single-Sample Poisson Dispersion Model)
+    print("  Calculating CPM (Counts Per Million) Normalization...")
+    ctrl_counts = df_counts[control_cols].values.astype(float)
+    treat_counts = df_counts[treatment_cols].values.astype(float)
 
-    ctrl_mean = np.mean(ctrl_counts, axis=1) + 1.0
-    treat_mean = np.mean(treat_counts, axis=1) + 1.0
+    ctrl_totals = np.sum(ctrl_counts, axis=0)
+    treat_totals = np.sum(treat_counts, axis=0)
 
-    base_mean = (ctrl_mean + treat_mean) / 2.0
-    log2_fc = np.log2(treat_mean / ctrl_mean)
+    # Avoid zero division
+    ctrl_totals[ctrl_totals == 0] = 1.0
+    treat_totals[treat_totals == 0] = 1.0
+
+    ctrl_cpm = (ctrl_counts / ctrl_totals) * 1e6
+    treat_cpm = (treat_counts / treat_totals) * 1e6
+
+    ctrl_cpm_mean = np.mean(ctrl_cpm, axis=1)
+    treat_cpm_mean = np.mean(treat_cpm, axis=1)
+
+    base_mean = (ctrl_cpm_mean + treat_cpm_mean) / 2.0
+    log2_fc = np.log2((treat_cpm_mean + 1.0) / (ctrl_cpm_mean + 1.0))
 
     from scipy import stats
+
     pvals = []
-    for i in range(len(df_counts)):
-        try:
-            _, p = stats.ttest_ind(ctrl_counts[i], treat_counts[i], equal_var=False)
-            pvals.append(p if not np.isnan(p) else 1.0)
-        except Exception:
-            pvals.append(1.0)
+    n_ctrl = len(control_cols)
+    n_treat = len(treatment_cols)
+
+    if n_ctrl >= 2 and n_treat >= 2:
+        print("  Running Welch t-test on CPM normalized counts...")
+        for i in range(len(df_counts)):
+            try:
+                _, p = stats.ttest_ind(ctrl_cpm[i], treat_cpm[i], equal_var=False)
+                pvals.append(p if not np.isnan(p) else 1.0)
+            except Exception:
+                pvals.append(1.0)
+    else:
+        # Single-sample (N=1 vs N=1) DEG model:
+        # Uses Poisson variance + baseline biological dispersion (alpha=0.1) Z-score estimation
+        print(f"  Single-sample mode ({n_ctrl} vs {n_treat}): Using CPM Poisson/Normal Z-score model (biological dispersion alpha=0.1)...")
+        alpha_bio = 0.1
+        ctrl_raw_sum = np.sum(ctrl_counts, axis=1)
+        treat_raw_sum = np.sum(treat_counts, axis=1)
+
+        se = np.sqrt(1.0 / (ctrl_raw_sum + 1.0) + 1.0 / (treat_raw_sum + 1.0) + (alpha_bio ** 2))
+        z_scores = log2_fc / se
+        pvals = stats.norm.sf(np.abs(z_scores)) * 2.0
+        pvals = np.clip(pvals, 1e-12, 1.0)
 
     pvals = np.array(pvals)
     n = len(pvals)
@@ -139,4 +167,4 @@ def run_deg_analysis(feature_counts_path: str, control_bams: list, treatment_bam
     })
 
     df_result.to_csv(output_csv_path, index=False)
-    print(f"  ✔ Saved DEG results to {output_csv_path}")
+    print(f"  ✔ Saved DEG results ({len(df_result)} genes, {np.sum(padj <= 0.05)} significant at FDR <= 0.05) to {output_csv_path}")
