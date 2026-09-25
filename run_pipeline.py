@@ -397,7 +397,8 @@ def main():
             shutil.rmtree(tmp_dir)
         tmp_dir.mkdir(parents=True, exist_ok=True)
 
-        cmd_rmats = [
+        # 1. Run rMATS Prep Stage with full CPU threads (reads BAM files in parallel)
+        cmd_rmats_prep = [
             "rmats.py",
             "--b1", str(b1_file),
             "--b2", str(b2_file),
@@ -407,10 +408,44 @@ def main():
             "--libType", lib_type,
             "--nthread", str(allocated_threads),
             "--od", str(rmats_dir),
-            "--tmp", str(tmp_dir)
+            "--tmp", str(tmp_dir),
+            "--task", "prep"
         ]
-        print(f"  Running rMATS with auto readLength={auto_read_len} bp, libType={lib_type}...")
-        run_command_step(cmd_rmats, "rMATS_analysis", allow_mock_fallback=args.allow_mock)
+        print(f"  Running rMATS Prep Stage (BAM parsing) with threads={allocated_threads}...")
+        run_command_step(cmd_rmats_prep, "rMATS_prep", allow_mock_fallback=args.allow_mock)
+
+        # 2. Run rMATS Post Stage with safe thread count to prevent glibc C-heap memory corruption (return code -6)
+        post_threads = min(4, allocated_threads)
+        cmd_rmats_post = [
+            "rmats.py",
+            "--b1", str(b1_file),
+            "--b2", str(b2_file),
+            "--gtf", str(gtf_path),
+            "-t", "paired",
+            "--readLength", str(auto_read_len),
+            "--libType", lib_type,
+            "--nthread", str(post_threads),
+            "--od", str(rmats_dir),
+            "--tmp", str(tmp_dir),
+            "--task", "post"
+        ]
+        print(f"  Running rMATS Post Stage (Event Counting & Stats) with threads={post_threads}...")
+        
+        # Robust execution with automatic single-thread fallback retry if C memory corruption occurs
+        tool_bin = find_binary("rmats.py")
+        if tool_bin and os.path.exists(tool_bin):
+            exec_cmd = ([sys.executable, tool_bin] if tool_bin.endswith(".py") else [tool_bin]) + cmd_rmats_post[1:]
+            print(f"  {DIM}Executing: {' '.join(exec_cmd)}{RESET}")
+            res = subprocess.run(exec_cmd)
+            if res.returncode != 0:
+                print(f"  {YELLOW}⚠ Notice: rMATS post-stage failed (return code {res.returncode}). Retrying post-stage with single thread (--nthread 1) to bypass glibc memory corruption...{RESET}")
+                cmd_rmats_post_single = cmd_rmats_post.copy()
+                cmd_rmats_post_single[cmd_rmats_post_single.index("--nthread") + 1] = "1"
+                run_command_step(cmd_rmats_post_single, "rMATS_post_single", allow_mock_fallback=args.allow_mock)
+            else:
+                print(f"  {GREEN}✔ Completed rMATS_analysis successfully.{RESET}")
+        else:
+            run_command_step(cmd_rmats_post, "rMATS_post", allow_mock_fallback=args.allow_mock)
 
     update_checkpoint("step5_rmats", "COMPLETED")
 
