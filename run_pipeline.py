@@ -345,6 +345,10 @@ def main():
     counts_matrix_file = deg_dir / "counts_matrix.txt"
     deg_result_csv = deg_dir / "deg_result.csv"
 
+    # Detect if dataset contains paired-end or single-end reads
+    is_paired_experiment = any(cs.get("read_type") == "paired" for cs in clean_samples)
+    rmats_read_type = "paired" if is_paired_experiment else "single"
+
     if step4_done and deg_result_csv.exists() and deg_result_csv.stat().st_size > 0:
         print(f"  {GREEN}✔ [CHECKPOINT] DEG result already exists at {deg_result_csv}. Skipping...{RESET}")
     else:
@@ -353,10 +357,12 @@ def main():
             "featureCounts",
             "-a", str(gtf_path),
             "-o", str(counts_matrix_file),
-            "-p",
-            "-T", str(allocated_threads),
-            *all_bams
+            "-T", str(allocated_threads)
         ]
+        if is_paired_experiment:
+            cmd_fc.append("-p")
+        cmd_fc.extend(all_bams)
+
         print("  Quantifying gene counts with featureCounts...")
         run_command_step(cmd_fc, "featureCounts", allow_mock_fallback=args.allow_mock)
 
@@ -403,7 +409,7 @@ def main():
             "--b1", str(b1_file),
             "--b2", str(b2_file),
             "--gtf", str(gtf_path),
-            "-t", "paired",
+            "-t", rmats_read_type,
             "--readLength", str(auto_read_len),
             "--libType", lib_type,
             "--nthread", str(allocated_threads),
@@ -411,7 +417,7 @@ def main():
             "--tmp", str(tmp_dir),
             "--task", "prep"
         ]
-        print(f"  Running rMATS Prep Stage (BAM parsing) with threads={allocated_threads}...")
+        print(f"  Running rMATS Prep Stage (BAM parsing) with threads={allocated_threads}, readType={rmats_read_type}...")
         run_command_step(cmd_rmats_prep, "rMATS_prep", allow_mock_fallback=args.allow_mock)
 
         # 2. Run rMATS Post Stage with safe thread count to prevent glibc C-heap memory corruption (return code -6)
@@ -421,7 +427,7 @@ def main():
             "--b1", str(b1_file),
             "--b2", str(b2_file),
             "--gtf", str(gtf_path),
-            "-t", "paired",
+            "-t", rmats_read_type,
             "--readLength", str(auto_read_len),
             "--libType", lib_type,
             "--nthread", str(post_threads),
