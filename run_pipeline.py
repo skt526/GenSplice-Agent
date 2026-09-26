@@ -86,6 +86,27 @@ def log_pipeline_status(message: str):
     with open(STATUS_LOG_FILE, "a", encoding="utf-8") as f:
         f.write(log_entry)
 
+def check_gzip_file_integrity(file_path: str) -> bool:
+    """
+    Checks if a gzipped file exists, is non-empty, and has valid gzip structure (no unexpected EOF).
+    """
+    if not file_path or not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+        return False
+    if not file_path.endswith(".gz") and not file_path.endswith(".gzip"):
+        return True
+    try:
+        res = subprocess.run(["gzip", "-t", file_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return res.returncode == 0
+    except Exception:
+        try:
+            import gzip
+            with gzip.open(file_path, "rb") as f:
+                while f.read(1024 * 1024):
+                    pass
+            return True
+        except Exception:
+            return False
+
 def load_checkpoint() -> dict:
     if os.path.exists(CHECKPOINT_FILE):
         try:
@@ -277,6 +298,14 @@ def main():
         if step2_done and out_r1.exists() and (not r2_in or out_r2.exists()):
             print(f"  {GREEN}✔ [CHECKPOINT] fastp for [{group}] {s_name} already completed. Skipping...{RESET}")
         else:
+            # Validate input FASTQ file integrity before running fastp
+            for fpath in [r1_in, r2_in]:
+                if fpath and not args.allow_mock:
+                    if not check_gzip_file_integrity(fpath):
+                        print(f"  {RED}✘ ERROR: Input FASTQ file '{fpath}' is corrupted or truncated (unexpected EOF).{RESET}")
+                        print(f"  {RED}  Please remove '{fpath}' and re-run to automatically download a complete file.{RESET}")
+                        sys.exit(255)
+
             cmd_fastp = [
                 "fastp",
                 "--in1", r1_in,

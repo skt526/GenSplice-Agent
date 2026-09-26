@@ -71,17 +71,19 @@ for candidate in \
 done
 
 if [ "$MODE" = "--real" ] || [ "$MODE" = "real" ]; then
-    echo -e "${BOLD}[1/4] Preparing REAL SRA Data Test Mode (GSE52778: N=3 Control vs N=3 Dexamethasone)...${RESET}"
+    echo -e "${BOLD}[1/4] Preparing REAL SRA Data Test Mode (GSE52778: N=4 Control vs N=4 Dexamethasone)...${RESET}"
     
     mkdir -p inputs/control inputs/treatment
     
-    # GSE52778 Biological Replicates: 3 Control (SRR1039508, SRR1039512, SRR1039516) vs 3 Dex Treated (SRR1039509, SRR1039513, SRR1039517)
+    # GSE52778 Biological Replicates: 4 Control (SRR1039508, SRR1039512, SRR1039516, SRR1039520) vs 4 Dex Treated (SRR1039509, SRR1039513, SRR1039517, SRR1039521)
     CTRL1_R1="inputs/control/GSM1275862_SRR1039508_1.fq.gz"
     CTRL1_R2="inputs/control/GSM1275862_SRR1039508_2.fq.gz"
     CTRL2_R1="inputs/control/GSM1275866_SRR1039512_1.fq.gz"
     CTRL2_R2="inputs/control/GSM1275866_SRR1039512_2.fq.gz"
     CTRL3_R1="inputs/control/GSM1275870_SRR1039516_1.fq.gz"
     CTRL3_R2="inputs/control/GSM1275870_SRR1039516_2.fq.gz"
+    CTRL4_R1="inputs/control/GSM1275874_SRR1039520_1.fq.gz"
+    CTRL4_R2="inputs/control/GSM1275874_SRR1039520_2.fq.gz"
 
     TREAT1_R1="inputs/treatment/GSM1275863_SRR1039509_1.fq.gz"
     TREAT1_R2="inputs/treatment/GSM1275863_SRR1039509_2.fq.gz"
@@ -89,6 +91,8 @@ if [ "$MODE" = "--real" ] || [ "$MODE" = "real" ]; then
     TREAT2_R2="inputs/treatment/GSM1275867_SRR1039513_2.fq.gz"
     TREAT3_R1="inputs/treatment/GSM1275871_SRR1039517_1.fq.gz"
     TREAT3_R2="inputs/treatment/GSM1275871_SRR1039517_2.fq.gz"
+    TREAT4_R1="inputs/treatment/GSM1275875_SRR1039521_1.fq.gz"
+    TREAT4_R2="inputs/treatment/GSM1275875_SRR1039521_2.fq.gz"
 
     URL_CTRL1_R1="https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR103/008/SRR1039508/SRR1039508_1.fastq.gz"
     URL_CTRL1_R2="https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR103/008/SRR1039508/SRR1039508_2.fastq.gz"
@@ -96,6 +100,8 @@ if [ "$MODE" = "--real" ] || [ "$MODE" = "real" ]; then
     URL_CTRL2_R2="https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR103/002/SRR1039512/SRR1039512_2.fastq.gz"
     URL_CTRL3_R1="https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR103/006/SRR1039516/SRR1039516_1.fastq.gz"
     URL_CTRL3_R2="https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR103/006/SRR1039516/SRR1039516_2.fastq.gz"
+    URL_CTRL4_R1="https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR103/000/SRR1039520/SRR1039520_1.fastq.gz"
+    URL_CTRL4_R2="https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR103/000/SRR1039520/SRR1039520_2.fastq.gz"
 
     URL_TREAT1_R1="https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR103/009/SRR1039509/SRR1039509_1.fastq.gz"
     URL_TREAT1_R2="https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR103/009/SRR1039509/SRR1039509_2.fastq.gz"
@@ -103,13 +109,20 @@ if [ "$MODE" = "--real" ] || [ "$MODE" = "real" ]; then
     URL_TREAT2_R2="https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR103/003/SRR1039513/SRR1039513_2.fastq.gz"
     URL_TREAT3_R1="https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR103/007/SRR1039517/SRR1039517_1.fastq.gz"
     URL_TREAT3_R2="https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR103/007/SRR1039517/SRR1039517_2.fastq.gz"
+    URL_TREAT4_R1="https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR103/001/SRR1039521/SRR1039521_1.fastq.gz"
+    URL_TREAT4_R2="https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR103/001/SRR1039521/SRR1039521_2.fastq.gz"
 
-    echo -e "\n${BOLD}Downloading Real FASTQ Data (N=3 Control vs N=3 Dex Treated) from ENA/NCBI SRA...${RESET}"
+    echo -e "\n${BOLD}Downloading Real FASTQ Data (N=4 Control vs N=4 Dex Treated) from ENA/NCBI SRA...${RESET}"
     
     find_existing_fastq() {
         local dir="$1"
         local key="$2"
         find "$dir" -maxdepth 1 \( -name "*${key}*.fq.gz" -o -name "*${key}*.fastq.gz" \) -size +1000k 2>/dev/null | head -n 1
+    }
+
+    is_valid_gzip() {
+        local f="$1"
+        [ -f "$f" ] && [ -s "$f" ] && gzip -t "$f" 2>/dev/null
     }
 
     download_if_missing() {
@@ -124,32 +137,53 @@ if [ "$MODE" = "--real" ] || [ "$MODE" = "real" ]; then
             existing=$(find_existing_fastq "$dir" "$key")
         fi
 
-        if [ -f "$file" ] && [ -s "$file" ] && [ $(wc -c < "$file" 2>/dev/null || echo 0) -gt 1048576 ]; then
-            echo -e "  ${GREEN}✔ ${name} already downloaded: ${file} (Skipping download)${RESET}"
-        elif [ -n "$existing" ]; then
-            echo -e "  ${GREEN}✔ ${name} already exists in ${dir}: ${existing} (Skipping download)${RESET}"
+        local target_file="$file"
+        if [ -n "$existing" ]; then
+            target_file="$existing"
+        fi
+
+        if is_valid_gzip "$target_file"; then
+            echo -e "  ${GREEN}✔ ${name} already downloaded and verified integrity: ${target_file} (Skipping download)${RESET}"
         else
+            if [ -f "$target_file" ]; then
+                echo -e "  ${YELLOW}⚠ ${name} at ${target_file} is corrupted/truncated (unexpected EOF). Removing and re-downloading...${RESET}"
+                rm -f "$target_file"
+            fi
             echo -e "  ${DIM}Downloading ${name} (${url})...${RESET}"
             curl -L -C - --progress-bar "$url" -o "$file"
-            echo -e "  ${GREEN}✔ Downloaded ${name}${RESET}"
+            if ! is_valid_gzip "$file"; then
+                echo -e "  ${YELLOW}⚠ Downloaded ${name} failed gzip integrity check. Retrying clean download...${RESET}"
+                rm -f "$file"
+                curl -L --progress-bar "$url" -o "$file"
+            fi
+            if is_valid_gzip "$file"; then
+                echo -e "  ${GREEN}✔ Downloaded and verified ${name}${RESET}"
+            else
+                echo -e "  ${RED}✘ Error: ${name} download failed integrity check!${RESET}"
+                exit 1
+            fi
         fi
     }
 
-    # Control Replicates (N=3)
+    # Control Replicates (N=4)
     download_if_missing "$CTRL1_R1" "$URL_CTRL1_R1" "Control 1 Read 1 (SRR1039508_1)" "SRR1039508_1"
     download_if_missing "$CTRL1_R2" "$URL_CTRL1_R2" "Control 1 Read 2 (SRR1039508_2)" "SRR1039508_2"
     download_if_missing "$CTRL2_R1" "$URL_CTRL2_R1" "Control 2 Read 1 (SRR1039512_1)" "SRR1039512_1"
     download_if_missing "$CTRL2_R2" "$URL_CTRL2_R2" "Control 2 Read 2 (SRR1039512_2)" "SRR1039512_2"
     download_if_missing "$CTRL3_R1" "$URL_CTRL3_R1" "Control 3 Read 1 (SRR1039516_1)" "SRR1039516_1"
     download_if_missing "$CTRL3_R2" "$URL_CTRL3_R2" "Control 3 Read 2 (SRR1039516_2)" "SRR1039516_2"
+    download_if_missing "$CTRL4_R1" "$URL_CTRL4_R1" "Control 4 Read 1 (SRR1039520_1)" "SRR1039520_1"
+    download_if_missing "$CTRL4_R2" "$URL_CTRL4_R2" "Control 4 Read 2 (SRR1039520_2)" "SRR1039520_2"
 
-    # Treatment Replicates (N=3)
+    # Treatment Replicates (N=4)
     download_if_missing "$TREAT1_R1" "$URL_TREAT1_R1" "Treatment 1 Read 1 (SRR1039509_1)" "SRR1039509_1"
     download_if_missing "$TREAT1_R2" "$URL_TREAT1_R2" "Treatment 1 Read 2 (SRR1039509_2)" "SRR1039509_2"
     download_if_missing "$TREAT2_R1" "$URL_TREAT2_R1" "Treatment 2 Read 1 (SRR1039513_1)" "SRR1039513_1"
     download_if_missing "$TREAT2_R2" "$URL_TREAT2_R2" "Treatment 2 Read 2 (SRR1039513_2)" "SRR1039513_2"
     download_if_missing "$TREAT3_R1" "$URL_TREAT3_R1" "Treatment 3 Read 1 (SRR1039517_1)" "SRR1039517_1"
     download_if_missing "$TREAT3_R2" "$URL_TREAT3_R2" "Treatment 3 Read 2 (SRR1039517_2)" "SRR1039517_2"
+    download_if_missing "$TREAT4_R1" "$URL_TREAT4_R1" "Treatment 4 Read 1 (SRR1039521_1)" "SRR1039521_1"
+    download_if_missing "$TREAT4_R2" "$URL_TREAT4_R2" "Treatment 4 Read 2 (SRR1039521_2)" "SRR1039521_2"
 
     # Ensure Reference Genome is ready
     if [ ! -d "human-ref" ] || [ ! -f "human-ref/Homo_sapiens.GRCh38.dna.primary_assembly.fa" ]; then
