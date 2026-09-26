@@ -231,10 +231,12 @@ fi
 # 9. Create or Update Conda Environment using Fast Solver
 echo -e "\n${BLUE}[2/2] Managing Conda Environment '${ENV_NAME}'...${NC}"
 
-# Enable fast libmamba solver if standard conda is used
+# Configure channel priority & libmamba for fast, crash-free dependency resolution
 if [ "$CONDA_CMD" = "conda" ]; then
-    echo -e "  ${DIM}Enabling fast libmamba solver & channel priorities...${RESET}"
-    $CONDA_CMD config --set channel_priority strict 2>/dev/null || true
+    echo -e "  ${DIM}Configuring Conda solver settings for maximum stability...${RESET}"
+    $CONDA_CMD config --set channel_priority flexible 2>/dev/null || true
+    # Try installing conda-libmamba-solver into base for ultra-fast C++ dependency solving
+    $CONDA_CMD install -n base -c conda-forge conda-libmamba-solver --yes 2>/dev/null || true
     $CONDA_CMD config --set solver libmamba 2>/dev/null || true
 fi
 
@@ -266,14 +268,22 @@ fi
 if [ "$ENV_EXISTS" = true ]; then
     if [ "$FORCE_INSTALL" = true ] || [ "$IS_ENV_COMPLETE" = false ]; then
         echo -e "Updating existing '${ENV_NAME}' Conda environment from environment.yml..."
-        $SOLVER_CMD env update -n "$ENV_NAME" -f environment.yml --prune
+        $SOLVER_CMD env update -n "$ENV_NAME" -f environment.yml --prune || {
+            echo -e "${YELLOW}⚠ Notice: Solver failed. Retrying update with flexible channel priority...${NC}"
+            $CONDA_CMD config --set channel_priority flexible 2>/dev/null || true
+            $CONDA_CMD env update -n "$ENV_NAME" -f environment.yml
+        }
     else
         echo -e "${GREEN}✔ Environment '${ENV_NAME}' is already installed and verified. Skipping re-creation.${NC}"
         echo -e "${DIM}(Use './install --force' to force re-updating all dependencies)${RESET}"
     fi
 else
     echo -e "Creating new '${ENV_NAME}' Conda environment from environment.yml..."
-    $SOLVER_CMD env create -f environment.yml
+    $SOLVER_CMD env create -f environment.yml || {
+        echo -e "${YELLOW}⚠ Notice: Fast solver encountered an error. Retrying creation with flexible channel priority...${NC}"
+        $CONDA_CMD config --set channel_priority flexible 2>/dev/null || true
+        $CONDA_CMD env create -f environment.yml
+    }
 fi
 
 # Ensure python -> python3 symlink exists inside environment bin directory for legacy tools

@@ -13,6 +13,35 @@ import time
 from pathlib import Path
 from datetime import datetime
 
+# Self-healing environment check: Re-execute under gensplice-agent conda python if system python is invoked
+try:
+    import pandas as pd
+    import polars as pl
+except ImportError:
+    home_dir = os.path.expanduser("~")
+    candidate_pythons = [
+        os.path.join(home_dir, "miniforge3", "envs", "gensplice-agent", "bin", "python3"),
+        os.path.join(home_dir, "miniconda3", "envs", "gensplice-agent", "bin", "python3"),
+        os.path.join(home_dir, "anaconda3", "envs", "gensplice-agent", "bin", "python3"),
+        "/root/miniconda3/envs/gensplice-agent/bin/python3",
+        "/opt/conda/envs/gensplice-agent/bin/python3",
+        os.path.join(os.environ.get("CONDA_PREFIX", ""), "bin", "python3")
+    ]
+    target_python = None
+    for cpy in candidate_pythons:
+        if cpy and os.path.exists(cpy) and os.access(cpy, os.X_OK):
+            target_python = cpy
+            break
+
+    if target_python and target_python != sys.executable:
+        print(f"\033[1;33m⚠ Notice: Re-executing pipeline under GenSplice Conda Python ({target_python})...\033[0m")
+        env = os.environ.copy()
+        env_bin_dir = os.path.dirname(target_python)
+        env["PATH"] = f"{env_bin_dir}:{env.get('PATH', '')}"
+        env["CONDA_PREFIX"] = os.path.dirname(env_bin_dir)
+        env["CONDA_DEFAULT_ENV"] = "gensplice-agent"
+        os.execve(target_python, [target_python] + sys.argv, env)
+
 # ANSI Terminal Formatting
 BOLD = "\033[1m"
 GREEN = "\033[1;32m"

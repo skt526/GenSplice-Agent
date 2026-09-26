@@ -62,6 +62,10 @@ for candidate in \
     ".venv/bin/python"; do
     if [ -x "$candidate" ]; then
         PYTHON_BIN="$candidate"
+        ENV_BIN="$(dirname "$PYTHON_BIN")"
+        export PATH="$ENV_BIN:$PATH"
+        export CONDA_PREFIX="$(dirname "$ENV_BIN")"
+        export CONDA_DEFAULT_ENV="gensplice-agent"
         break
     fi
 done
