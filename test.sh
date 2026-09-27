@@ -144,24 +144,42 @@ if [ "$MODE" = "--real" ] || [ "$MODE" = "real" ]; then
 
         if is_valid_gzip "$target_file"; then
             echo -e "  ${GREEN}✔ ${name} already downloaded and verified integrity: ${target_file} (Skipping download)${RESET}"
-        else
-            if [ -f "$target_file" ]; then
-                echo -e "  ${YELLOW}⚠ ${name} at ${target_file} is corrupted/truncated (unexpected EOF). Removing and re-downloading...${RESET}"
-                rm -f "$target_file"
+            return 0
+        fi
+
+        if [ -f "$target_file" ]; then
+            echo -e "  ${YELLOW}⚠ ${name} at ${target_file} is corrupted/truncated. Removing and re-downloading...${RESET}"
+            rm -f "$target_file"
+        fi
+
+        local attempt=1
+        local max_attempts=8
+        local http_url="${url/https:\/\//http:\/\/}"
+
+        echo -e "  ${DIM}Downloading ${name} (${url})...${RESET}"
+        
+        while [ $attempt -le $max_attempts ]; do
+            local current_url="$url"
+            if [ $attempt -gt 4 ]; then
+                current_url="$http_url"
             fi
-            echo -e "  ${DIM}Downloading ${name} (${url})...${RESET}"
-            curl -L -C - --progress-bar "$url" -o "$file"
-            if ! is_valid_gzip "$file"; then
-                echo -e "  ${YELLOW}⚠ Downloaded ${name} failed gzip integrity check. Retrying clean download...${RESET}"
-                rm -f "$file"
-                curl -L --progress-bar "$url" -o "$file"
-            fi
+            
+            echo -e "  ${DIM}Attempt ${attempt}/${max_attempts} [${current_url}]...${RESET}"
+            curl -L -C - --retry 5 --retry-delay 3 --keepalive-time 15 --progress-bar "$current_url" -o "$file" || true
+
             if is_valid_gzip "$file"; then
                 echo -e "  ${GREEN}✔ Downloaded and verified ${name}${RESET}"
-            else
-                echo -e "  ${RED}✘ Error: ${name} download failed integrity check!${RESET}"
-                exit 1
+                return 0
             fi
+
+            echo -e "  ${YELLOW}⚠ Network/SSL disconnect encountered. Resuming download in 3 seconds... (${attempt}/${max_attempts})${RESET}"
+            attempt=$((attempt + 1))
+            sleep 3
+        done
+
+        if ! is_valid_gzip "$file"; then
+            echo -e "  ${RED}✘ Error: ${name} download failed gzip integrity check after ${max_attempts} attempts!${RESET}"
+            exit 1
         fi
     }
 
