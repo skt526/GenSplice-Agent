@@ -10,6 +10,7 @@ __pycache__/
 test_config.yaml
 outputs/*
 outputs_*
+test_outputs*
 !outputs/*/.gitkeep
 inputs/control/*
 !inputs/control/.gitkeep

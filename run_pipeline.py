@@ -76,14 +76,14 @@ def find_binary(tool_name: str) -> str:
 
     return tool_name
 
-def log_pipeline_status(message: str):
+def log_pipeline_status(message: str, status_log_file: str = STATUS_LOG_FILE):
     """
-    Logs status with timestamp to outputs/pipeline_status.log.
+    Logs status with timestamp to pipeline_status.log.
     """
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_entry = f"[{timestamp}] {message}\n"
-    os.makedirs("outputs", exist_ok=True)
-    with open(STATUS_LOG_FILE, "a", encoding="utf-8") as f:
+    os.makedirs(os.path.dirname(os.path.abspath(status_log_file)), exist_ok=True)
+    with open(status_log_file, "a", encoding="utf-8") as f:
         f.write(log_entry)
 
 def check_gzip_file_integrity(file_path: str) -> bool:
@@ -107,26 +107,26 @@ def check_gzip_file_integrity(file_path: str) -> bool:
         except Exception:
             return False
 
-def load_checkpoint() -> dict:
-    if os.path.exists(CHECKPOINT_FILE):
+def load_checkpoint(checkpoint_file: str = CHECKPOINT_FILE) -> dict:
+    if os.path.exists(checkpoint_file):
         try:
-            with open(CHECKPOINT_FILE, "r", encoding="utf-8") as f:
+            with open(checkpoint_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             return {}
     return {}
 
-def update_checkpoint(step_key: str, status: str = "COMPLETED", details: dict = None):
-    checkpoint = load_checkpoint()
+def update_checkpoint(step_key: str, status: str = "COMPLETED", details: dict = None, checkpoint_file: str = CHECKPOINT_FILE, status_log_file: str = STATUS_LOG_FILE):
+    checkpoint = load_checkpoint(checkpoint_file)
     checkpoint[step_key] = {
         "status": status,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "details": details or {}
     }
-    os.makedirs("outputs", exist_ok=True)
-    with open(CHECKPOINT_FILE, "w", encoding="utf-8") as f:
+    os.makedirs(os.path.dirname(os.path.abspath(checkpoint_file)), exist_ok=True)
+    with open(checkpoint_file, "w", encoding="utf-8") as f:
         json.dump(checkpoint, f, indent=2)
-    log_pipeline_status(f"Step '{step_key}' status updated to {status}.")
+    log_pipeline_status(f"Step '{step_key}' status updated to {status}.", status_log_file=status_log_file)
 
 def run_command_step(cmd_list, step_name: str, allow_mock_fallback: bool = False, log_file=None):
     tool_name = cmd_list[0]
@@ -190,42 +190,61 @@ def main():
     parser.add_argument("--allow-mock", action="store_true", help="Allow simulated mock execution if tools are missing")
     args = parser.parse_args()
 
+    config = load_config(args.config)
+
     # --------------------------------------------------------------------------
     # Output Reset & Confirmation Warning (Clean is default)
     # --------------------------------------------------------------------------
-    outputs_dir = Path("outputs")
-    has_existing_outputs = outputs_dir.exists() and any(outputs_dir.iterdir())
+    outputs_config = config.get("outputs", {})
+    clean_fq_dir = Path(outputs_config.get("clean_fq", "./outputs/01_clean_fq"))
+    aligned_bam_dir = Path(outputs_config.get("aligned_bam", "./outputs/02_aligned_bam"))
+    deg_dir = Path(outputs_config.get("deg", "./outputs/03_deg"))
+    rmats_dir = Path(outputs_config.get("rmats", "./outputs/04_rmats"))
+
+    outputs_base_dir = clean_fq_dir.parent
+    outputs_base_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_file_path = str(outputs_base_dir / "pipeline_checkpoint.json")
+    status_log_path = str(outputs_base_dir / "pipeline_status.log")
+
+    has_existing_outputs = outputs_base_dir.exists() and any(outputs_base_dir.iterdir())
 
     if has_existing_outputs and not args.keep_outputs:
         if not args.skip_confirmation:
-            print(f"{RED}{BOLD}WARNING: Running GenSplice will reset the existing 'outputs/' directory.{RESET}")
+            print(f"{RED}{BOLD}WARNING: Running GenSplice will reset the existing '{outputs_base_dir}/' directory.{RESET}")
             print(f"{YELLOW}{BOLD}Are you sure you want to proceed? [y/N]: {RESET}", end="")
             choice = input().strip().lower()
             if choice not in ['y', 'yes']:
                 print("Pipeline execution cancelled by user. Exiting...")
                 sys.exit(0)
 
-        # Reset outputs directory and checkpoint
-        if os.path.exists(CHECKPOINT_FILE):
+        # Reset outputs directory checkpoint
+        if os.path.exists(checkpoint_file_path):
             try:
-                os.remove(CHECKPOINT_FILE)
+                os.remove(checkpoint_file_path)
             except Exception:
                 pass
 
-    checkpoint = {} if not args.keep_outputs else load_checkpoint()
+    checkpoint = {} if not args.keep_outputs else load_checkpoint(checkpoint_file_path)
+
+    def set_checkpoint(step_key: str, status: str = "COMPLETED", details: dict = None):
+        update_checkpoint(step_key, status, details, checkpoint_file=checkpoint_file_path, status_log_file=status_log_path)
 
     # --------------------------------------------------------------------------
     # Step 1: Input Validation & Hardware Resource Allocation
     # --------------------------------------------------------------------------
     print(f"\n{BOLD}[Step 1/5] Input Validation & Hardware Resource Allocation...{RESET}")
-    config = load_config(args.config)
     
+    import math
     cpu_cores = os.cpu_count() or 4
+    threads_80pct = max(1, math.ceil(cpu_cores * 0.8))
     system_settings = config.get("system", {})
-    assigned_threads = system_settings.get("assigned_threads", config.get("threads", max(1, cpu_cores - 2)))
-    allocated_threads = min(cpu_cores, assigned_threads)
+    cfg_threads = system_settings.get("assigned_threads", config.get("threads", 0))
+    if not cfg_threads or cfg_threads <= 0:
+        allocated_threads = threads_80pct
+    else:
+        allocated_threads = min(cpu_cores, cfg_threads)
     
-    print(f"  {GREEN}✔ CPU Cores Detected: {cpu_cores} | Allocated Threads (n-2): {allocated_threads}{RESET}")
+    print(f"  {GREEN}✔ CPU Cores Detected: {cpu_cores} | Allocated Threads (80% system capacity): {allocated_threads}{RESET}")
 
     ref_settings = config.get("reference", {})
     fasta_path = Path(ref_settings.get("fasta", ""))
@@ -239,18 +258,20 @@ def main():
         print(f"  {RED}✘ Error: Reference FASTA or GTF file is missing. Please run './ref' first.{RESET}")
         sys.exit(1)
 
-    scan_res = scan_all_inputs("./inputs")
+    inputs_config = config.get("inputs", {})
+    inputs_base_dir = inputs_config.get("base_dir", "./inputs")
+    scan_res = scan_all_inputs(inputs_base_dir)
     summary = scan_res["summary"]
     samples = scan_res["all_samples"]
 
-    print(f"\n  {BOLD}Sample Summary:{RESET}")
+    print(f"\n  {BOLD}Sample Summary ({inputs_base_dir}):{RESET}")
     print(f"    - Total Detected Samples: {summary['total_samples']}")
     print(f"    - Control Samples:        {summary['control_count']}")
     print(f"    - Treatment Samples:      {summary['treatment_count']}")
     print(f"    - Paired-End Pairs:       {summary['paired_count']}")
 
     if summary['total_samples'] == 0:
-        print(f"\n  {YELLOW}⚠ Warning: No FASTQ files found in inputs/control or inputs/treatment.{RESET}")
+        print(f"\n  {YELLOW}⚠ Warning: No FASTQ files found in {inputs_base_dir}/control or {inputs_base_dir}/treatment.{RESET}")
         sys.exit(1)
 
     print(f"\n  {BOLD}Detected FASTQ Sample Pairs:{RESET}")
@@ -259,12 +280,6 @@ def main():
         r2_name = os.path.basename(s['read2']) if s['read2'] else 'NONE'
         print(f"    [{s['group'].upper()}] Sample: {s['sample_name']:<18} | R1: {r1_name:<25} | R2: {r2_name:<25} ({s['read_type']})")
 
-    outputs_config = config.get("outputs", {})
-    clean_fq_dir = Path(outputs_config.get("clean_fq", "./outputs/01_clean_fq"))
-    aligned_bam_dir = Path(outputs_config.get("aligned_bam", "./outputs/02_aligned_bam"))
-    deg_dir = Path(outputs_config.get("deg", "./outputs/03_deg"))
-    rmats_dir = Path(outputs_config.get("rmats", "./outputs/04_rmats"))
-
     for d in [clean_fq_dir, aligned_bam_dir, deg_dir, rmats_dir]:
         d.mkdir(parents=True, exist_ok=True)
 
@@ -272,7 +287,7 @@ def main():
         print(f"\n{CYAN}{BOLD}Dry-run completed. All settings validated successfully.{RESET}")
         sys.exit(0)
 
-    update_checkpoint("step1_validation", "COMPLETED")
+    set_checkpoint("step1_validation", "COMPLETED")
 
     # --------------------------------------------------------------------------
     # Step 2: Quality Control & Trimming (fastp) with Checkpoint
@@ -333,7 +348,7 @@ def main():
             "read_type": s['read_type']
         })
 
-    update_checkpoint("step2_fastp", "COMPLETED")
+    set_checkpoint("step2_fastp", "COMPLETED")
 
     # --------------------------------------------------------------------------
     # Step 3: Genome Alignment (STAR 2-pass) with Checkpoint
@@ -392,7 +407,7 @@ def main():
 
         bam_files[group].append(str(sorted_bam))
 
-    update_checkpoint("step3_alignment", "COMPLETED")
+    set_checkpoint("step3_alignment", "COMPLETED")
 
     # --------------------------------------------------------------------------
     # Step 4: Expression Quantification & DEG Analysis (PyDESeq2) with Checkpoint
@@ -428,7 +443,7 @@ def main():
         from core.deg_calculator import run_deg_analysis
         run_deg_analysis(str(counts_matrix_file), bam_files["control"], bam_files["treatment"], str(deg_result_csv))
 
-    update_checkpoint("step4_deg", "COMPLETED")
+    set_checkpoint("step4_deg", "COMPLETED")
 
     # --------------------------------------------------------------------------
     # Step 5: Alternative Splicing Quantification (rMATS) with Auto Read Length
@@ -511,12 +526,12 @@ def main():
         else:
             run_command_step(cmd_rmats_post, "rMATS_post", allow_mock_fallback=args.allow_mock)
 
-    update_checkpoint("step5_rmats", "COMPLETED")
+    set_checkpoint("step5_rmats", "COMPLETED")
 
     # --------------------------------------------------------------------------
     # Step 6: Generate Standalone HTML Interactive Report inside outputs/
     # --------------------------------------------------------------------------
-    html_report_path = outputs_dir / "gensplice_report.html"
+    html_report_path = outputs_base_dir / "gensplice_report.html"
     try:
         from core.deg_loader import load_deg_data
         from core.rmats_loader import load_rmats_data, select_primary_splicing_events
@@ -536,12 +551,12 @@ def main():
     # Copy/Archive outputs/ to outputs_{YYMMDD}_{HHMMSS}
     # --------------------------------------------------------------------------
     archive_suffix = datetime.now().strftime("%y%m%d_%H%M%S")
-    archive_dir = Path(f"outputs_{archive_suffix}")
+    archive_dir = Path(f"{outputs_base_dir.name}_{archive_suffix}")
     try:
-        if outputs_dir.exists():
+        if outputs_base_dir.exists():
             if archive_dir.exists():
                 shutil.rmtree(archive_dir)
-            shutil.copytree(outputs_dir, archive_dir, ignore=shutil.ignore_patterns('*_STARtmp', '*.fifo*'))
+            shutil.copytree(outputs_base_dir, archive_dir, ignore=shutil.ignore_patterns('*_STARtmp', '*.fifo*'))
             print(f"  {GREEN}✔ Archived pipeline output copy to {archive_dir}/ (includes gensplice_report.html){RESET}")
     except Exception as e:
         print(f"  {YELLOW}⚠ Notice: Could not archive outputs directory: {e}{RESET}")

@@ -86,10 +86,9 @@ else
     echo -e "System specifications are suitable for transcriptomics analysis."
 fi
 
-# 5. Calculate Thread & RAM Allocation
-if [ "$CPU_CORES" -gt 2 ]; then
-    OPTIMAL_THREADS=$((CPU_CORES - 2))
-else
+# 5. Calculate Thread & RAM Allocation (80% CPU capacity)
+OPTIMAL_THREADS=$(( (CPU_CORES * 8 + 9) / 10 ))
+if [ "$OPTIMAL_THREADS" -lt 1 ]; then
     OPTIMAL_THREADS=1
 fi
 
