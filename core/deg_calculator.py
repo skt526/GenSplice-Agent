@@ -87,10 +87,17 @@ def run_deg_analysis(feature_counts_path: str, control_bams: list, treatment_bam
     if PYDESEQ2_AVAILABLE and len(control_cols) >= 2 and len(treatment_cols) >= 2:
         try:
             print("  Running PyDESeq2 Size Factor Normalization & Dispersion Shrinkage...")
+            if len(control_cols) == len(treatment_cols):
+                print(f"  ✔ Paired sample design detected ({len(control_cols)} pairs). Blocking subject/donor baseline variance...")
+                metadata["subject"] = [f"donor_{i+1}" for i in range(len(control_cols))] + [f"donor_{i+1}" for i in range(len(treatment_cols))]
+                design_factors = ["subject", "condition"]
+            else:
+                design_factors = "condition"
+
             dds = DeseqDataSet(
                 counts=counts_df,
                 metadata=metadata,
-                design_factors="condition",
+                design_factors=design_factors,
                 refit_cooks=True,
                 quiet=True
             )

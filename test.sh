@@ -18,33 +18,8 @@ DIM="\033[2m"
 echo -e "${CYAN}${BOLD}"
 echo "======================================================================"
 echo "           GenSplice-Agent System Pre-flight Test Suite              "
-echo "======================================================================"
-echo -e "${RESET}"
-
-# Detect Python in gensplice-agent conda env or virtualenv
+export PATH="$HOME/miniconda3/envs/gensplice-agent/bin:$PATH"
 PYTHON_BIN="python3"
-for candidate in \
-    "$HOME/miniforge3/envs/gensplice-agent/bin/python3" \
-    "$HOME/miniforge3/envs/gensplice-agent/bin/python" \
-    "$HOME/miniconda3/envs/gensplice-agent/bin/python3" \
-    "$HOME/miniconda3/envs/gensplice-agent/bin/python" \
-    "/root/miniconda3/envs/gensplice-agent/bin/python3" \
-    "/root/miniconda3/envs/gensplice-agent/bin/python" \
-    "/opt/conda/envs/gensplice-agent/bin/python3" \
-    "/opt/conda/envs/gensplice-agent/bin/python" \
-    "$CONDA_PREFIX/bin/python3" \
-    "$CONDA_PREFIX/bin/python" \
-    ".venv/bin/python3" \
-    ".venv/bin/python"; do
-    if [ -x "$candidate" ]; then
-        PYTHON_BIN="$candidate"
-        ENV_BIN="$(dirname "$PYTHON_BIN")"
-        export PATH="$ENV_BIN:$PATH"
-        export CONDA_PREFIX="$(dirname "$ENV_BIN")"
-        export CONDA_DEFAULT_ENV="gensplice-agent"
-        break
-    fi
-done
 
 echo -e "${BOLD}[1/4] Preparing Quick Test Environment & Sandbox...${RESET}"
 TEST_DIR="test_data"
@@ -74,6 +49,7 @@ fi
 TEST_FASTA="test-ref/human_subset.fa"
 TEST_GTF="test-ref/human_subset.gtf"
 
+if [ ! -f "$TEST_FASTA" ]; then
 cat <<EOF > "$TEST_FASTA"
 >chr13
 ACTGGACGCCGACGACTTCGACAGCCAGCTGCTGGACGAGCTCGTCCAGCAGCTGGCTGTCGAAGTCGTCGGCGTCCAGTACTGGACGCCGACGACTTCGACAGCCAGCTGCTGGACGAGCTCGTCCAGCAGCTGGCTGTCGAAGTCGTCGGCGTCCAGTACTGGACGCCGACGACTTCGACAGCCAGCTGCTGGACGAGCTCGTCCAGCAGCTGGCTGTCGAAGTCGTCGGCGTCCAG
@@ -89,7 +65,9 @@ chr16	ENSEMBL	gene	1	100	.	+	.	gene_id "ENSG00000103194"; gene_name "CRISPLD2";
 chr16	ENSEMBL	transcript	1	100	.	+	.	gene_id "ENSG00000103194"; transcript_id "ENST00000219460"; gene_name "CRISPLD2";
 chr16	ENSEMBL	exon	1	100	.	+	.	gene_id "ENSG00000103194"; transcript_id "ENST00000219460"; exon_number "1"; gene_name "CRISPLD2";
 EOF
+fi
 
+if [ ! -f test_config.yaml ]; then
 cat <<EOF > test_config.yaml
 reference:
   organism: "test"
@@ -108,6 +86,7 @@ outputs:
   deg: "./test_outputs/03_deg"
   rmats: "./test_outputs/04_rmats"
 EOF
+fi
 
 echo -e "\n${BOLD}[2/4] Running Quick Pipeline Test...${RESET}"
 "$PYTHON_BIN" run_pipeline.py --config test_config.yaml --skip-confirmation --allow-mock

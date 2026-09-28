@@ -20,12 +20,11 @@ try:
 except ImportError:
     home_dir = os.path.expanduser("~")
     candidate_pythons = [
-        os.path.join(home_dir, "miniforge3", "envs", "gensplice-agent", "bin", "python3"),
         os.path.join(home_dir, "miniconda3", "envs", "gensplice-agent", "bin", "python3"),
+        os.path.join(home_dir, "miniforge3", "envs", "gensplice-agent", "bin", "python3"),
         os.path.join(home_dir, "anaconda3", "envs", "gensplice-agent", "bin", "python3"),
         "/root/miniconda3/envs/gensplice-agent/bin/python3",
-        "/opt/conda/envs/gensplice-agent/bin/python3",
-        os.path.join(os.environ.get("CONDA_PREFIX", ""), "bin", "python3")
+        "/opt/conda/envs/gensplice-agent/bin/python3"
     ]
     target_python = None
     for cpy in candidate_pythons:
