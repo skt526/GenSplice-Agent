@@ -691,8 +691,11 @@ def export_html_report(
             }};
 
             rawGeneData.forEach(g => {{
-                const isDegSig = Math.abs(g.log2FoldChange) >= fcCut && (g.deg_fdr || 1.0) <= 0.05;
-                const isAsSig = Math.abs(g.delta_psi) >= psiCut && (g.as_fdr || 1.0) <= 0.05;
+                const fcVal = Math.abs(g.log2FoldChange || 0);
+                const psiVal = Math.abs(g.delta_psi || 0);
+                
+                const isDegSig = fcVal >= fcCut && (g.deg_fdr === undefined || g.deg_fdr === null || g.deg_fdr <= 0.05 || g.deg_fdr === 1.0);
+                const isAsSig = psiVal >= psiCut && (g.as_fdr === undefined || g.as_fdr === null || g.as_fdr <= 0.05 || g.as_fdr === 1.0);
 
                 let quad = "Q3";
                 if (isDegSig && isAsSig) {{ quad = "Q1"; q1++; }}
@@ -700,7 +703,7 @@ def export_html_report(
                 else if (isDegSig && !isAsSig) {{ quad = "Q4"; q4++; }}
                 else {{ quad = "Q3"; q3++; }}
 
-                const hoverText = `<b>Gene Symbol:</b> ${{g.geneSymbol}}<br><b>Gene ID:</b> ${{g.gene_id}}<br><b>Quadrant:</b> ${{quad}}<br><b>Log2FC (DEG):</b> ${{g.log2FoldChange.toFixed(3)}}<br><b>ΔPSI (Splicing):</b> ${{g.delta_psi.toFixed(3)}}<br><b>DEG FDR:</b> ${{(g.deg_fdr || 1.0).toExponential(2)}}<br><b>rMATS FDR:</b> ${{(g.as_fdr || 1.0).toExponential(2)}}<br><b>Event Type:</b> ${{g.event_type || 'None'}}`;
+                const hoverText = `<b>Gene Symbol:</b> ${{g.geneSymbol}}<br><b>Gene ID:</b> ${{g.gene_id}}<br><b>Quadrant:</b> ${{quad}}<br><b>Log2FC (DEG):</b> ${{fcVal.toFixed(3)}}<br><b>ΔPSI (Splicing):</b> ${{psiVal.toFixed(3)}}<br><b>DEG FDR:</b> ${{(g.deg_fdr || 1.0).toExponential(2)}}<br><b>rMATS FDR:</b> ${{(g.as_fdr || 1.0).toExponential(2)}}<br><b>Event Type:</b> ${{g.event_type || 'None'}}`;
 
                 quadPoints[quad].x.push(g.log2FoldChange);
                 quadPoints[quad].y.push(g.delta_psi);
@@ -742,10 +745,10 @@ def export_html_report(
                 ];
 
                 const updatedTraces = [
-                    {{ x: quadPoints.Q1.x, y: quadPoints.Q1.y, text: quadPoints.Q1.text, mode: 'markers', name: 'Q1', marker: {{ color: '#A855F7', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text' }},
-                    {{ x: quadPoints.Q2.x, y: quadPoints.Q2.y, text: quadPoints.Q2.text, mode: 'markers', name: 'Q2', marker: {{ color: '#3B82F6', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text' }},
-                    {{ x: quadPoints.Q3.x, y: quadPoints.Q3.y, text: quadPoints.Q3.text, mode: 'markers', name: 'Q3', marker: {{ color: '#94A3B8', size: 6, opacity: 0.5, line: {{ width: 0.5, color: '#FFFFFF' }} }}, hoverinfo: 'text' }},
-                    {{ x: quadPoints.Q4.x, y: quadPoints.Q4.y, text: quadPoints.Q4.text, mode: 'markers', name: 'Q4', marker: {{ color: '#EF4444', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text' }}
+                    {{ x: quadPoints.Q1.x, y: quadPoints.Q1.y, text: quadPoints.Q1.text, mode: 'markers', name: 'Q1', marker: {{ color: '#A855F7', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text', visible: true }},
+                    {{ x: quadPoints.Q2.x, y: quadPoints.Q2.y, text: quadPoints.Q2.text, mode: 'markers', name: 'Q2', marker: {{ color: '#3B82F6', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text', visible: true }},
+                    {{ x: quadPoints.Q3.x, y: quadPoints.Q3.y, text: quadPoints.Q3.text, mode: 'markers', name: 'Q3', marker: {{ color: '#94A3B8', size: 6, opacity: 0.5, line: {{ width: 0.5, color: '#FFFFFF' }} }}, hoverinfo: 'text', visible: 'legendonly' }},
+                    {{ x: quadPoints.Q4.x, y: quadPoints.Q4.y, text: quadPoints.Q4.text, mode: 'markers', name: 'Q4', marker: {{ color: '#EF4444', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text', visible: true }}
                 ];
 
                 Plotly.react(quadDiv, updatedTraces, quadDiv.layout);

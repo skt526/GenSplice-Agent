@@ -126,6 +126,7 @@ def build_quadrant_plot(
                     y=sub["delta_psi"] if len(sub) > 0 else [],
                     mode="markers",
                     name=quad,
+                    visible="legendonly" if quad == "Q3" else True,
                     marker=dict(
                         color=QUADRANT_COLORS.get(quad, "#94A3B8"),
                         size=10 if quad in ["Q1", "Q2", "Q4"] else 6,
