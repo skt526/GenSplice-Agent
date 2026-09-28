@@ -14,20 +14,79 @@ def merge_deg_and_rmats(
     as_fdr_cutoff: float = DEFAULT_AS_FDR_CUTOFF
 ) -> pl.DataFrame:
     """
-    Merges DEG data and primary rMATS data on geneSymbol / gene_id,
+    Merges DEG data and primary rMATS data on normalized gene_id / geneSymbol,
     and applies the 4-quadrant statistical classification algorithm.
     """
-    if df_deg.height == 0 and df_rmats.height == 0:
+    if (df_deg is None or df_deg.height == 0) and (df_rmats is None or df_rmats.height == 0):
         return pl.DataFrame()
 
-    # Outer join to ensure no genes from either DEG or AS are lost
-    merged = df_deg.join(df_rmats, on="geneSymbol", how="outer", suffix="_rmats")
+    if df_deg is None or df_deg.height == 0:
+        df_deg = pl.DataFrame(schema={
+            "gene_id": pl.Utf8, "geneSymbol": pl.Utf8, "log2FoldChange": pl.Float64,
+            "deg_pvalue": pl.Float64, "deg_fdr": pl.Float64
+        })
+
+    if df_rmats is None or df_rmats.height == 0:
+        df_rmats = pl.DataFrame(schema={
+            "gene_id": pl.Utf8, "geneSymbol": pl.Utf8, "event_type": pl.Utf8,
+            "delta_psi": pl.Float64, "as_pvalue": pl.Float64, "as_fdr": pl.Float64,
+            "coordinates": pl.Utf8
+        })
+
+    # Prepare normalized join key for df_deg
+    df_deg_prepared = df_deg.with_columns([
+        pl.col("gene_id").cast(pl.Utf8).str.split(".").list.first().alias("gene_id_clean"),
+        pl.col("geneSymbol").cast(pl.Utf8).str.split(".").list.first().alias("symbol_clean")
+    ]).with_columns([
+        pl.coalesce([pl.col("symbol_clean"), pl.col("gene_id_clean")]).alias("join_key")
+    ])
+
+    # Prepare normalized join key for df_rmats
+    df_rmats_prepared = df_rmats.with_columns([
+        pl.col("gene_id").cast(pl.Utf8).str.split(".").list.first().alias("gene_id_clean"),
+        pl.col("geneSymbol").cast(pl.Utf8).alias("symbol_clean_rmats")
+    ]).with_columns([
+        pl.coalesce([pl.col("gene_id_clean"), pl.col("symbol_clean_rmats")]).alias("join_key")
+    ]).drop(["gene_id_clean", "symbol_clean_rmats"])
+
+    # If df_deg lacks real gene symbols (e.g. geneSymbol == gene_id), extract clean gene_id -> geneSymbol map from rMATS
+    rmats_symbol_map = (
+        df_rmats
+        .filter(pl.col("geneSymbol").is_not_null() & ~pl.col("geneSymbol").str.starts_with("ENSG") & ~pl.col("geneSymbol").str.starts_with("AT"))
+        .select([
+            pl.col("gene_id").cast(pl.Utf8).str.split(".").list.first().alias("join_key"),
+            pl.col("geneSymbol").alias("mapped_symbol")
+        ])
+        .unique(subset=["join_key"])
+    )
+
+    if rmats_symbol_map.height > 0:
+        df_deg_prepared = df_deg_prepared.join(rmats_symbol_map, on="join_key", how="left")
+        df_deg_prepared = df_deg_prepared.with_columns(
+            pl.coalesce([pl.col("mapped_symbol"), pl.col("geneSymbol")]).alias("geneSymbol")
+        ).drop("mapped_symbol")
+
+    df_deg_prepared = df_deg_prepared.drop(["gene_id_clean", "symbol_clean"])
+
+    # Outer join on normalized join_key
+    merged = df_deg_prepared.join(df_rmats_prepared, on="join_key", how="outer", suffix="_rmats")
 
     # Resolve duplicate or missing columns from outer join
-    gene_id_expr = pl.coalesce([pl.col("gene_id"), pl.col("gene_id_rmats"), pl.col("geneSymbol")])
-    
+    final_symbol = pl.coalesce([
+        pl.col("geneSymbol_rmats") if "geneSymbol_rmats" in merged.columns else pl.col("geneSymbol"),
+        pl.col("geneSymbol"),
+        pl.col("gene_id"),
+        pl.col("join_key")
+    ])
+    final_gene_id = pl.coalesce([
+        pl.col("gene_id"),
+        pl.col("gene_id_rmats") if "gene_id_rmats" in merged.columns else pl.col("gene_id"),
+        pl.col("join_key")
+    ])
+
     merged = merged.with_columns([
-        gene_id_expr.alias("gene_id"),
+        final_symbol.alias("geneSymbol"),
+        final_gene_id.alias("gene_id"),
         pl.col("log2FoldChange").fill_null(0.0),
         pl.col("deg_fdr").fill_null(1.0),
         pl.col("deg_pvalue").fill_null(1.0),
@@ -38,9 +97,14 @@ def merge_deg_and_rmats(
         pl.col("coordinates").fill_null("N/A")
     ])
 
-    # Clean up auxiliary join column if present
-    if "gene_id_rmats" in merged.columns:
-        merged = merged.drop("gene_id_rmats")
+    # Remove temporary helper columns
+    drop_cols = [c for c in ["join_key", "gene_id_rmats", "geneSymbol_rmats"] if c in merged.columns]
+    if drop_cols:
+        merged = merged.drop(drop_cols)
+
+    # Deduplicate by geneSymbol keeping the row with lowest FDR / highest significance
+    if "geneSymbol" in merged.columns:
+        merged = merged.sort(["as_fdr", "deg_fdr"], descending=[False, False]).unique(subset=["geneSymbol"], keep="first")
 
     # Evaluate significance flags
     merged = merged.with_columns([

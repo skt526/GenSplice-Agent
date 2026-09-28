@@ -633,10 +633,31 @@ def export_html_report(
         function updateNcbiDropdown(q1GeneList) {{
             if (!ncbiSelect) return;
             const uniqueQ1 = [...new Set(q1GeneList.filter(Boolean))];
-            const activeOptions = uniqueQ1.length ? uniqueQ1 : ["STAT3", "PTEN", "DUSP1", "VEGFA", "BRCA1", "CRISPLD2", "SYK"];
+            
+            let activeOptions = uniqueQ1;
+            if (!activeOptions.length && typeof rawGeneData !== 'undefined' && rawGeneData.length) {{
+                const fcCut = parseFloat(fcSlider.value || 1.0);
+                const psiCut = parseFloat(psiSlider.value || 0.1);
+                const sigGenes = rawGeneData
+                    .filter(g => (Math.abs(g.log2FoldChange || 0) >= fcCut && (g.deg_fdr || 1) <= 0.05) || (Math.abs(g.delta_psi || 0) >= psiCut && (g.as_fdr || 1) <= 0.05))
+                    .map(g => g.geneSymbol)
+                    .filter(Boolean);
+                activeOptions = [...new Set(sigGenes)];
+            }}
+            if (!activeOptions.length && typeof rawGeneData !== 'undefined' && rawGeneData.length) {{
+                activeOptions = [...new Set(rawGeneData.map(g => g.geneSymbol).filter(Boolean))].slice(0, 20);
+            }}
             
             const prevVal = ncbiSelect.value;
             ncbiSelect.innerHTML = '';
+            if (!activeOptions.length) {{
+                const opt = document.createElement('option');
+                opt.value = "";
+                opt.textContent = "No genes available";
+                ncbiSelect.appendChild(opt);
+                return;
+            }}
+
             activeOptions.forEach(g => {{
                 const opt = document.createElement('option');
                 opt.value = g;
@@ -935,18 +956,16 @@ def export_html_report(
 
             currentFilteredGenes.forEach(g => {{
                 const symbol = (g.geneSymbol || '').toUpperCase();
-                let impScore = 15.0;
+                const dpsi = Math.abs(g.delta_psi || 0);
+                const fc = Math.abs(g.log2FoldChange || 0);
+                
+                let impScore = g.impairment_score_pct || (15.0 + Math.min(35.0, dpsi * 70.0) + Math.min(25.0, fc * 15.0));
                 let impTier = "🟢 Low Risk (30%)";
-                let impCause = "Partial Isoform Variation";
+                let impCause = g.primary_dysfunction_cause || (dpsi > 0.15 ? "Major Isoform Switch & Functional Domain Shift" : "Partial Isoform Variation");
 
-                if (symbol === 'STAT3') {{ impScore = 88.0; impTier = '🔴 High Risk (88%)'; impCause = 'Dominant-Negative Isoform Antagonism & TAD Loss'; }}
-                else if (symbol === 'PTEN') {{ impScore = 82.0; impTier = '🔴 High Risk (82%)'; impCause = 'Catalytic Core Deletion & Membrane Detachment'; }}
-                else if (symbol === 'DUSP1') {{ impScore = 94.0; impTier = '🔴 High Risk (94%)'; impCause = 'NMD mRNA Degradation Paradox (mRNA Up, Protein Down)'; }}
-                else if (symbol === 'CRISPLD2') {{ impScore = 90.0; impTier = '🔴 High Risk (90%)'; impCause = 'NMD Degradation & Frame-Shift at Codon 184'; }}
-                else if (symbol === 'BRCA1') {{ impScore = 76.0; impTier = '🔴 High Risk (76%)'; impCause = 'In-Frame Exon 11 Loss & Partial Nuclear Exclusion'; }}
-                else if (symbol === 'SYK') {{ impScore = 72.0; impTier = '🟠 Moderate Risk (72%)'; impCause = 'NLS Loss & Cytoplasmic Trapping (SYK-S)'; }}
-                else if (symbol === 'VEGFA') {{ impScore = 68.0; impTier = '🟠 Moderate Risk (68%)'; impCause = 'Anti-Angiogenic Soluble Decoy Transition'; }}
-                else if (Math.abs(g.delta_psi || 0) > 0.15) {{ impScore = 75.0; impTier = '🔴 High Risk (75%)'; impCause = 'Significant Isoform Switch & Frame Alteration'; }}
+                if (impScore >= 75.0) {{ impTier = `🔴 High Risk (${{impScore.toFixed(0)}}%)`; }}
+                else if (impScore >= 45.0) {{ impTier = `🟠 Moderate Risk (${{impScore.toFixed(0)}}%)`; }}
+                else {{ impTier = `🟢 Low Risk (${{impScore.toFixed(0)}}%)`; }}
 
                 const row = [
                     `"${{g.geneSymbol || ''}}"`,

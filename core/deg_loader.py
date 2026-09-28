@@ -5,7 +5,46 @@ GenSplice-Agent DEG Loader Module (Polars)
 import os
 import polars as pl
 
-def load_deg_data(filepath: str) -> pl.DataFrame:
+def parse_gtf_gene_map(gtf_path: str = None) -> dict:
+    """
+    Parses GTF file to build a mapping from gene_id (with/without version suffix) -> gene_name (geneSymbol).
+    """
+    gene_map = {}
+    candidate_gtfs = [gtf_path] if gtf_path else []
+    
+    # Auto-discover reference GTF files if not explicitly provided
+    for default_dir in ["human-ref", "arabidopsis-ref", "test-ref", "ref"]:
+        if os.path.isdir(default_dir):
+            for fname in os.listdir(default_dir):
+                if fname.endswith(".gtf"):
+                    candidate_gtfs.append(os.path.join(default_dir, fname))
+
+    import re
+    gene_id_pattern = re.compile(r'gene_id\s+"([^"]+)"')
+    gene_name_pattern = re.compile(r'(?:gene_name|gene_symbol)\s+"([^"]+)"')
+
+    for gpath in candidate_gtfs:
+        if gpath and os.path.exists(gpath):
+            try:
+                with open(gpath, 'r', encoding='utf-8', errors='ignore') as f:
+                    for line in f:
+                        if line.startswith('#'):
+                            continue
+                        gid_match = gene_id_pattern.search(line)
+                        if gid_match:
+                            gid = gid_match.group(1).strip()
+                            gname_match = gene_name_pattern.search(line)
+                            gname = gname_match.group(1).strip() if gname_match else gid
+                            gene_map[gid] = gname
+                            gene_map[gid.split('.')[0]] = gname
+                if gene_map:
+                    break
+            except Exception:
+                pass
+
+    return gene_map
+
+def load_deg_data(filepath: str, gtf_path: str = None) -> pl.DataFrame:
     """
     Loads and standardizes DEG (DESeq2/edgeR) CSV/TSV output files using Polars.
     Returns a standardized Polars DataFrame containing:
@@ -43,9 +82,22 @@ def load_deg_data(filepath: str) -> pl.DataFrame:
         first_col = df.columns[0]
         df = df.rename({first_col: "gene_id"})
 
+    # Clean text columns
+    df = df.with_columns([
+        pl.col("gene_id").cast(pl.Utf8).str.strip_chars('"\'').alias("gene_id")
+    ])
+
     if "geneSymbol" not in df.columns:
-        # Strip quote marks or dot extensions from ENSEMBL IDs if present
         df = df.with_columns(pl.col("gene_id").alias("geneSymbol"))
+    else:
+        df = df.with_columns(pl.col("geneSymbol").cast(pl.Utf8).str.strip_chars('"\'').alias("geneSymbol"))
+
+    # Map ENSEMBL IDs to Gene Symbols if GTF is available and geneSymbol equals gene_id
+    gtf_map = parse_gtf_gene_map(gtf_path)
+    if gtf_map:
+        clean_ids = df.select(pl.col("gene_id").str.split(".").list.first()).to_series().to_list()
+        mapped_symbols = [gtf_map.get(gid, orig) for gid, orig in zip(clean_ids, df.select("geneSymbol").to_series().to_list())]
+        df = df.with_columns(pl.Series("geneSymbol", mapped_symbols))
 
     if "log2FoldChange" not in df.columns:
         df = df.with_columns(pl.lit(0.0).alias("log2FoldChange"))
@@ -62,11 +114,5 @@ def load_deg_data(filepath: str) -> pl.DataFrame:
 
     if "deg_pvalue" not in df.columns:
         df = df.with_columns(pl.col("deg_fdr").alias("deg_pvalue"))
-
-    # Clean text columns
-    df = df.with_columns([
-        pl.col("gene_id").cast(pl.Utf8).str.strip_chars('"\''),
-        pl.col("geneSymbol").cast(pl.Utf8).str.strip_chars('"\'')
-    ])
 
     return df.select(["gene_id", "geneSymbol", "log2FoldChange", "deg_pvalue", "deg_fdr"])
