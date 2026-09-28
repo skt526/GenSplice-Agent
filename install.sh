@@ -53,7 +53,7 @@ run_with_spinner() {
             fi
         fi
         
-        echo -ne "\r${CYAN}${char}${NC} ${YELLOW}[진행 중]${NC} (${last_status})\033[K"
+        echo -ne "\r${CYAN}${char}${NC} ${YELLOW}[IN PROGRESS]${NC} (${last_status})\033[K"
         sleep 0.2
     done
     
@@ -64,17 +64,18 @@ run_with_spinner() {
     tput cnorm 2>/dev/null || true
     
     if [ $exit_code -eq 0 ]; then
-        echo -ne "\r${GREEN}✔ [완료]${NC} ${default_msg}\033[K\n"
+        echo -ne "\r${GREEN}✔ [COMPLETED]${NC} ${default_msg}\033[K\n"
     else
-        echo -ne "\r${RED}✘ [실패]${NC} ${default_msg}\033[K\n"
+        echo -ne "\r${RED}✘ [FAILED]${NC} ${default_msg}\033[K\n"
         if [ -f "$log_file" ]; then
-            echo -e "${RED}--- 최근 설치 오류 상세 내용 ---${NC}"
+            echo -e "${RED}--- Installation Error Details ---${NC}"
             tail -n 15 "$log_file"
-            echo -e "${RED}-------------------------------${NC}"
+            echo -e "${RED}---------------------------------${NC}"
         fi
     fi
     return $exit_code
 }
+
 
 echo -e "${BLUE}====================================================${NC}"
 
@@ -320,10 +321,10 @@ fi
 if [ "$ENV_EXISTS" = true ]; then
     if [ "$FORCE_INSTALL" = true ] || [ "$IS_ENV_COMPLETE" = false ]; then
         echo -e "Updating existing '${ENV_NAME}' Conda environment from environment.yml..."
-        run_with_spinner "$SOLVER_CMD env update -n '$ENV_NAME' -f environment.yml --prune" "Conda 환경 패키지 업데이트 진행 중" || {
+        run_with_spinner "$SOLVER_CMD env update -n '$ENV_NAME' -f environment.yml --prune" "Updating Conda environment package dependencies" || {
             echo -e "${YELLOW}⚠ Notice: Fast solver encountered an issue. Retrying update with flexible channel priority...${NC}"
             $CONDA_CMD config --set channel_priority flexible 2>/dev/null || true
-            run_with_spinner "$CONDA_CMD env update -n '$ENV_NAME' -f environment.yml" "Conda 유연한 환경 탐색(Flexible solve) 진행 중"
+            run_with_spinner "$CONDA_CMD env update -n '$ENV_NAME' -f environment.yml" "Resolving Conda environment dependencies (Flexible solve mode)"
         }
     else
         echo -e "${GREEN}✔ Environment '${ENV_NAME}' is already installed and verified. Skipping re-creation.${NC}"
@@ -331,12 +332,13 @@ if [ "$ENV_EXISTS" = true ]; then
     fi
 else
     echo -e "Creating new '${ENV_NAME}' Conda environment from environment.yml..."
-    run_with_spinner "$SOLVER_CMD env create -f environment.yml" "Conda 새 환경 구축 진행 중" || {
+    run_with_spinner "$SOLVER_CMD env create -f environment.yml" "Building new Conda environment from environment.yml" || {
         echo -e "${YELLOW}⚠ Notice: Fast solver encountered an issue. Retrying creation with flexible channel priority...${NC}"
         $CONDA_CMD config --set channel_priority flexible 2>/dev/null || true
-        run_with_spinner "$CONDA_CMD env create -f environment.yml" "Conda 유연한 환경 탐색(Flexible solve) 진행 중"
+        run_with_spinner "$CONDA_CMD env create -f environment.yml" "Resolving Conda environment dependencies (Flexible solve mode)"
     }
 fi
+
 
 
 # Ensure python -> python3 symlink exists inside environment bin directory for legacy tools
