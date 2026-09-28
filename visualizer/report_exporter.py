@@ -100,8 +100,9 @@ def export_html_report(
         .otherwise(4).alias("quad_priority")
     ]).sort(["quad_priority", "as_fdr", "deg_fdr"], descending=[False, False, False])
 
-    # Cap client-side interactive dataset to top 3000 candidate genes
-    df_compact = df_sorted.head(3000).select(essential_cols)
+    # Include ALL candidate genes in client-side interactive dataset (no truncation)
+    df_compact = df_sorted.select(essential_cols)
+
 
     # Round floats to 4 decimals to eliminate unnecessary JSON string precision bloat
     round_exprs = []
