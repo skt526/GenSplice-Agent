@@ -1,7 +1,7 @@
 # GenSplice-Agent Auto-generated Configuration
 system:
-  total_cpu: 8
-  assigned_threads: 6
+  total_cpu: 0
+  assigned_threads: 0
   total_ram_gb: 16
   star_bam_sort_ram_gb: 12
   star_bam_sort_ram_bytes: 12884901888

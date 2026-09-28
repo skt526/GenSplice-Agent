@@ -238,11 +238,16 @@ def main():
     cpu_cores = os.cpu_count() or 4
     threads_80pct = max(1, math.ceil(cpu_cores * 0.8))
     system_settings = config.get("system", {})
-    cfg_threads = system_settings.get("assigned_threads", config.get("threads", 0))
-    if not cfg_threads or cfg_threads <= 0:
-        allocated_threads = threads_80pct
+    cfg_assigned = system_settings.get("assigned_threads", 0)
+    cfg_threads = config.get("threads", 0)
+    
+    if not cfg_assigned or cfg_assigned <= 0:
+        if not cfg_threads or cfg_threads <= 0:
+            allocated_threads = threads_80pct
+        else:
+            allocated_threads = min(cpu_cores, cfg_threads)
     else:
-        allocated_threads = min(cpu_cores, cfg_threads)
+        allocated_threads = min(cpu_cores, cfg_assigned)
     
     print(f"  {GREEN}✔ CPU Cores Detected: {cpu_cores} | Allocated Threads (80% system capacity): {allocated_threads}{RESET}")
 
@@ -279,6 +284,16 @@ def main():
         r1_name = os.path.basename(s['read1']) if s['read1'] else 'NONE'
         r2_name = os.path.basename(s['read2']) if s['read2'] else 'NONE'
         print(f"    [{s['group'].upper()}] Sample: {s['sample_name']:<18} | R1: {r1_name:<25} | R2: {r2_name:<25} ({s['read_type']})")
+
+    incomplete_samples = [s for s in samples if s.get("status") in ["unpaired_r1_only", "unpaired_r2_only"]]
+    if incomplete_samples:
+        print(f"\n  {RED}✘ ERROR: Incomplete paired-end FASTQ read pair(s) detected!{RESET}")
+        for inc in incomplete_samples:
+            missing_read = "Read 1 (R1)" if inc["status"] == "unpaired_r1_only" else "Read 2 (R2)"
+            present_read = inc["read2_filename"] if inc["status"] == "unpaired_r1_only" else inc["read1_filename"]
+            print(f"    - [{inc['group'].upper()}] Sample '{inc['sample_name']}': Missing {missing_read} (Present file: {present_read})")
+        print(f"  {RED}  Please ensure both R1 and R2 files exist in {inputs_base_dir}/, or remove orphaned files.{RESET}")
+        sys.exit(1)
 
     for d in [clean_fq_dir, aligned_bam_dir, deg_dir, rmats_dir]:
         d.mkdir(parents=True, exist_ok=True)

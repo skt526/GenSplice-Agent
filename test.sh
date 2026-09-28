@@ -132,26 +132,34 @@ if [ "$MODE" = "--real" ] || [ "$MODE" = "real" ]; then
         local key="$4"
         local dir="$(dirname "$file")"
 
+        # 1. Check if exact target file exists and passes gzip integrity
+        if [ -f "$file" ]; then
+            if is_valid_gzip "$file"; then
+                echo -e "  ${GREEN}✔ ${name} verified: ${file} (Skipping download)${RESET}"
+                return 0
+            else
+                echo -e "  ${YELLOW}⚠ ${name} at ${file} is corrupted/truncated. Removing corrupted file...${RESET}"
+                rm -f "$file"
+            fi
+        fi
+
+        # 2. Check if an alternative filename matching key exists and passes gzip integrity
         local existing=""
         if [ -n "$key" ]; then
-            existing=$(find_existing_fastq "$dir" "$key")
+            existing=$(find "$dir" -maxdepth 1 \( -name "*${key}*.fq.gz" -o -name "*${key}*.fastq.gz" \) -size +1000k 2>/dev/null | head -n 1)
         fi
 
-        local target_file="$file"
-        if [ -n "$existing" ]; then
-            target_file="$existing"
+        if [ -n "$existing" ] && [ -f "$existing" ]; then
+            if is_valid_gzip "$existing"; then
+                echo -e "  ${GREEN}✔ ${name} verified in ${dir}: ${existing} (Skipping download)${RESET}"
+                return 0
+            else
+                echo -e "  ${YELLOW}⚠ Existing file ${existing} is corrupted/invalid. Removing...${RESET}"
+                rm -f "$existing"
+            fi
         fi
 
-        if is_valid_gzip "$target_file"; then
-            echo -e "  ${GREEN}✔ ${name} already downloaded and verified integrity: ${target_file} (Skipping download)${RESET}"
-            return 0
-        fi
-
-        if [ -f "$target_file" ]; then
-            echo -e "  ${YELLOW}⚠ ${name} at ${target_file} is corrupted/truncated. Removing and re-downloading...${RESET}"
-            rm -f "$target_file"
-        fi
-
+        # 3. File is missing or invalid -> Download fresh file
         local attempt=1
         local max_attempts=8
         local http_url="${url/https:\/\//http:\/\/}"
@@ -172,7 +180,7 @@ if [ "$MODE" = "--real" ] || [ "$MODE" = "real" ]; then
                 return 0
             fi
 
-            echo -e "  ${YELLOW}⚠ Network/SSL disconnect encountered. Resuming download in 3 seconds... (${attempt}/${max_attempts})${RESET}"
+            echo -e "  ${YELLOW}⚠ Download incomplete or interrupted. Resuming download in 3 seconds... (${attempt}/${max_attempts})${RESET}"
             attempt=$((attempt + 1))
             sleep 3
         done
@@ -203,8 +211,16 @@ if [ "$MODE" = "--real" ] || [ "$MODE" = "real" ]; then
     download_if_missing "$TREAT4_R1" "$URL_TREAT4_R1" "Treatment 4 Read 1 (SRR1039521_1)" "SRR1039521_1"
     download_if_missing "$TREAT4_R2" "$URL_TREAT4_R2" "Treatment 4 Read 2 (SRR1039521_2)" "SRR1039521_2"
 
-    # Clean out any leftover mock test files from real inputs directory
+    # Clean out any leftover mock test files or corrupted files from real inputs directory
     rm -f inputs/control/*control_1*.fq.gz inputs/treatment/*dex_1*.fq.gz
+    for f in inputs/control/* inputs/treatment/*; do
+        if [ -f "$f" ] && [ "$(basename "$f")" != ".gitkeep" ]; then
+            if ! is_valid_gzip "$f"; then
+                echo -e "  ${YELLOW}⚠ Removing corrupted/invalid file from inputs: $f${RESET}"
+                rm -f "$f"
+            fi
+        fi
+    done
 
     # Ensure Reference Genome is ready
     if [ ! -d "human-ref" ] || [ ! -f "human-ref/Homo_sapiens.GRCh38.dna.primary_assembly.fa" ]; then
