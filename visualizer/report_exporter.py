@@ -43,13 +43,14 @@ def export_html_report(
     q4_genes = df_merged.filter(pl.col("quadrant") == "Q4").select("geneSymbol").to_series().to_list()
     all_genes = df_merged.select("geneSymbol").to_series().to_list()
 
-    df_go_q1 = fetch_enrichment(q1_genes if q1_genes else all_genes, gene_sets=["GO_Biological_Process_2023"], top_n=8)
-    df_go_q2 = fetch_enrichment(q2_genes if q2_genes else all_genes, gene_sets=["GO_Biological_Process_2023"], top_n=8)
-    df_go_q4 = fetch_enrichment(q4_genes if q4_genes else all_genes, gene_sets=["GO_Biological_Process_2023"], top_n=8)
+    df_go_q1 = fetch_enrichment(q1_genes, gene_sets=["GO_Biological_Process_2023"], top_n=8)
+    df_go_q2 = fetch_enrichment(q2_genes, gene_sets=["GO_Biological_Process_2023"], top_n=8)
+    df_go_q4 = fetch_enrichment(q4_genes, gene_sets=["GO_Biological_Process_2023"], top_n=8)
 
-    df_kegg_q1 = fetch_enrichment(q1_genes if q1_genes else all_genes, gene_sets=["KEGG_2021_Human"], top_n=8)
-    df_kegg_q2 = fetch_enrichment(q2_genes if q2_genes else all_genes, gene_sets=["KEGG_2021_Human"], top_n=8)
-    df_kegg_q4 = fetch_enrichment(q4_genes if q4_genes else all_genes, gene_sets=["KEGG_2021_Human"], top_n=8)
+    df_kegg_q1 = fetch_enrichment(q1_genes, gene_sets=["KEGG_2021_Human"], top_n=8)
+    df_kegg_q2 = fetch_enrichment(q2_genes, gene_sets=["KEGG_2021_Human"], top_n=8)
+    df_kegg_q4 = fetch_enrichment(q4_genes, gene_sets=["KEGG_2021_Human"], top_n=8)
+
 
     df_go = df_go_q1
     df_kegg = df_kegg_q1
@@ -727,7 +728,29 @@ def export_html_report(
             const psiCut = parseFloat(psiSlider.value).toFixed(2);
             
             const q1Genes = currentFilteredGenes.filter(g => g.current_quadrant === 'Q1').map(g => (g.geneSymbol || '').toUpperCase());
-            const activeGenes = q1Genes.length ? q1Genes : rawGeneData.map(g => (g.geneSymbol || '').toUpperCase());
+            const activeGenes = q1Genes;
+
+            if (!activeGenes.length) {{
+                currentGoData = [];
+                currentKeggData = [];
+                const goDiv = document.getElementById('plotly-go-div');
+                const keggDiv = document.getElementById('plotly-kegg-div');
+                if (goDiv && window.Plotly) {{
+                    Plotly.react(goDiv, [], {{
+                        title: "<b>No Q1 target genes found under current thresholds (Log₂FC ≥ " + fcCut + ", ΔPSI ≥ " + psiCut + ")</b>",
+                        paper_bgcolor: "#FFFFFF", plot_bgcolor: "#F8FAFC", height: 350
+                    }});
+                }}
+                if (keggDiv && window.Plotly) {{
+                    Plotly.react(keggDiv, [], {{
+                        title: "<b>No Q1 target genes found under current thresholds (Log₂FC ≥ " + fcCut + ", ΔPSI ≥ " + psiCut + ")</b>",
+                        paper_bgcolor: "#FFFFFF", plot_bgcolor: "#F8FAFC", height: 350
+                    }});
+                }}
+                return;
+            }}
+
+
 
             const goCounts = {{}};
             const goGeneLists = {{}};

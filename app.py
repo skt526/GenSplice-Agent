@@ -244,15 +244,16 @@ if "go_q1_df" not in st.session_state or gen_enrich_btn:
     if gen_enrich_btn:
         st.toast("⚡ Recalculating Quadrant-Specific GO Term & KEGG Enrichments...", icon="🧬")
     with st.spinner("⚡ Re-calculating GO Biological Processes separately for Q1, Q2, Q3, Q4..."):
-        st.session_state["go_q1_df"] = fetch_enrichment(q1_current_genes if q1_current_genes else df_merged.select("geneSymbol").to_series().to_list(), gene_sets=["GO_Biological_Process_2023"], top_n=10)
-        st.session_state["go_q2_df"] = fetch_enrichment(q2_current_genes if q2_current_genes else df_merged.select("geneSymbol").to_series().to_list(), gene_sets=["GO_Biological_Process_2023"], top_n=10)
-        st.session_state["go_q3_df"] = fetch_enrichment(q3_current_genes if q3_current_genes else df_merged.select("geneSymbol").to_series().to_list(), gene_sets=["GO_Biological_Process_2023"], top_n=10)
-        st.session_state["go_q4_df"] = fetch_enrichment(q4_current_genes if q4_current_genes else df_merged.select("geneSymbol").to_series().to_list(), gene_sets=["GO_Biological_Process_2023"], top_n=10)
+        st.session_state["go_q1_df"] = fetch_enrichment(q1_current_genes, gene_sets=["GO_Biological_Process_2023"], top_n=10)
+        st.session_state["go_q2_df"] = fetch_enrichment(q2_current_genes, gene_sets=["GO_Biological_Process_2023"], top_n=10)
+        st.session_state["go_q3_df"] = fetch_enrichment(q3_current_genes, gene_sets=["GO_Biological_Process_2023"], top_n=10)
+        st.session_state["go_q4_df"] = fetch_enrichment(q4_current_genes, gene_sets=["GO_Biological_Process_2023"], top_n=10)
         
         st.session_state["go_results_df"] = st.session_state["go_q1_df"]
-        st.session_state["kegg_q1_df"] = fetch_enrichment(q1_current_genes if q1_current_genes else df_merged.select("geneSymbol").to_series().to_list(), gene_sets=["KEGG_2021_Human"], top_n=10)
-        st.session_state["kegg_q2_df"] = fetch_enrichment(q2_current_genes if q2_current_genes else df_merged.select("geneSymbol").to_series().to_list(), gene_sets=["KEGG_2021_Human"], top_n=10)
-        st.session_state["kegg_q4_df"] = fetch_enrichment(q4_current_genes if q4_current_genes else df_merged.select("geneSymbol").to_series().to_list(), gene_sets=["KEGG_2021_Human"], top_n=10)
+        st.session_state["kegg_q1_df"] = fetch_enrichment(q1_current_genes, gene_sets=["KEGG_2021_Human"], top_n=10)
+        st.session_state["kegg_q2_df"] = fetch_enrichment(q2_current_genes, gene_sets=["KEGG_2021_Human"], top_n=10)
+        st.session_state["kegg_q4_df"] = fetch_enrichment(q4_current_genes, gene_sets=["KEGG_2021_Human"], top_n=10)
+
         st.session_state["kegg_results_df"] = st.session_state["kegg_q1_df"]
         st.session_state["enrichment_q1_count"] = len(q1_current_genes)
         st.session_state["enrichment_cutoffs_str"] = f"Log₂FC ≥ {log2fc_cutoff:.2f}, ΔPSI ≥ {delta_psi_cutoff:.2f}"
