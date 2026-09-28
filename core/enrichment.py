@@ -44,8 +44,11 @@ def fetch_enrichment(gene_list: list[str], gene_sets: list[str], top_n: int = 10
             df_res = df_res.sort_values(by="P-value", ascending=True).head(top_n)
             _ENRICHMENT_CACHE[cache_key] = df_res
             return df_res
+    except ImportError:
+        pass
     except Exception as e:
-        print(f"Enrichr query notice: {e}")
+        print(f"Enrichr API query notice: {e} (using offline fallback)")
+
         
     # Fallback / Simulated Mock Generator for offline / test data
     df_mock = _generate_mock_enrichment(clean_genes, gene_sets, top_n)

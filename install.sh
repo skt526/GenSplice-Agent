@@ -287,11 +287,18 @@ fi
 
 # Ensure python -> python3 symlink exists inside environment bin directory for legacy tools
 for check_bin in "$CONDA_BASE_DIR/envs/${ENV_NAME}/bin" "$HOME/miniforge3/envs/${ENV_NAME}/bin" "$HOME/miniconda3/envs/${ENV_NAME}/bin" "/root/miniconda3/envs/${ENV_NAME}/bin" "/opt/conda/envs/${ENV_NAME}/bin"; do
-    if [ -d "$check_bin" ] && [ -x "$check_bin/python3" ] && [ ! -x "$check_bin/python" ]; then
-        ln -sf "$check_bin/python3" "$check_bin/python" 2>/dev/null || true
-        echo -e "  ${GREEN}✔ Created symlink python -> python3 in ${check_bin}${NC}"
+    if [ -d "$check_bin" ] && [ -x "$check_bin/python3" ]; then
+        if [ ! -x "$check_bin/python" ]; then
+            ln -sf "$check_bin/python3" "$check_bin/python" 2>/dev/null || true
+            echo -e "  ${GREEN}✔ Created symlink python -> python3 in ${check_bin}${NC}"
+        fi
+        if [ -x "$check_bin/pip" ] && [ -f "requirements.txt" ]; then
+            echo -e "  ${DIM}Verifying Python package dependencies from requirements.txt...${RESET}"
+            "$check_bin/pip" install --quiet -r requirements.txt 2>/dev/null || true
+        fi
     fi
 done
+
 
 echo -e "\n${GREEN}====================================================${NC}"
 echo -e "${GREEN}  GenSplice-Agent One-Click Setup Completed! 🎉    ${NC}"
