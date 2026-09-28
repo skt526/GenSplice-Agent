@@ -24,7 +24,60 @@ for arg in "$@"; do
     fi
 done
 
+# Helper function: Live Status Spinner for Long-Running Setup Commands
+run_with_spinner() {
+    local cmd="$1"
+    local default_msg="$2"
+    local log_file="/tmp/gensplice_install.log"
+    
+    rm -f "$log_file"
+    eval "$cmd" > "$log_file" 2>&1 &
+    local pid=$!
+    
+    local spin='-\|/'
+    local i=0
+    local last_status="$default_msg"
+    
+    # Hide cursor during spinning
+    tput civis 2>/dev/null || true
+    
+    while kill -0 $pid 2>/dev/null; do
+        i=$(( (i + 1) % 4 ))
+        local char="${spin:$i:1}"
+        
+        if [ -f "$log_file" ]; then
+            local raw_line=$(tail -n 1 "$log_file" 2>/dev/null | tr -d '\r')
+            if [ -n "$raw_line" ]; then
+                local clean_line=$(echo "$raw_line" | sed 's/\x1b\[[0-9;]*m//g' | tr '\n' ' ' | cut -c1-70)
+                last_status="$clean_line"
+            fi
+        fi
+        
+        echo -ne "\r${CYAN}${char}${NC} ${YELLOW}[진행 중]${NC} (${last_status})\033[K"
+        sleep 0.2
+    done
+    
+    wait $pid
+    local exit_code=$?
+    
+    # Restore cursor
+    tput cnorm 2>/dev/null || true
+    
+    if [ $exit_code -eq 0 ]; then
+        echo -ne "\r${GREEN}✔ [완료]${NC} ${default_msg}\033[K\n"
+    else
+        echo -ne "\r${RED}✘ [실패]${NC} ${default_msg}\033[K\n"
+        if [ -f "$log_file" ]; then
+            echo -e "${RED}--- 최근 설치 오류 상세 내용 ---${NC}"
+            tail -n 15 "$log_file"
+            echo -e "${RED}-------------------------------${NC}"
+        fi
+    fi
+    return $exit_code
+}
+
 echo -e "${BLUE}====================================================${NC}"
+
 echo -e "${BLUE}     GenSplice-Agent: Automated One-Click Installer ${NC}"
 echo -e "${BLUE}====================================================${NC}"
 
@@ -267,10 +320,10 @@ fi
 if [ "$ENV_EXISTS" = true ]; then
     if [ "$FORCE_INSTALL" = true ] || [ "$IS_ENV_COMPLETE" = false ]; then
         echo -e "Updating existing '${ENV_NAME}' Conda environment from environment.yml..."
-        $SOLVER_CMD env update -n "$ENV_NAME" -f environment.yml --prune || {
-            echo -e "${YELLOW}⚠ Notice: Solver failed. Retrying update with flexible channel priority...${NC}"
+        run_with_spinner "$SOLVER_CMD env update -n '$ENV_NAME' -f environment.yml --prune" "Conda 환경 패키지 업데이트 진행 중" || {
+            echo -e "${YELLOW}⚠ Notice: Fast solver encountered an issue. Retrying update with flexible channel priority...${NC}"
             $CONDA_CMD config --set channel_priority flexible 2>/dev/null || true
-            $CONDA_CMD env update -n "$ENV_NAME" -f environment.yml
+            run_with_spinner "$CONDA_CMD env update -n '$ENV_NAME' -f environment.yml" "Conda 유연한 환경 탐색(Flexible solve) 진행 중"
         }
     else
         echo -e "${GREEN}✔ Environment '${ENV_NAME}' is already installed and verified. Skipping re-creation.${NC}"
@@ -278,12 +331,13 @@ if [ "$ENV_EXISTS" = true ]; then
     fi
 else
     echo -e "Creating new '${ENV_NAME}' Conda environment from environment.yml..."
-    $SOLVER_CMD env create -f environment.yml || {
-        echo -e "${YELLOW}⚠ Notice: Fast solver encountered an error. Retrying creation with flexible channel priority...${NC}"
+    run_with_spinner "$SOLVER_CMD env create -f environment.yml" "Conda 새 환경 구축 진행 중" || {
+        echo -e "${YELLOW}⚠ Notice: Fast solver encountered an issue. Retrying creation with flexible channel priority...${NC}"
         $CONDA_CMD config --set channel_priority flexible 2>/dev/null || true
-        $CONDA_CMD env create -f environment.yml
+        run_with_spinner "$CONDA_CMD env create -f environment.yml" "Conda 유연한 환경 탐색(Flexible solve) 진행 중"
     }
 fi
+
 
 # Ensure python -> python3 symlink exists inside environment bin directory for legacy tools
 for check_bin in "$CONDA_BASE_DIR/envs/${ENV_NAME}/bin" "$HOME/miniforge3/envs/${ENV_NAME}/bin" "$HOME/miniconda3/envs/${ENV_NAME}/bin" "/root/miniconda3/envs/${ENV_NAME}/bin" "/opt/conda/envs/${ENV_NAME}/bin"; do
