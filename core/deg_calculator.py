@@ -10,7 +10,7 @@ try:
 except ImportError:
     PYDESEQ2_AVAILABLE = False
 
-def run_deg_analysis(feature_counts_path: str, control_bams: list, treatment_bams: list, output_csv_path: str):
+def run_deg_analysis(feature_counts_path: str, control_bams: list, treatment_bams: list, output_csv_path: str, allow_mock: bool = False):
     """
     Parses featureCounts matrix and performs DESeq2 (PyDESeq2) analysis:
     - Size Factor Normalization
@@ -18,7 +18,9 @@ def run_deg_analysis(feature_counts_path: str, control_bams: list, treatment_bam
     - Log2 Fold Change & Benjamini-Hochberg FDR p-value adjustment
     """
     if not os.path.exists(feature_counts_path) or os.path.getsize(feature_counts_path) == 0:
-        print(f"Notice: featureCounts matrix '{feature_counts_path}' missing or empty. Generating GSE52778 target DEG dataset...")
+        if not allow_mock:
+            raise FileNotFoundError(f"Error: featureCounts matrix '{feature_counts_path}' is missing or empty. Real DEG analysis failed.")
+        print(f"Notice: featureCounts matrix '{feature_counts_path}' missing or empty. Generating target DEG dataset for mock mode...")
         df_target = pd.DataFrame({
             "gene_id": ["ENSG00000103194", "ENSG00000120129", "ENSG00000140355", "ENSG00000165025", "ENSG00000112715", "ENSG00000012048", "ENSG00000026101", "ENSG00000171862", "ENSG00000075624", "ENSG00000111640"],
             "geneSymbol": ["CRISPLD2", "DUSP1", "GRMZM2G140355", "SYK", "VEGFA", "BRCA1", "STAT3", "PTEN", "ACTB", "GAPDH"],
@@ -35,6 +37,8 @@ def run_deg_analysis(feature_counts_path: str, control_bams: list, treatment_bam
         lines = [line for line in f if not line.startswith('#')]
 
     if not lines or len(lines) <= 1:
+        if not allow_mock:
+            raise RuntimeError(f"Error: featureCounts matrix '{feature_counts_path}' contains no valid counts data. Real DEG analysis failed.")
         df_target = pd.DataFrame({
             "gene_id": ["ENSG00000103194", "ENSG00000120129", "ENSG00000140355", "ENSG00000165025", "ENSG00000112715", "ENSG00000012048", "ENSG00000026101", "ENSG00000171862", "ENSG00000075624", "ENSG00000111640"],
             "geneSymbol": ["CRISPLD2", "DUSP1", "GRMZM2G140355", "SYK", "VEGFA", "BRCA1", "STAT3", "PTEN", "ACTB", "GAPDH"],
@@ -45,6 +49,7 @@ def run_deg_analysis(feature_counts_path: str, control_bams: list, treatment_bam
         })
         df_target.to_csv(output_csv_path, index=False)
         return
+
 
     from io import StringIO
     df_counts = pd.read_csv(StringIO(''.join(lines)), sep='\t')

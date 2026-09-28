@@ -456,7 +456,8 @@ def main():
 
         print("  Calculating Differential Gene Expression (Size Factor Normalization & Dispersion Shrinkage)...")
         from core.deg_calculator import run_deg_analysis
-        run_deg_analysis(str(counts_matrix_file), bam_files["control"], bam_files["treatment"], str(deg_result_csv))
+        run_deg_analysis(str(counts_matrix_file), bam_files["control"], bam_files["treatment"], str(deg_result_csv), allow_mock=args.allow_mock)
+
 
     set_checkpoint("step4_deg", "COMPLETED")
 
