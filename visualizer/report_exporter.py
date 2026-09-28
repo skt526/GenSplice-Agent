@@ -121,17 +121,26 @@ def export_html_report(
 
     raw_data_json = df_compact.to_pandas().to_json(orient="records")
 
-    # Pre-build gene -> pathways dictionary for client-side JavaScript engine
-    gene_pathway_map = {
-        "STAT3": {"go": ["Phosphatidylinositol 3-Kinase Signaling (GO:0014065)", "Phosphatidylinositol-Mediated Signaling (GO:0048015)", "Negative Regulation Of Response To External Stimulus (GO:0032102)"], "kegg": ["PD-L1 expression and PD-1 checkpoint pathway in cancer", "Insulin resistance", "FoxO signaling pathway", "MicroRNAs in cancer", "Pathways in cancer", "Inflammatory bowel disease", "Acute myeloid leukemia"]},
-        "PTEN": {"go": ["Phosphatidylinositol 3-Kinase Signaling (GO:0014065)", "Phosphatidylinositol-Mediated Signaling (GO:0048015)", "Negative Regulation Of Protein Serine/Threonine Kinase Activity (GO:0071901)", "Negative Regulation Of Cell Cycle (GO:0045786)", "Negative Regulation Of MAPK Cascade (GO:0043409)", "Protein Dephosphorylation (GO:0006470)", "Negative Regulation Of Response To External Stimulus (GO:0032102)", "Negative Regulation Of Intracellular Signal Transduction (GO:1902532)"], "kegg": ["PD-L1 expression and PD-1 checkpoint pathway in cancer", "Insulin resistance", "FoxO signaling pathway", "MicroRNAs in cancer", "Pathways in cancer", "Endometrial cancer"]},
-        "DUSP1": {"go": ["Negative Regulation Of Protein Serine/Threonine Kinase Activity (GO:0071901)", "Negative Regulation Of Cell Cycle (GO:0045786)", "Negative Regulation Of MAPK Cascade (GO:0043409)", "Protein Dephosphorylation (GO:0006470)", "Negative Regulation Of Intracellular Signal Transduction (GO:1902532)"], "kegg": ["MAPK signaling pathway", "Mitophagy", "Cellular senescence"]},
-        "VEGFA": {"go": ["Response to Hypoxia & Vascular Development (GO:0001666)", "Regulation of Cell Migration & Adhesion (GO:0030334)"], "kegg": ["VEGF Signaling Pathway - Homo sapiens (hsa04370)", "Focal Adhesion"]},
-        "BRCA1": {"go": ["DNA Repair & Double-Strand Break Processing (GO:0006281)", "Transcriptional Regulation by RNA Polymerase II (GO:0006357)"], "kegg": ["Homologous recombination", "Fanconi anemia pathway"]},
-        "CRISPLD2": {"go": ["Regulation of Cell Migration & Adhesion (GO:0030334)"], "kegg": ["Cell adhesion molecules"]},
-        "SYK": {"go": ["Protein Phosphorylation & Kinase Signaling (GO:0006468)"], "kegg": ["B cell receptor signaling pathway", "Fc epsilon RI signaling pathway"]}
-    }
+    # Dynamically build gene -> pathways map from actual GO and KEGG enrichment results
+    gene_pathway_map = {}
+    for df_enr, key in [
+        (df_go_q1, "go"), (df_go_q2, "go"), (df_go_q4, "go"),
+        (df_kegg_q1, "kegg"), (df_kegg_q2, "kegg"), (df_kegg_q4, "kegg")
+    ]:
+        if df_enr is not None and not df_enr.empty:
+            df_enr_pd = df_enr.to_pandas() if isinstance(df_enr, pl.DataFrame) else df_enr
+            for _, row in df_enr_pd.iterrows():
+                term = str(row.get("Term", ""))
+                genes_str = str(row.get("Genes", ""))
+                for g in genes_str.split(";"):
+                    g_clean = g.strip().upper()
+                    if g_clean and g_clean != "N/A":
+                        if g_clean not in gene_pathway_map:
+                            gene_pathway_map[g_clean] = {"go": [], "kegg": []}
+                        if term not in gene_pathway_map[g_clean][key]:
+                            gene_pathway_map[g_clean][key].append(term)
     gene_pathway_json = json.dumps(gene_pathway_map)
+
 
     insights = generate_biological_insights(df_merged, df_go, df_kegg)
     detailed_prompt = generate_detailed_bio_prompt(

@@ -40,9 +40,12 @@ def generate_biological_insights(df_merged, df_go=None, df_kegg=None) -> dict:
         "q1_genes": q1_df["geneSymbol"].tolist() if "geneSymbol" in q1_df.columns else []
     }
 
-    # Extract top 5 genes for specific insights
-    top_genes = q1_df["geneSymbol"].head(5).tolist() if "geneSymbol" in q1_df.columns else ["STAT3", "PTEN", "DUSP1", "VEGFA"]
-    genes_str = ", ".join(top_genes)
+    # Extract top 5 genes for specific insights dynamically from actual dataset
+    top_genes = q1_df["geneSymbol"].head(5).tolist() if ("geneSymbol" in q1_df.columns and not q1_df.empty) else []
+    if not top_genes and "geneSymbol" in df_pd.columns and not df_pd.empty:
+        top_genes = df_pd["geneSymbol"].head(5).tolist()
+    genes_str = ", ".join(top_genes) if top_genes else "key target genes"
+
 
     insights["executive_summary_en"] = (
         f"Transcriptomic profiling identified {q1_count} Q1 dual-responder genes exhibiting concurrent expression differential "

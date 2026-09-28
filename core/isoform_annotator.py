@@ -83,14 +83,14 @@ KNOWN_GENE_ISOFORM_ANNOTATIONS = {
     }
 }
 
-def calculate_functional_impairment_score(dpsi: float, log2fc: float, cds_frame: str, nmd: str, domain: str, gene: str = None) -> tuple:
+def calculate_functional_impairment_score(dpsi: float, log2fc: float, cds_frame: str, nmd: str, domain: str, gene: str = None, use_mock_annotations: bool = False) -> tuple:
     """
     Calculates a literature-grounded Loss-of-Function (LoF) Functional Impairment Probability Score (%)
     along with risk classification tier and primary dysfunction cause.
 
     Returns: (impairment_score_pct, impairment_tier, primary_dysfunction_cause)
     """
-    if gene and gene.upper().strip() in KNOWN_GENE_ISOFORM_ANNOTATIONS:
+    if use_mock_annotations and gene and gene.upper().strip() in KNOWN_GENE_ISOFORM_ANNOTATIONS:
         kb = KNOWN_GENE_ISOFORM_ANNOTATIONS[gene.upper().strip()]
         score = kb["override_score"]
         cause = kb["primary_cause"]
@@ -142,7 +142,7 @@ def calculate_functional_impairment_score(dpsi: float, log2fc: float, cds_frame:
 
     return round(score, 1), tier, cause
 
-def annotate_isoform_events(df_merged, gtf_path: str = None) -> pd.DataFrame:
+def annotate_isoform_events(df_merged, gtf_path: str = None, use_mock_annotations: bool = False) -> pd.DataFrame:
     """
     Annotates alternative splicing events with transcript IDs, CDS frame status,
     PTC position, NMD prediction, protein domain overlaps, localization consequences,
@@ -173,8 +173,8 @@ def annotate_isoform_events(df_merged, gtf_path: str = None) -> pd.DataFrame:
         dpsi = float(row.get("delta_psi", 0.0))
         log2fc = float(row.get("log2FoldChange", 0.0))
 
-        # Check if curated annotation exists in knowledge base
-        if gene in KNOWN_GENE_ISOFORM_ANNOTATIONS:
+        # Check if curated annotation exists in knowledge base (only if use_mock_annotations is True)
+        if use_mock_annotations and gene in KNOWN_GENE_ISOFORM_ANNOTATIONS:
             kb = KNOWN_GENE_ISOFORM_ANNOTATIONS[gene]
             tx_id = kb["transcript_id"]
             domain = kb["domain"]
@@ -183,7 +183,7 @@ def annotate_isoform_events(df_merged, gtf_path: str = None) -> pd.DataFrame:
             nmd = kb["nmd"]
             loc = kb["localization"]
         else:
-            # Algorithmic fallback calculation based on event coordinates and type
+            # Algorithmic calculation based on event coordinates and type
             tx_id = f"ENST_{gene_id if gene_id != 'N/A' else gene}_201"
             domain = f"{gene} Functional Core Domain"
 
@@ -210,8 +210,9 @@ def annotate_isoform_events(df_merged, gtf_path: str = None) -> pd.DataFrame:
                 loc = "Loss of C-Terminal Target Signal / Nuclear Exclusion"
 
         score_pct, tier, cause = calculate_functional_impairment_score(
-            dpsi=dpsi, log2fc=log2fc, cds_frame=cds_frame, nmd=nmd, domain=domain, gene=gene
+            dpsi=dpsi, log2fc=log2fc, cds_frame=cds_frame, nmd=nmd, domain=domain, gene=gene, use_mock_annotations=use_mock_annotations
         )
+
 
         quadrant = row.get("quadrant", "Q1")
         annotated_rows.append({
