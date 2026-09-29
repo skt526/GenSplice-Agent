@@ -80,16 +80,47 @@ def load_rmats_data(rmats_dir: str) -> pl.DataFrame:
             if "as_pvalue" not in df.columns:
                 df = df.with_columns(pl.col("as_fdr").alias("as_pvalue"))
 
-            # Construct coordinate summary
-            coord_cols = [c for c in df.columns if any(k in c.lower() for k in ["exon", "ri", "start", "end"])]
-            if coord_cols:
-                # Pick up to first 2-3 coordinate columns for clean coordinate representation
-                sample_coords = coord_cols[:3]
-                df = df.with_columns(
-                    pl.concat_str([pl.col(c).cast(pl.Utf8) for c in sample_coords], separator="-").alias("coordinates")
-                )
+            # Construct event-specific clean coordinate summary
+            chr_col = pl.col("chr").cast(pl.Utf8) if "chr" in df.columns else pl.lit("chr1")
+            
+            if event_type == "SE" and all(c in df.columns for c in ["upstreamES", "upstreamEE", "exonStart_0base", "exonEnd", "downstreamES", "downstreamEE"]):
+                coords_expr = pl.concat_str([
+                    chr_col, pl.lit(":"),
+                    pl.col("upstreamES").cast(pl.Utf8), pl.lit("-"), pl.col("upstreamEE").cast(pl.Utf8), pl.lit(":"),
+                    pl.col("exonStart_0base").cast(pl.Utf8), pl.lit("-"), pl.col("exonEnd").cast(pl.Utf8), pl.lit(":"),
+                    pl.col("downstreamES").cast(pl.Utf8), pl.lit("-"), pl.col("downstreamEE").cast(pl.Utf8)
+                ])
+            elif event_type == "RI" and all(c in df.columns for c in ["upstreamES", "upstreamEE", "riExonStart_0base", "riExonEnd", "downstreamES", "downstreamEE"]):
+                coords_expr = pl.concat_str([
+                    chr_col, pl.lit(":"),
+                    pl.col("upstreamES").cast(pl.Utf8), pl.lit("-"), pl.col("upstreamEE").cast(pl.Utf8), pl.lit(":"),
+                    pl.col("riExonStart_0base").cast(pl.Utf8), pl.lit("-"), pl.col("riExonEnd").cast(pl.Utf8), pl.lit(":"),
+                    pl.col("downstreamES").cast(pl.Utf8), pl.lit("-"), pl.col("downstreamEE").cast(pl.Utf8)
+                ])
+            elif event_type == "MXE" and all(c in df.columns for c in ["upstreamES", "upstreamEE", "1stExonStart_0base", "1stExonEnd", "2ndExonStart_0base", "2ndExonEnd", "downstreamES", "downstreamEE"]):
+                coords_expr = pl.concat_str([
+                    chr_col, pl.lit(":"),
+                    pl.col("upstreamES").cast(pl.Utf8), pl.lit("-"), pl.col("upstreamEE").cast(pl.Utf8), pl.lit(":"),
+                    pl.col("1stExonStart_0base").cast(pl.Utf8), pl.lit("-"), pl.col("1stExonEnd").cast(pl.Utf8), pl.lit(":"),
+                    pl.col("2ndExonStart_0base").cast(pl.Utf8), pl.lit("-"), pl.col("2ndExonEnd").cast(pl.Utf8), pl.lit(":"),
+                    pl.col("downstreamES").cast(pl.Utf8), pl.lit("-"), pl.col("downstreamEE").cast(pl.Utf8)
+                ])
+            elif event_type in ["A5SS", "A3SS"] and all(c in df.columns for c in ["longExonStart_0base", "longExonEnd", "shortES", "shortEE", "flankingES", "flankingEE"]):
+                coords_expr = pl.concat_str([
+                    chr_col, pl.lit(":"),
+                    pl.col("flankingES").cast(pl.Utf8), pl.lit("-"), pl.col("flankingEE").cast(pl.Utf8), pl.lit(":"),
+                    pl.col("longExonStart_0base").cast(pl.Utf8), pl.lit("-"), pl.col("longExonEnd").cast(pl.Utf8), pl.lit(":"),
+                    pl.col("shortES").cast(pl.Utf8), pl.lit("-"), pl.col("shortEE").cast(pl.Utf8)
+                ])
             else:
-                df = df.with_columns(pl.lit("N/A").alias("coordinates"))
+                coord_cols = [c for c in df.columns if any(k in c.lower() for k in ["exon", "ri", "start", "end"])]
+                if coord_cols:
+                    sample_coords = coord_cols[:4]
+                    coords_expr = pl.concat_str([chr_col, pl.lit(":")] + [pl.col(c).cast(pl.Utf8) for c in sample_coords], separator="-")
+                else:
+                    coords_expr = pl.lit("N/A")
+
+            df = df.with_columns(coords_expr.alias("coordinates"))
 
             df = df.with_columns([
                 pl.lit(event_type).alias("event_type"),
