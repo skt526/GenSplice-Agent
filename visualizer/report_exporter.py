@@ -70,20 +70,49 @@ def export_html_report(
     )
     sashimi_html = fig_sashimi.to_html(full_html=False, include_plotlyjs=False, div_id="plotly-sashimi-div")
 
-    # Isoform-Specific RT-qPCR Primer Designer Engine (Q2/Q1 Targets)
+    # Splicing target candidates (Q2 Splicing-Driven + Q1 Dual Responders)
     q2_q1_sub = df_merged.filter(pl.col("quadrant").is_in(["Q2", "Q1"]))
     target_candidates = q2_q1_sub if q2_q1_sub.height > 0 else df_merged
-    primer_df = generate_primer_table_for_targets(target_candidates.head(30))
+
+    # Splicing metadata map for client-side interactive Sashimi Plot re-rendering
+    sashimi_dict = {}
+    for r in target_candidates.head(50).iter_rows(named=True):
+        sym = r.get("geneSymbol")
+        if sym and sym not in sashimi_dict:
+            sashimi_dict[sym] = {
+                "gene_symbol": sym,
+                "event_type": r.get("event_type", "SE"),
+                "coordinates": r.get("coordinates", "chr16:84860000:84861500:84863000"),
+                "delta_psi": float(r.get("delta_psi", 0.35) if r.get("delta_psi") is not None else 0.35)
+            }
+    if top_gene_symbol not in sashimi_dict:
+        sashimi_dict[top_gene_symbol] = {
+            "gene_symbol": top_gene_symbol,
+            "event_type": top_event,
+            "coordinates": top_coords,
+            "delta_psi": float(top_delta_psi)
+        }
+    sashimi_data_json = json.dumps(sashimi_dict)
+
+    # Isoform-Specific RT-qPCR Primer Designer Engine (Synchronized with Sashimi Targets)
+    primer_df = generate_primer_table_for_targets(target_candidates.head(50))
     primer_records = primer_df.to_dicts() if primer_df.height > 0 else []
     primer_records_json = json.dumps(primer_records)
 
-    first_primer_gene = primer_records[0]["gene_symbol"] if primer_records else ""
-    first_coords = primer_records[0].get("coordinates", "N/A") if primer_records else "N/A"
-    first_event = primer_records[0].get("event_type", "SE") if primer_records else "SE"
+    first_primer_gene = top_gene_symbol
+    first_coords = top_coords
+    first_event = top_event
 
     primer_rows_html = ""
     if primer_df.height > 0:
-        for r in primer_df.filter(pl.col("gene_symbol") == first_primer_gene).iter_rows(named=True):
+        matching_rows = primer_df.filter(pl.col("gene_symbol") == first_primer_gene)
+        if matching_rows.height == 0 and primer_records:
+            first_primer_gene = primer_records[0]["gene_symbol"]
+            first_coords = primer_records[0].get("coordinates", "N/A")
+            first_event = primer_records[0].get("event_type", "SE")
+            matching_rows = primer_df.filter(pl.col("gene_symbol") == first_primer_gene)
+
+        for r in matching_rows.iter_rows(named=True):
             isoform_badge = '<span class="badge" style="background:#EFF6FF; color:#2563EB; border:1px solid #3B82F6;">Inclusion Isoform</span>' if r['target_isoform'].lower() == 'inclusion' else '<span class="badge" style="background:#FDF2F8; color:#DB2777; border:1px solid #EC4899;">Exclusion Isoform</span>'
             primer_rows_html += f"""
             <tr>
@@ -628,12 +657,19 @@ def export_html_report(
 
     <!-- SECTION 3: Visual Exon-Intron Sashimi Structure Engine Card -->
     <div class="card" id="sashimi-card">
-        <h2 style="color: #0F172A; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-top: 0;">🧩 Visual Exon-Intron Structure & Sashimi Engine</h2>
-        <div id="sashimi-chart-container" style="margin-top: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-bottom: 12px;">
+            <h2 style="color: #0F172A; margin: 0; border: none; padding: 0;">🧩 Visual Exon-Intron Structure & Sashimi Engine</h2>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <label for="sashimi-gene-select" style="font-weight: 700; font-size: 14px;">🔍 Select Splicing Target Gene:</label>
+                <select id="sashimi-gene-select" style="padding: 7px 14px; border-radius: 8px; border: 1px solid #CBD5E1; font-weight: 700; font-size: 14px; background: #FFFFFF; cursor: pointer;">
+                </select>
+            </div>
+        </div>
+        <div id="sashimi-chart-container" style="margin-top: 8px;">
             {sashimi_html}
         </div>
         <div style="text-align: center; margin-top: 12px; padding-top: 10px; border-top: 1px solid #E2E8F0; font-size: 15px; font-weight: 700; color: #1E293B;">
-            📊 <b>{top_gene_symbol} Exon Structure & Splicing Sashimi Plot</b> ({top_event} | ΔPSI = {top_delta_psi:+.2f})
+            📊 <span id="sashimi-title-text"><b>{top_gene_symbol} Exon Structure & Splicing Sashimi Plot</b> ({top_event} | ΔPSI = {top_delta_psi:+.2f})</span>
         </div>
     </div>
 
@@ -641,11 +677,7 @@ def export_html_report(
     <div class="card" id="primer-card">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-bottom: 16px;">
             <h2 style="color: #0F172A; margin: 0; border: none; padding: 0;">🧪 Isoform-Specific RT-qPCR Primer Designer (Q2/Q1 Wet-Lab Validation)</h2>
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <label for="primer-gene-select" style="font-weight: 700; font-size: 14px;">Select Gene:</label>
-                <select id="primer-gene-select" style="padding: 7px 14px; border-radius: 8px; border: 1px solid #CBD5E1; font-weight: 700; font-size: 14px; background: #FFFFFF; cursor: pointer;">
-                </select>
-            </div>
+            <span style="font-size: 13px; color: #64748B; font-weight: 600;">🔗 Synchronized with Visual Exon-Intron Selection</span>
         </div>
         
         <!-- Target Gene Location & Exon Region Banner -->
@@ -685,6 +717,7 @@ def export_html_report(
         const genePathways = {gene_pathway_json};
         const ncbiPubmedData = {ncbi_pubmed_json};
         const primerRecords = {primer_records_json};
+        const sashimiGeneData = {sashimi_data_json};
         let currentGoData = {go_records_json};
         let currentKeggData = {kegg_records_json};
         
@@ -697,7 +730,7 @@ def export_html_report(
         const downloadGoBtn = document.getElementById('download-go-csv-btn');
         const downloadKeggBtn = document.getElementById('download-kegg-csv-btn');
         const ncbiSelect = document.getElementById('ncbi-gene-select');
-        const primerSelect = document.getElementById('primer-gene-select');
+        const sashimiSelect = document.getElementById('sashimi-gene-select');
 
         let currentFilteredGenes = [];
 
@@ -892,19 +925,199 @@ def export_html_report(
             renderNcbiGeneDetails(ncbiSelect.value);
         }}
 
-        function updatePrimerDropdown() {{
-            if (!primerSelect || !primerRecords || !primerRecords.length) return;
-            const uniqueGenes = [...new Set(primerRecords.map(r => r.gene_symbol).filter(Boolean))];
-            primerSelect.innerHTML = '';
-            uniqueGenes.forEach(g => {{
+        function renderSashimiPlot(geneSymbol) {{
+            const sashimiDiv = document.getElementById('plotly-sashimi-div');
+            if (!sashimiDiv || !window.Plotly) return;
+
+            const info = (sashimiGeneData && sashimiGeneData[geneSymbol]) || 
+                         (rawGeneData && rawGeneData.find(g => (g.geneSymbol || '').toUpperCase() === (geneSymbol || '').toUpperCase())) || 
+                         {{ gene_symbol: geneSymbol, event_type: "SE", coordinates: "chr16:84860000:84861500:84863000", delta_psi: 0.35 }};
+
+            const symbol = info.gene_symbol || geneSymbol;
+            const eventType = info.event_type || "SE";
+            const coordinates = info.coordinates || "chr16:84860000:84861500:84863000";
+            const deltaPsi = parseFloat(info.delta_psi !== undefined && info.delta_psi !== null ? info.delta_psi : 0.35);
+
+            // Update title text below the plot (EXACTLY ONCE)
+            const titleElem = document.getElementById('sashimi-title-text');
+            if (titleElem) {{
+                const sign = deltaPsi >= 0 ? '+' : '';
+                titleElem.innerHTML = `<b>${{symbol}} Exon Structure & Splicing Sashimi Plot</b> (${{eventType}} | ΔPSI = ${{sign}}${{deltaPsi.toFixed(2)}})`;
+            }}
+
+            let chrom = "chr16";
+            let ex1_start = 84860000, ex1_end = 84860500;
+            let ex2_start = 84861200, ex2_end = 84861800;
+            let ex3_start = 84862500, ex3_end = 84863000;
+
+            try {{
+                const cleanCoords = (coordinates || "").replace(/[:_]/g, '-');
+                const parts = cleanCoords.split('-').filter(Boolean);
+                if (parts.length >= 7) {{
+                    chrom = parts[0];
+                    ex1_start = parseInt(parts[1]); ex1_end = parseInt(parts[2]);
+                    ex2_start = parseInt(parts[3]); ex2_end = parseInt(parts[4]);
+                    ex3_start = parseInt(parts[5]); ex3_end = parseInt(parts[6]);
+                }} else if (parts.length >= 4) {{
+                    chrom = parts[0];
+                    const p1 = parseInt(parts[1]);
+                    const p2 = parseInt(parts[2]);
+                    const p3 = parseInt(parts[3]);
+                    ex1_start = p1; ex1_end = p1 + Math.max(300, Math.round((p2 - p1) * 0.25));
+                    ex2_start = p2; ex2_end = p2 + Math.max(250, Math.round((p3 - p2) * 0.3));
+                    ex3_start = p3; ex3_end = p3 + 400;
+                }}
+            }} catch (e) {{
+                console.warn("Coordinate parse fallback for", coordinates);
+            }}
+
+            const x_min = ex1_start - 200;
+            const x_max = ex3_end + 200;
+
+            const color_constitutive = "#2b5c8f";
+            const color_skipped = "#e74c3c";
+            const color_inc_arc = "#27ae60";
+            const color_exc_arc = "#8e44ad";
+
+            const shapes = [];
+            const traces = [];
+
+            // 1. Intron backbone lines
+            traces.push({{
+                x: [ex1_start, ex3_end], y: [2, 2],
+                mode: "lines", line: {{ color: "#7f8c8d", width: 2, dash: "dash" }},
+                name: "Intron (Inclusion Track)", hoverinfo: "skip"
+            }});
+            traces.push({{
+                x: [ex1_start, ex3_end], y: [-2, -2],
+                mode: "lines", line: {{ color: "#7f8c8d", width: 2, dash: "dash" }},
+                name: "Intron (Exclusion Track)", hoverinfo: "skip"
+            }});
+
+            // Exon helper
+            function addExon(x0, x1, y_center, color, name) {{
+                shapes.push({{
+                    type: "rect",
+                    x0: x0, x1: x1,
+                    y0: y_center - 0.4, y1: y_center + 0.4,
+                    fillcolor: color, line: {{ color: "black", width: 1 }},
+                    layer: "above"
+                }});
+                traces.push({{
+                    x: [(x0 + x1)/2], y: [y_center],
+                    mode: "markers", marker: {{ size: 1, color: "rgba(0,0,0,0)" }},
+                    name: name, hovertemplate: `<b>${{name}}</b><br>Coords: ${{chrom}}:${{x0}}-${{x1}}<extra></extra>`
+                }});
+            }}
+
+            // Exon 1 & Exon 3 (Inclusion Track)
+            addExon(ex1_start, ex1_end, 2, color_constitutive, "Upstream Exon 1");
+            addExon(ex3_start, ex3_end, 2, color_constitutive, "Downstream Exon 3");
+
+            // Exon 1 & Exon 3 (Exclusion Track)
+            addExon(ex1_start, ex1_end, -2, color_constitutive, "Upstream Exon 1");
+            addExon(ex3_start, ex3_end, -2, color_constitutive, "Downstream Exon 3");
+
+            // Exon 2 (Target Skipped / Retained Exon)
+            if (["SE", "MXE", "A5SS", "A3SS", "RI"].includes(eventType)) {{
+                addExon(ex2_start, ex2_end, 2, color_skipped, `Alternative Exon 2 (${{eventType}})`);
+            }}
+
+            // Junction Arcs
+            const inc_counts = Math.round(Math.max(15, Math.abs(deltaPsi) * 400 + 45));
+            const exc_counts = Math.round(Math.max(8, (1 - Math.abs(deltaPsi)) * 120 + 12));
+
+            const inc_mid_x1 = (ex1_end + ex2_start) / 2;
+            traces.push({{
+                x: [ex1_end, inc_mid_x1, ex2_start], y: [2.4, 3.2, 2.4],
+                mode: "lines+text", line: {{ color: color_inc_arc, width: 3 }},
+                text: ["", `Inclusion Reads: ${{inc_counts}}`, ""],
+                textposition: "top center", name: "Inclusion Junction J1"
+            }});
+
+            const inc_mid_x2 = (ex2_end + ex3_start) / 2;
+            traces.push({{
+                x: [ex2_end, inc_mid_x2, ex3_start], y: [2.4, 3.2, 2.4],
+                mode: "lines", line: {{ color: color_inc_arc, width: 3 }},
+                name: "Inclusion Junction J2"
+            }});
+
+            const exc_mid_x = (ex1_end + ex3_start) / 2;
+            traces.push({{
+                x: [ex1_end, exc_mid_x, ex3_start], y: [-2.4, -3.4, -2.4],
+                mode: "lines+text", line: {{ color: color_exc_arc, width: 3 }},
+                text: ["", `Exclusion Reads: ${{exc_counts}}`, ""],
+                textposition: "bottom center", name: "Exclusion Junction J3 (Skipping)"
+            }});
+
+            const layout = {{
+                title: null,
+                xaxis: {{
+                    title: `Genomic Coordinate (${{chrom}})`,
+                    range: [x_min, x_max], showgrid: true, gridcolor: "#f1f5f9"
+                }},
+                yaxis: {{
+                    showticklabels: true,
+                    tickvals: [2, -2],
+                    ticktext: ["Inclusion Isoform", "Exclusion Isoform"],
+                    range: [-4.5, 4.5], showgrid: false
+                }},
+                plot_bgcolor: "white",
+                paper_bgcolor: "white",
+                showlegend: true,
+                legend: {{ orientation: "h", yanchor: "bottom", y: 1.02, xanchor: "right", x: 1 }},
+                margin: {{ l: 40, r: 40, t: 30, b: 40 }},
+                height: 380,
+                shapes: shapes
+            }};
+
+            Plotly.react(sashimiDiv, traces, layout);
+        }}
+
+        function handleSashimiGeneChange(geneSymbol) {{
+            if (!geneSymbol) return;
+            renderSashimiPlot(geneSymbol);
+            renderPrimerDetails(geneSymbol);
+        }}
+
+        function updateSashimiDropdown(splicingGeneList) {{
+            const select = document.getElementById('sashimi-gene-select');
+            if (!select) return;
+            const uniqueGenes = [...new Set(splicingGeneList.filter(Boolean))];
+            
+            let activeOptions = uniqueGenes;
+            if (!activeOptions.length && typeof rawGeneData !== 'undefined' && rawGeneData.length) {{
+                activeOptions = [...new Set(rawGeneData.filter(g => g.delta_psi && Math.abs(g.delta_psi) >= 0.05).map(g => g.geneSymbol).filter(Boolean))];
+            }}
+            if (!activeOptions.length && primerRecords && primerRecords.length) {{
+                activeOptions = [...new Set(primerRecords.map(r => r.gene_symbol).filter(Boolean))];
+            }}
+            
+            const prevVal = select.value;
+            select.innerHTML = '';
+            if (!activeOptions.length) {{
+                const opt = document.createElement('option');
+                opt.value = "";
+                opt.textContent = "No genes available";
+                select.appendChild(opt);
+                return;
+            }}
+
+            activeOptions.forEach(g => {{
                 const opt = document.createElement('option');
                 opt.value = g;
                 opt.textContent = g;
-                primerSelect.appendChild(opt);
+                select.appendChild(opt);
             }});
-            if (uniqueGenes.length) {{
-                primerSelect.value = uniqueGenes[0];
-                renderPrimerDetails(uniqueGenes[0]);
+
+            if (activeOptions.includes(prevVal)) {{
+                select.value = prevVal;
+            }} else if (activeOptions.length) {{
+                select.value = activeOptions[0];
+            }}
+
+            if (select.value) {{
+                handleSashimiGeneChange(select.value);
             }}
         }}
 
@@ -914,18 +1127,19 @@ def export_html_report(
             const tbody = document.getElementById('primer-table-body');
             if (!tbody) return;
 
-            if (!rows.length) {{
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#64748B;">No primer pairs available for this gene.</td></tr>';
-                return;
-            }}
-
-            const first = rows[0];
+            const ginfo = (sashimiGeneData && sashimiGeneData[geneSymbol]) || 
+                          (rawGeneData && rawGeneData.find(g => (g.geneSymbol || '').toUpperCase() === geneSymbol.toUpperCase())) || {{}};
             const bannerGene = document.getElementById('primer-banner-gene');
             const bannerCoords = document.getElementById('primer-banner-coords');
             const bannerEvent = document.getElementById('primer-banner-event');
-            if (bannerGene) bannerGene.textContent = first.gene_symbol;
-            if (bannerCoords) bannerCoords.textContent = first.coordinates || 'N/A';
-            if (bannerEvent) bannerEvent.textContent = first.event_type || 'SE';
+            if (bannerGene) bannerGene.textContent = geneSymbol;
+            if (bannerCoords) bannerCoords.textContent = (rows.length && rows[0].coordinates) ? rows[0].coordinates : (ginfo.coordinates || 'N/A');
+            if (bannerEvent) bannerEvent.textContent = (rows.length && rows[0].event_type) ? rows[0].event_type : (ginfo.event_type || 'SE');
+
+            if (!rows.length) {{
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#64748B; padding:16px;">Specific primer pairs not pre-calculated for <b>${{geneSymbol}}</b>. Target coordinates: <code>${{ginfo.coordinates || 'N/A'}}</code></td></tr>`;
+                return;
+            }}
 
             let html = '';
             rows.forEach(r => {{
@@ -997,6 +1211,7 @@ def export_html_report(
 
             const splicingGenes = currentFilteredGenes.filter(g => g.current_quadrant === 'Q1' || g.current_quadrant === 'Q2').map(g => (g.geneSymbol || '').toUpperCase());
             updateNcbiDropdown(splicingGenes);
+            updateSashimiDropdown(splicingGenes);
 
             const quadDiv = document.getElementById('plotly-quad-div');
             if (quadDiv && window.Plotly) {{
@@ -1340,8 +1555,8 @@ def export_html_report(
         if (ncbiSelect) {{
             ncbiSelect.addEventListener('change', (e) => renderNcbiGeneDetails(e.target.value));
         }}
-        if (primerSelect) {{
-            primerSelect.addEventListener('change', (e) => renderPrimerDetails(e.target.value));
+        if (sashimiSelect) {{
+            sashimiSelect.addEventListener('change', (e) => handleSashimiGeneChange(e.target.value));
         }}
         const copyPromptBtn = document.getElementById('copy-prompt-btn');
         if (copyPromptBtn) {{
@@ -1352,7 +1567,6 @@ def export_html_report(
         }}
 
         updateThresholds();
-        updatePrimerDropdown();
     </script>
 </body>
 </html>

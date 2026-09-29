@@ -118,14 +118,10 @@ def plot_exon_structure(
     ))
 
     # -------------------------------------------------------------
-    # Layout Formatting (Title positioned at the bottom below the plot)
+    # Layout Formatting (Title rendered cleanly once in HTML container below)
     # -------------------------------------------------------------
     fig.update_layout(
-        title=dict(
-            text=f"<b>{gene_symbol} Exon Structure & Splicing Sashimi Plot</b> ({event_type} | ΔPSI = {delta_psi:+.2f})",
-            x=0.5, y=0.01, xanchor="center", yanchor="bottom",
-            font=dict(size=14, color="#1e293b")
-        ),
+        title=None,
         xaxis=dict(
             title=f"Genomic Coordinate ({chrom})",
             range=[x_min, x_max], showgrid=True, gridcolor="#f1f5f9"
@@ -139,8 +135,8 @@ def plot_exon_structure(
         plot_bgcolor="white",
         showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=40, r=40, t=30, b=75),
-        height=390
+        margin=dict(l=40, r=40, t=30, b=40),
+        height=380
     )
 
     return fig
