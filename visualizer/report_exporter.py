@@ -70,9 +70,14 @@ def export_html_report(
     )
     sashimi_html = fig_sashimi.to_html(full_html=False, include_plotlyjs=False, div_id="plotly-sashimi-div")
 
-    # Splicing target candidates (Q2 Splicing-Driven + Q1 Dual Responders)
-    q2_q1_sub = df_merged.filter(pl.col("quadrant").is_in(["Q2", "Q1"]))
-    target_candidates = q2_q1_sub if q2_q1_sub.height > 0 else df_merged
+    # Splicing target candidates (Q2 Splicing-Driven + Q1 Dual Responders + all AS events)
+    if "event_type" in df_merged.columns:
+        has_as_filter = pl.col("event_type").is_not_null() & (pl.col("event_type") != "None")
+        splicing_all = df_merged.filter(has_as_filter | pl.col("quadrant").is_in(["Q2", "Q1"]))
+        target_candidates = splicing_all if splicing_all.height > 0 else df_merged
+    else:
+        q2_q1_sub = df_merged.filter(pl.col("quadrant").is_in(["Q2", "Q1"]))
+        target_candidates = q2_q1_sub if q2_q1_sub.height > 0 else df_merged
 
     # Splicing metadata map for client-side interactive Sashimi Plot re-rendering
     sashimi_dict = {}
@@ -121,7 +126,7 @@ def export_html_report(
     sashimi_data_json = json.dumps(sashimi_dict)
 
     # Isoform-Specific RT-qPCR Primer Designer Engine (Synchronized with Sashimi Targets)
-    primer_df = generate_primer_table_for_targets(target_candidates.head(50))
+    primer_df = generate_primer_table_for_targets(target_candidates.head(80))
     primer_records = primer_df.to_dicts() if primer_df.height > 0 else []
     primer_records_json = json.dumps(primer_records)
 
@@ -256,11 +261,18 @@ def export_html_report(
         as_fdr_cutoff=as_fdr_cutoff
     )
 
-    # Pre-generate Event-Level Isoform Annotation Table Rows (Focusing on Q1+Q2 alternative splicing targets)
-    splicing_sub = df_merged.filter(pl.col("quadrant").is_in(["Q1", "Q2"]))
-    isoform_df = annotate_isoform_events(splicing_sub if splicing_sub.height > 0 else df_merged)
-    if len(isoform_df) > 150:
-        isoform_df = isoform_df.head(150)
+    # Pre-generate Event-Level Isoform Annotation Table Rows (Covering all candidate splicing targets)
+    if "event_type" in df_sorted.columns:
+        has_as_sub = df_sorted.filter(pl.col("event_type").is_not_null() & (pl.col("event_type") != "None"))
+        if has_as_sub.height == 0:
+            has_as_sub = df_sorted
+    else:
+        has_as_sub = df_sorted.filter(pl.col("quadrant").is_in(["Q1", "Q2"]))
+        if has_as_sub.height == 0:
+            has_as_sub = df_sorted
+
+    isoform_source_df = has_as_sub.head(250)
+    isoform_df = annotate_isoform_events(isoform_source_df)
 
     isoform_rows_list = []
     isoform_records_list = []
@@ -676,7 +688,7 @@ def export_html_report(
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-bottom: 12px;">
             <h2 style="color: #0F172A; margin: 0; border: none; padding: 0;">🧬 Event-Level Isoform Annotation & NMD Prediction Matrix</h2>
             <button class="btn-download-csv" id="download-isoform-csv-btn">
-                📥 Download All Isoforms (.csv)
+                📥 Download Filtered Isoforms (.csv)
             </button>
         </div>
 
@@ -685,7 +697,7 @@ def export_html_report(
                 🔗 Synchronized Target: <b id="isoform-filter-gene" style="color: #1E40AF; font-size: 14px;">-</b> <span id="isoform-filter-count" style="font-size: 12px; color: #64748B; margin-left: 6px;"></span>
             </span>
             <button id="isoform-toggle-view-btn" style="background: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 6px; padding: 5px 12px; font-size: 12px; color: #334155; cursor: pointer; font-weight: 700; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-                👁️ Show All Genes
+                👁️ Show All Active Genes
             </button>
         </div>
 
@@ -841,7 +853,19 @@ def export_html_report(
         }}
 
         async function renderNcbiGeneDetails(symbol, fetchIfMissing = true) {{
-            if (!symbol) return;
+            if (!symbol) {{
+                const geneTitle = document.getElementById('ncbi-gene-title');
+                if (geneTitle) geneTitle.innerHTML = `🧬 NCBI Gene Details: <span style="color:#64748B;">No target selected</span>`;
+                const officialName = document.getElementById('ncbi-official-name');
+                if (officialName) officialName.innerHTML = `<b>Official Name:</b> <i>No splicing targets meet current thresholds.</i>`;
+                const chrLoc = document.getElementById('ncbi-chromosome-loc');
+                if (chrLoc) chrLoc.innerHTML = `<b>Location:</b> -`;
+                const geneSum = document.getElementById('ncbi-gene-summary');
+                if (geneSum) geneSum.textContent = `No active genes in Q1/Q2 under current threshold cutoffs. Adjust Log2FC or ΔPSI sliders to view targets.`;
+                const pubElem = document.getElementById('pubmed-papers-container');
+                if (pubElem) pubElem.innerHTML = `<p style="color:#64748B;"><i>No target gene selected.</i></p>`;
+                return;
+            }}
             const upper = symbol.trim().toUpperCase();
             
             // Check cache
@@ -941,43 +965,30 @@ def export_html_report(
 
         function updateNcbiDropdown(splicingGeneList) {{
             if (!ncbiSelect) return;
-            const uniqueGenes = [...new Set(splicingGeneList.filter(Boolean))];
-            
-            let activeOptions = uniqueGenes;
-            if (!activeOptions.length && typeof rawGeneData !== 'undefined' && rawGeneData.length) {{
-                const fcCut = parseFloat(fcSlider.value || 1.0);
-                const psiCut = parseFloat(psiSlider.value || 0.1);
-                const sigGenes = rawGeneData
-                    .filter(g => Math.abs(g.delta_psi || 0) >= psiCut && (g.as_fdr === undefined || g.as_fdr === null || g.as_fdr <= 0.05 || g.as_fdr === 1.0))
-                    .map(g => g.geneSymbol)
-                    .filter(Boolean);
-                activeOptions = [...new Set(sigGenes)];
-            }}
-            if (!activeOptions.length && typeof rawGeneData !== 'undefined' && rawGeneData.length) {{
-                activeOptions = [...new Set(rawGeneData.map(g => g.geneSymbol).filter(Boolean))].slice(0, 20);
-            }}
+            const uniqueGenes = [...new Set((splicingGeneList || []).filter(Boolean))];
             
             const prevVal = ncbiSelect.value;
             ncbiSelect.innerHTML = '';
-            if (!activeOptions.length) {{
+            if (!uniqueGenes.length) {{
                 const opt = document.createElement('option');
                 opt.value = "";
-                opt.textContent = "No genes available";
+                opt.textContent = "No splicing targets meeting thresholds";
                 ncbiSelect.appendChild(opt);
+                handleMasterGeneSelection("");
                 return;
             }}
 
-            activeOptions.forEach(g => {{
+            uniqueGenes.forEach(g => {{
                 const opt = document.createElement('option');
                 opt.value = g;
                 opt.textContent = g;
                 ncbiSelect.appendChild(opt);
             }});
 
-            if (activeOptions.includes(prevVal)) {{
+            if (prevVal && uniqueGenes.includes(prevVal)) {{
                 ncbiSelect.value = prevVal;
             }} else {{
-                ncbiSelect.value = activeOptions[0];
+                ncbiSelect.value = uniqueGenes[0];
             }}
             handleMasterGeneSelection(ncbiSelect.value);
         }}
@@ -985,6 +996,18 @@ def export_html_report(
         function renderSashimiPlot(geneSymbol) {{
             const sashimiDiv = document.getElementById('plotly-sashimi-div');
             if (!sashimiDiv || !window.Plotly) return;
+
+            if (!geneSymbol) {{
+                Plotly.react(sashimiDiv, [], {{
+                    title: "<b>No active splicing target gene selected meeting current thresholds</b>",
+                    paper_bgcolor: "#FFFFFF", plot_bgcolor: "#F8FAFC", height: 260
+                }});
+                const titleElem = document.getElementById('sashimi-title-text');
+                if (titleElem) {{
+                    titleElem.innerHTML = `<b>No Splicing Target Selected</b>`;
+                }}
+                return;
+            }}
 
             const upper = (geneSymbol || '').trim().toUpperCase();
             let info = (sashimiGeneData && (sashimiGeneData[upper] || sashimiGeneData[geneSymbol])) || 
@@ -1302,11 +1325,32 @@ def export_html_report(
         }}
 
         function handleMasterGeneSelection(geneSymbol) {{
-            if (!geneSymbol) return;
             renderNcbiGeneDetails(geneSymbol);
             filterIsoformTable(geneSymbol);
             renderSashimiPlot(geneSymbol);
             renderPrimerDetails(geneSymbol);
+        }}
+
+        function getActiveSplicingGeneSet() {{
+            if (currentFilteredGenes && currentFilteredGenes.length > 0) {{
+                return new Set(currentFilteredGenes
+                    .filter(g => g.current_quadrant === 'Q1' || g.current_quadrant === 'Q2')
+                    .map(g => (g.geneSymbol || '').toUpperCase())
+                    .filter(Boolean));
+            }}
+            return new Set((rawGeneData || [])
+                .filter(g => g.quadrant === 'Q1' || g.quadrant === 'Q2')
+                .map(g => (g.geneSymbol || '').toUpperCase())
+                .filter(Boolean));
+        }}
+
+        function updateIsoformDownloadButton() {{
+            const dlBtn = document.getElementById('download-isoform-csv-btn');
+            if (!dlBtn) return;
+            const activeSet = getActiveSplicingGeneSet();
+            const activeRecords = (isoformRecords || []).filter(r => activeSet.has((r.gene_symbol || '').toUpperCase()));
+            dlBtn.textContent = `📥 Download Filtered Isoforms (${{activeRecords.length}}) (.csv)`;
+            dlBtn.title = `Export ${{activeRecords.length}} isoform annotations for ${{activeSet.size}} active splicing target genes meeting current thresholds`;
         }}
 
         let isoformShowAll = false;
@@ -1315,31 +1359,72 @@ def export_html_report(
             const filterLabel = document.getElementById('isoform-filter-gene');
             const countLabel = document.getElementById('isoform-filter-count');
             const toggleBtn = document.getElementById('isoform-toggle-view-btn');
-            if (filterLabel) filterLabel.textContent = upper || '-';
+
+            const activeSet = getActiveSplicingGeneSet();
+            const activeGeneCount = activeSet.size;
+
+            updateIsoformDownloadButton();
+
+            if (filterLabel) {{
+                if (isoformShowAll) {{
+                    filterLabel.textContent = `All Active Genes (${{activeGeneCount}})`;
+                }} else {{
+                    filterLabel.textContent = upper || 'None Selected';
+                }}
+            }}
 
             const rows = document.querySelectorAll('.isoform-data-row');
-            if (!rows.length) return;
+            let visibleCount = 0;
 
-            let matchCount = 0;
-            rows.forEach(r => {{
-                const rGene = (r.getAttribute('data-gene') || '').trim().toUpperCase();
-                if (isoformShowAll || rGene === upper) {{
-                    r.style.display = '';
-                    if (rGene === upper) matchCount++;
-                }} else {{
-                    r.style.display = 'none';
-                }}
-            }});
+            if (rows.length) {{
+                rows.forEach(r => {{
+                    const rGene = (r.getAttribute('data-gene') || '').trim().toUpperCase();
+                    const isGeneActive = activeSet.has(rGene);
+
+                    if (isoformShowAll) {{
+                        if (isGeneActive) {{
+                            r.style.display = '';
+                            visibleCount++;
+                        }} else {{
+                            r.style.display = 'none';
+                        }}
+                    }} else {{
+                        if (rGene === upper && isGeneActive) {{
+                            r.style.display = '';
+                            visibleCount++;
+                        }} else {{
+                            r.style.display = 'none';
+                        }}
+                    }}
+                }});
+            }}
 
             if (countLabel) {{
                 if (isoformShowAll) {{
-                    countLabel.textContent = `(Showing all ${{rows.length}} records)`;
+                    if (activeGeneCount > 0) {{
+                        countLabel.textContent = `(Showing all ${{visibleCount}} isoform event${{visibleCount > 1 ? 's' : ''}} across ${{activeGeneCount}} gene${{activeGeneCount > 1 ? 's' : ''}} meeting thresholds)`;
+                    }} else {{
+                        countLabel.textContent = `(0 active splicing targets meeting current thresholds)`;
+                    }}
                 }} else {{
-                    countLabel.textContent = matchCount > 0 ? `(${{matchCount}} isoform event${{matchCount > 1 ? 's' : ''}} for ${{upper}})` : `(0 records in displayed list - full data available via CSV download)`;
+                    if (upper && activeSet.has(upper)) {{
+                        countLabel.textContent = visibleCount > 0 
+                            ? `(${{visibleCount}} isoform event${{visibleCount > 1 ? 's' : ''}} for ${{upper}})` 
+                            : `(No event annotations recorded for ${{upper}})`;
+                    }} else if (upper) {{
+                        countLabel.textContent = `(${{upper}} is outside active Q1/Q2 thresholds)`;
+                    }} else {{
+                        countLabel.textContent = `(0 active targets selected)`;
+                    }}
                 }}
             }}
+
             if (toggleBtn) {{
-                toggleBtn.textContent = isoformShowAll ? `🎯 Show Selected Gene (${{upper}}) Only` : `👁️ Show All Genes`;
+                if (isoformShowAll) {{
+                    toggleBtn.textContent = upper ? `🎯 Show Selected Gene (${{upper}}) Only` : `🎯 Show Selected Gene Only`;
+                }} else {{
+                    toggleBtn.textContent = `👁️ Show All Active Genes (${{activeGeneCount}})`;
+                }}
             }}
         }}
 
@@ -1351,9 +1436,17 @@ def export_html_report(
 
         function downloadIsoformCSV() {{
             if (!isoformRecords || !isoformRecords.length) return;
+            const activeSet = getActiveSplicingGeneSet();
+            const activeRecords = isoformRecords.filter(r => activeSet.has((r.gene_symbol || '').toUpperCase()));
+
+            if (!activeRecords.length) {{
+                alert("No isoform records match the current threshold criteria (Q1/Q2). Please adjust thresholds to export isoforms.");
+                return;
+            }}
+
             const headers = ["Gene", "Impairment Tier", "Primary Dysfunction Cause", "Event Type", "Transcript ID", "Coordinates", "Delta PSI", "Log2FC", "CDS Frame", "PTC & NMD Status", "PTC Position", "Protein Domain Impact", "Localization Consequence"];
             let csvContent = headers.join(",") + "\\n";
-            isoformRecords.forEach(r => {{
+            activeRecords.forEach(r => {{
                 const row = [
                     `"${{r.gene_symbol || ''}}"`,
                     `"${{r.impairment_tier || ''}}"`,
@@ -1372,26 +1465,36 @@ def export_html_report(
                 csvContent += row.join(",") + "\\n";
             }});
 
+            const fcCut = fcSlider ? parseFloat(fcSlider.value).toFixed(2) : '1.00';
+            const psiCut = psiSlider ? parseFloat(psiSlider.value).toFixed(2) : '0.10';
             const blob = new Blob([csvContent], {{ type: 'text/csv;charset=utf-8;' }});
             const link = document.createElement("a");
             link.href = URL.createObjectURL(blob);
-            link.setAttribute("download", `gensplice_isoform_annotation_matrix_all_genes.csv`);
+            link.setAttribute("download", `gensplice_isoform_annotations_Q1_Q2_FC${{fcCut}}_dPSI${{psiCut}}.csv`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
         }}
 
         function renderPrimerDetails(geneSymbol) {{
-            if (!geneSymbol || !primerRecords) return;
-            const rows = primerRecords.filter(r => (r.gene_symbol || '').toUpperCase() === geneSymbol.toUpperCase());
             const tbody = document.getElementById('primer-table-body');
+            const bannerGene = document.getElementById('primer-banner-gene');
+            const bannerCoords = document.getElementById('primer-banner-coords');
+            const bannerEvent = document.getElementById('primer-banner-event');
+
+            if (!geneSymbol || !primerRecords) {{
+                if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#64748B; padding:16px;">No active splicing target selected under current thresholds.</td></tr>`;
+                if (bannerGene) bannerGene.textContent = "-";
+                if (bannerCoords) bannerCoords.textContent = "-";
+                if (bannerEvent) bannerEvent.textContent = "-";
+                return;
+            }}
+
+            const rows = primerRecords.filter(r => (r.gene_symbol || '').toUpperCase() === geneSymbol.toUpperCase());
             if (!tbody) return;
 
             const ginfo = (sashimiGeneData && sashimiGeneData[geneSymbol]) || 
                           (rawGeneData && rawGeneData.find(g => (g.geneSymbol || '').toUpperCase() === geneSymbol.toUpperCase())) || {{}};
-            const bannerGene = document.getElementById('primer-banner-gene');
-            const bannerCoords = document.getElementById('primer-banner-coords');
-            const bannerEvent = document.getElementById('primer-banner-event');
             if (bannerGene) bannerGene.textContent = geneSymbol;
             if (bannerCoords) bannerCoords.textContent = (rows.length && rows[0].coordinates) ? rows[0].coordinates : (ginfo.coordinates || 'N/A');
             if (bannerEvent) bannerEvent.textContent = (rows.length && rows[0].event_type) ? rows[0].event_type : (ginfo.event_type || 'SE');
@@ -1471,6 +1574,10 @@ def export_html_report(
 
             const splicingGenes = currentFilteredGenes.filter(g => g.current_quadrant === 'Q1' || g.current_quadrant === 'Q2').map(g => (g.geneSymbol || '').toUpperCase());
             updateNcbiDropdown(splicingGenes);
+
+            const currentGene = ncbiSelect ? ncbiSelect.value : '';
+            filterIsoformTable(currentGene);
+            updateIsoformDownloadButton();
 
             const quadDiv = document.getElementById('plotly-quad-div');
             if (quadDiv && window.Plotly) {{
