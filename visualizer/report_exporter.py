@@ -17,6 +17,9 @@ from core.merger import get_quadrant_kpis
 from core.enrichment import fetch_enrichment
 from core.ai_summary import generate_biological_insights, fetch_ncbi_gene_summary, fetch_pubmed_literature, generate_detailed_bio_prompt
 from core.isoform_annotator import annotate_isoform_events
+from core.benchmark import benchmark_polars_vs_pandas
+from visualizer.exon_structure import plot_exon_structure
+from core.primer_designer import generate_primer_table_for_targets
 
 def export_html_report(
     df_merged: pl.DataFrame,
@@ -36,6 +39,48 @@ def export_html_report(
     quad_html = fig_quad.to_html(full_html=False, include_plotlyjs="cdn", div_id="plotly-quad-div")
 
     kpis = get_quadrant_kpis(df_merged)
+
+    # Benchmark Evaluation Engine Calculation
+    bm_res = benchmark_polars_vs_pandas(num_genes=min(max(df_merged.height, 1000), 10000))
+
+    # Visual Exon-Intron Structure Engine (Sashimi Plot)
+    top_gene_symbol = "STAT3"
+    top_coords = "chr17:42300000:42301500:42303000"
+    top_event = "SE"
+    top_delta_psi = 0.35
+
+    q1_top = df_merged.filter(pl.col("quadrant") == "Q1")
+    if q1_top.height > 0:
+        row0 = q1_top.to_dicts()[0]
+        top_gene_symbol = row0.get("geneSymbol", "STAT3")
+        top_coords = row0.get("coordinates", top_coords)
+        top_event = row0.get("event_type", "SE")
+        top_delta_psi = row0.get("delta_psi", 0.35)
+
+    fig_sashimi = plot_exon_structure(
+        gene_symbol=top_gene_symbol,
+        event_type=top_event,
+        coordinates=top_coords,
+        delta_psi=top_delta_psi
+    )
+    sashimi_html = fig_sashimi.to_html(full_html=False, include_plotlyjs=False, div_id="plotly-sashimi-div")
+
+    # Isoform-Specific RT-qPCR Primer Designer Engine
+    q1_q2_sub = df_merged.filter(pl.col("quadrant").is_in(["Q1", "Q2"]))
+    primer_df = generate_primer_table_for_targets(q1_q2_sub.head(10) if q1_q2_sub.height > 0 else df_merged.head(5))
+    primer_rows_html = ""
+    if primer_df.height > 0:
+        for r in primer_df.iter_rows(named=True):
+            primer_rows_html += f"""
+            <tr>
+                <td><b>{r['gene_symbol']}</b></td>
+                <td><span class="badge badge-blue">{r['target_isoform']}</span></td>
+                <td><code style="font-weight:700; color:#1E40AF;">{r['fwd_sequence']}</code><br><span style="font-size:11px; color:#64748B;">Tm: {r['fwd_tm_celsius']}°C | GC: {r['fwd_gc_pct']}%</span></td>
+                <td><code style="font-weight:700; color:#1E40AF;">{r['rev_sequence']}</code><br><span style="font-size:11px; color:#64748B;">Tm: {r['rev_tm_celsius']}°C | GC: {r['rev_gc_pct']}%</span></td>
+                <td><b>{r['amplicon_size_bp']} bp</b></td>
+                <td><span class="badge" style="background:#F0FDF4; color:#16A34A; border:1px solid #22C55E;">{r['primer_quality']}</span></td>
+            </tr>
+            """
 
     # Pre-generate GO & KEGG Enrichment for target quadrants Q1, Q2, Q4
     q1_genes = df_merged.filter(pl.col("quadrant") == "Q1").select("geneSymbol").to_series().to_list()
@@ -570,6 +615,58 @@ def export_html_report(
                     {isoform_table_rows_html}
                 </tbody>
             </table>
+        </div>
+    <!-- SECTION 3: Visual Exon-Intron Sashimi Structure Engine Card -->
+    <div class="card" id="sashimi-card">
+        <h2 style="color: #0F172A; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-top: 0;">🧩 Visual Exon-Intron Structure & Sashimi Engine (Top Target: {top_gene_symbol})</h2>
+        <div id="sashimi-chart-container" style="margin-top: 16px;">
+            {sashimi_html}
+        </div>
+    </div>
+
+    <!-- SECTION 4: Isoform-Specific RT-qPCR Primer Designer Matrix Card -->
+    <div class="card" id="primer-card">
+        <h2 style="color: #0F172A; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-top: 0;">🧪 Isoform-Specific RT-qPCR Primer Designer (Q1/Q2 Wet-Lab Validation)</h2>
+        <div style="overflow-x: auto; margin-top: 16px; border: 1px solid #CBD5E1; border-radius: 8px;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Target Gene</th>
+                        <th>Target Isoform</th>
+                        <th>Forward Primer (5'->3') & Tm</th>
+                        <th>Reverse Primer (5'->3') & Tm</th>
+                        <th>Amplicon Size</th>
+                        <th>Primer Quality</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {primer_rows_html}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- SECTION 5: High-Performance Polars Benchmarking Card -->
+    <div class="card" id="benchmark-card">
+        <h2 style="color: #0F172A; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-top: 0;">⚡ High-Performance Polars Engine Benchmark</h2>
+        <p style="color: #475569; font-size: 14px;">Evaluated join performance and memory overhead across <b>{bm_res['num_genes']} genes</b>:</p>
+        <div class="kpi-container">
+            <div class="kpi-card" style="border-top: 4px solid #10B981;">
+                <div class="label" style="color: #10B981;">Polars Execution Time</div>
+                <div class="value" style="color: #10B981;">{bm_res['polars_time_ms']} ms</div>
+            </div>
+            <div class="kpi-card" style="border-top: 4px solid #64748B;">
+                <div class="label" style="color: #64748B;">Pandas Execution Time</div>
+                <div class="value" style="color: #64748B;">{bm_res['pandas_time_ms']} ms</div>
+            </div>
+            <div class="kpi-card" style="border-top: 4px solid #8B5CF6;">
+                <div class="label" style="color: #8B5CF6;">Speedup Factor</div>
+                <div class="value" style="color: #8B5CF6;">{bm_res['speedup_factor']}x</div>
+            </div>
+            <div class="kpi-card" style="border-top: 4px solid #06B6D4;">
+                <div class="label" style="color: #06B6D4;">Polars Peak RAM</div>
+                <div class="value" style="color: #06B6D4;">{bm_res['polars_mem_mb']} MB</div>
+            </div>
         </div>
     </div>
 

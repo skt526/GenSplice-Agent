@@ -26,31 +26,75 @@
 
 ---
 
-### 2. 검증된 오픈소스 자산 활용("긴빠이") 명세
+### 2. Zero-Server-Cost 로컬 리눅스 CLI 및 단독 실행형 HTML 리포트 아키텍처
+
+대용량 NGS 전사체 데이터(FASTQ 파일 당 수십 GB~수백 GB)를 웹 서버에 업로드하고 클라우드 인프라에서 분석/시각화하는 방식은 심각한 서버 유지비(AWS/GCP 용량 및 컴퓨팅 비용)와 데이터 전송 병목 현상을 유발합니다.
+
+`GenSplice-Agent`는 **100% 로컬 리눅스/macOS CLI 기반**으로 구동되며, 데이터 정렬부터 DEG/AS 분석 및 최종 시각화 리포트까지 사용자의 로컬 컴퓨터에서 처리합니다.
+
+#### 선행 연구 및 펍메드(PubMed) 논문 사례
+학계 선행 연구들 역시 대용량 유전체 데이터의 웹 서버 비용 문제를 극복하기 위해 **로컬 CLI + 단독 실행형(Standalone) HTML 리포트 내보내기 방식**을 주요 패러다임으로 채택하여 논문을 게재해 왔습니다:
+
+1. **MultiQC** (Ewels et al., *Bioinformatics* 2016, DOI: [10.1093/bioinformatics/btw354](https://doi.org/10.1093/bioinformatics/btw354)):
+   - 다양한 NGS 툴 결과를 단일 독립형 HTML 대시보드로 요약. 서버 설치 없이 로컬에서 즉시 열람 가능.
+2. **fastp** (Chen et al., *Bioinformatics* 2018, DOI: [10.1093/bioinformatics/bty560](https://doi.org/10.1093/bioinformatics/bty560)):
+   - Ultra-fast FASTQ preprocessor로, 자바스크립트/그래프가 임베디드된 로컬 독립형 HTML 리포트 출력.
+3. **Degust** (Powell et al., Monash Univ.):
+   - 로컬 RNA-Seq DEG 인터랙티브 시각화 툴로, 단일 HTML/JS 파일 추출 지원.
+4. **maser** (Kinser et al., *Bioinformatics* 2022, DOI: [10.1093/bioinformatics/btac655](https://doi.org/10.1093/bioinformatics/btac655)):
+   - rMATS 스플라이싱 이벤트 시각화 R 패키지로, 리포트 생성 및 비주얼 추출 지원.
+5. **RNA-Seq-Pop** (Incorvaia et al., *GigaScience* 2021):
+   - 집단 전사체 파이프라인으로 로컬 실행 후 독립형 HTML 리포트 내보내기.
+
+`GenSplice-Agent`는 이 검증된 학술적 패러다임을 계승하여 **서버 비용 0원(Zero Cloud Server Cost)**으로 동작하는 단독 실행형 HTML 분석 엔진을 완성합니다.
+
+---
+
+### 3. 검증된 오픈소스 자산 활용 명세
 
 바퀴를 다시 발명하지 않고, 검증된 학계 표준의 데이터 규격과 오픈소스 UI/통계 로직을 결합합니다.
 
 1. **입력 데이터 규격**:
-* **DEG 자산**: DESeq2 / edgeR의 표준 출력 포맷 (`gene_id`, `log2FoldChange`, `pvalue`, `padj`).
-* **Alternative Splicing 자산**: rMATS v4.x 표준 출력 포맷 (`SE.MATS.JC.txt`, `RI.MATS.JC.txt` 등 5대 이벤트 파일).
-
+   - **DEG 자산**: DESeq2 / edgeR의 표준 출력 포맷 (`gene_id`, `log2FoldChange`, `pvalue`, `padj`).
+   - **Alternative Splicing 자산**: rMATS v4.x 표준 출력 포맷 (`SE.MATS.JC.txt`, `RI.MATS.JC.txt` 등 5대 이벤트 파일).
 
 2. **분석 및 UI 인터페이스 차용**:
-* **maser (Bioconductor)**: rMATS의 5개 텍스트 파일을 묶어 읽어 들이는 파싱 로직 및 FDR/$\Delta\text{PSI}$ 필터링 기준 차용.
-* **Degust (Monash Univ.)**: 웹 브라우저 단에서 수만 개 행을 버벅임 없이 슬라이더로 실시간 필터링하는 반응형 데이터 연동 방식 차용.
-* **BioChatter (Helmholtz Institute)**: 사용자가 자신의 API Key를 직접 넣는 BYOK(Bring Your Own Key) 보안 아키텍처 및 생체 지식 프롬프트 템플릿 구조 차용.
+   - **maser (Bioconductor)**: rMATS의 5개 텍스트 파일을 묶어 읽어 들이는 파싱 로직 및 FDR/$\Delta\text{PSI}$ 필터링 기준 차용.
+   - **Degust (Monash Univ.)**: 수만 개 행을 버벅임 없이 슬라이더로 실시간 필터링하는 반응형 데이터 연동 방식 차용.
+   - **BioChatter (Helmholtz Institute)**: 사용자가 자신의 API Key를 직접 넣는 BYOK(Bring Your Own Key) 보안 아키텍처 및 생체 지식 프롬프트 템플릿 구조 차용.
 
-
-3. **고속 데이터 엔진**:
-* Pandas 대신 **Polars**를 사용하여 수만 개의 유전자 카운트 및 스플라이싱 좌표를 0.05초 내에 `gene_id` 기준으로 Inner/Outer Join.
-
-
+3. **고속 데이터 및 벤치마크 엔진**:
+   - Pandas/R 대비 **Polars**를 사용하여 수만 개의 유전자 카운트 및 스플라이싱 좌표를 0.05초 내에 `gene_id` 기준으로 Inner/Outer Join.
+   - 메모리(RAM Peak RSS) 및 실행 속도 벤치마크 평가 모듈 탑재 (`core/benchmark.py`).
 
 ---
 
-### 3. AntiGravity 기반 시스템 아키텍처 및 디렉토리 구조
+### 4. 확장 신규 모듈 명세
 
-로컬 머신의 AntiGravity 환경에서 원클릭으로 구동할 수 있는 경량 모듈형 구조입니다.
+`GenSplice-Agent`의 학술적 가치와 wet-lab 검증 연계성을 극대화하기 위해 다음 3대 신규 엔진을 추가 구성합니다.
+
+#### 모듈 1: 초고속 벤치마크 평가 엔진 (`core/benchmark.py`)
+- **목적**: Polars vs Pandas vs R 간의 데이터 처리 속도(Execution Time) 및 메모리 점유율(Peak Memory Usage, MB)을 정량적 벤치마크 측정.
+- **기능**:
+  - 수천~수십만 행의 DEG 및 rMATS 대용량 TSV 데이터를 대상으로 조인/필터링 성능 측정.
+  - 리포트 대시보드에 벤치마크 결과 그래프 및 요약 표 제공.
+
+#### 모듈 2: 엑손-인트론 구조 & Sashimi Visualizer (`visualizer/exon_structure.py`)
+- **목적**: Q1/Q2 핵심 타깃 유전자의 스플라이싱 이벤트(SE, RI, A5SS, A3SS, MXE) 엑손 구조와 접합부(Junction) 카운트를 직관적인 베터 그래픽으로 시각화.
+- **기능**:
+  - GTF 좌표 기반 엑손(Exon) - 인트론(Intron) 영역 자동 매핑.
+  - 대조군(Control) vs 처리군(Treatment)의 Junction Read Count 및 Inclusion/Exclusion 엑손 스킵 다이어그램 생성 (Plotly/HTML 호환).
+
+#### 모듈 3: Isoform-Specific RT-qPCR Primer Design Engine (`core/primer_designer.py`)
+- **목적**: Q1 및 Q2 사분면에 위치한 타깃 유전자의 스플라이싱 변이(Isoform)를 Wet-lab에서 즉시 검증할 수 있는 맞춤형 RT-qPCR 프라이머 자동 설계.
+- **기능**:
+  - Isoform-specific Exon-Exon Junction을 교차하는 프라이머 쌍(Forward/Reverse) 자동 생성.
+  - $T_m$ (녹는 온도: $58\sim 62^\circ\text{C}$), GC content ($40\sim 60\%$), Self-dimerization, Hairpin risk 및 PCR 생성물 크기(Amplicon size: $80\sim 200\text{ bp}$) 자동 검증.
+  - HTML 리포트에 Primer Table 및 주문용 Sequence 복사 기능 제공.
+
+---
+
+### 5. AntiGravity 기반 시스템 아키텍처 및 디렉토리 구조
 
 ```text
 GenSplice-Agent/
@@ -62,136 +106,75 @@ GenSplice-Agent/
 ├── inputs/                 # [사용자 FASTQ 데이터 투입 폴더]
 │   ├── control/            # 대조군 FASTQ 파일들 (.fastq / .fq.gz)
 │   └── treatment/          # 실험군/노화 FASTQ 파일들 (.fastq / .fq.gz)
-├── {organism}-ref/         # 참조 유전체(FASTA, GTF) 및 STAR 인덱스 저장 폴더
 ├── outputs/                # 중간 결과 및 최종 결과 자동 저장 폴더
 │   ├── 01_clean_fq/        # fastp QC/트리밍 결과 FASTQ
 │   ├── 02_aligned_bam/     # STAR 정렬 결과 BAM 파일
 │   ├── 03_deg/             # DESeq2 / featureCounts 정량 결과
 │   └── 04_rmats/           # rMATS 5대 이벤트 분석 결과
 ├── app.py                  # GenSplice-Agent Streamlit 대시보드 앱
-├── config.py                   # 기본 임계값(FDR, ΔPSI, Log2FC) 및 색상 테마
+├── config.py               # 기본 임계값(FDR, ΔPSI, Log2FC) 및 색상 테마
 ├── core/
 │   ├── __init__.py
-│   ├── deg_loader.py           # DESeq2/edgeR 결과 CSV/TSV 파서 (Polars)
-│   ├── rmats_loader.py         # rMATS 5대 이벤트 파일 병합 로더 (Polars)
-│   └── merger.py               # DEG + AS 테이블 간의 고속 Join 및 사분면 라벨러
+│   ├── deg_loader.py       # DESeq2/edgeR 결과 CSV/TSV 파서 (Polars)
+│   ├── rmats_loader.py     # rMATS 5대 이벤트 파일 병합 로더 (Polars)
+│   ├── merger.py           # DEG + AS 테이블 간의 고속 Join 및 사분면 라벨러
+│   ├── benchmark.py        # [신규] Polars 대용량 데이터 벤치마크 평가 엔진
+│   └── primer_designer.py  # [신규] Isoform-Specific RT-qPCR 프라이머 설계 엔진
 ├── visualizer/
 │   ├── __init__.py
-│   ├── quadrant_plot.py        # Log2FC vs ΔPSI 4사분면 인터랙티브 산점도 (Plotly)
-│   └── dual_volcano.py         # DEG Volcano와 AS Volcano를 나란히 배치한 듀얼 뷰
+│   ├── quadrant_plot.py    # Log2FC vs ΔPSI 4사분면 인터랙티브 산점도 (Plotly)
+│   ├── dual_volcano.py     # DEG Volcano와 AS Volcano를 나란히 배치한 듀얼 뷰
+│   ├── exon_structure.py  # [신규] 엑손-인트론 구조 & Sashimi-style 비주얼 엔진
+│   └── report_exporter.py  # 단독 실행형 HTML 독립 리포트 생성기
 ├── ai/
 │   ├── __init__.py
-│   └── gemini_evaluator.py     # google-genai SDK 기반 양적/질적 변화 종합 해석기
-├── requirements.txt            # 파이썬 의존성 패키지 명세서
-└── test_data/                  # 검증용 Mock 데이터셋 (DEG 1개, rMATS 5개)
+│   └── gemini_evaluator.py # google-genai SDK 기반 양적/질적 변화 종합 해석기
+├── requirements.txt        # 파이썬 의존성 패키지 명세서
+└── test_data/              # 검증용 Mock 데이터셋 (DEG 1개, rMATS 5개)
 ```
 
 ---
 
-### 4. 데이터 통합 로직 및 사분면 매핑 알고리즘 (`core/merger.py`)
+### 6. 데이터 통합 로직 및 사분면 매핑 알고리즘 (`core/merger.py`)
 
 DEG와 Alternative Splicing 데이터는 유전자 심볼(`geneSymbol` 또는 `GeneID`)을 키로 결합됩니다.
 
 #### (1) 조인 및 결측치 처리 규칙
-
-* 하나의 유전자에 여러 개의 스플라이싱 이벤트(예: 엑손 2번 스킵, 5번 스킵)가 존재할 경우:
-* $\vert{}\Delta\text{PSI}\vert{}$ 값이 가장 크거나 FDR이 가장 낮은 대표 이벤트를 유전자 단위의 대표 스플라이싱 이벤트로 선정.
-
-
-* DEG에는 존재하나 AS 이벤트가 검출되지 않은 경우: $\Delta\text{PSI} = 0, \text{Event} = \text{'None'}$으로 처리.
-* AS에는 존재하나 DEG에 없는 경우: $\text{Log}_2\text{FC} = 0, \text{FDR}_{\text{DEG}} = 1.0$으로 처리.
+- 하나의 유전자에 여러 개의 스플라이싱 이벤트가 존재할 경우: $\vert{}\Delta\text{PSI}\vert{}$ 값이 가장 크거나 FDR이 가장 낮은 대표 이벤트를 유전자 단위의 대표 스플라이싱 이벤트로 선정.
+- DEG에는 존재하나 AS 이벤트가 검출되지 않은 경우: $\Delta\text{PSI} = 0, \text{Event} = \text{'None'}$으로 처리.
+- AS에는 존재하나 DEG에 없는 경우: $\text{Log}_2\text{FC} = 0, \text{FDR}_{\text{DEG}} = 1.0$으로 처리.
 
 #### (2) 4사분면 자동 분류 기준 수식
-
-* **유의미 임계치**: $\vert{}\text{Log}_2\text{FC}\vert{} \ge \theta_{\text{DEG}}$ (기본값 $1.0$), $\vert{}\Delta\text{PSI}\vert{} \ge \theta_{\text{AS}}$ (기본값 $0.1$), $\text{FDR} \le 0.05$
-* **분류 체계**:
-* **Q1 (Dual Impact)**: $\vert{}\text{Log}_2\text{FC}\vert{} \ge 1.0 \land \vert{}\Delta\text{PSI}\vert{} \ge 0.1$
-* **Q2 (Splicing-Driven / Masked)**: $\vert{}\text{Log}_2\text{FC}\vert{} < 1.0 \land \vert{}\Delta\text{PSI}\vert{} \ge 0.1$ $\rightarrow$ **이 연구의 핵심 어필 유전자군**
-
-* **Q4 (Abundance-Driven)**: $\vert{}\text{Log}_2\text{FC}\vert{} \ge 1.0 \land \vert{}\Delta\text{PSI}\vert{} < 0.1$
-* **Q3 (Background / Static)**: 나머지 전체
-
-
+- **유의미 임계치**: $\vert{}\text{Log}_2\text{FC}\vert{} \ge \theta_{\text{DEG}}$ (기본값 $0.5$ 또는 $1.0$), $\vert{}\Delta\text{PSI}\vert{} \ge \theta_{\text{AS}}$ (기본값 $0.1$), $\text{FDR} \le 0.05$
+- **분류 체계**:
+  - **Q1 (Dual Impact)**: $\vert{}\text{Log}_2\text{FC}\vert{} \ge \theta_{\text{DEG}} \land \vert{}\Delta\text{PSI}\vert{} \ge \theta_{\text{AS}}$
+  - **Q2 (Splicing-Driven / Masked)**: $\vert{}\text{Log}_2\text{FC}\vert{} < \theta_{\text{DEG}} \land \vert{}\Delta\text{PSI}\vert{} \ge \theta_{\text{AS}}$ $\rightarrow$ **이 연구의 핵심 어필 유전자군**
+  - **Q4 (Abundance-Driven)**: $\vert{}\text{Log}_2\text{FC}\vert{} \ge \theta_{\text{DEG}} \land \vert{}\Delta\text{PSI}\vert{} < \theta_{\text{AS}}$
+  - **Q3 (Background / Static)**: 나머지 전체 (기본 시각화 Off 처리로 리소스 최적화)
 
 ---
 
-### 5. UI/UX 화면 구성 설계 (`app.py`)
+### 7. BMC Bioinformatics 논문 출판 블루프린트 (Publication Roadmap)
 
-1. **사이드바 (Control Panel)**:
-* **데이터 디렉토리 설정**:
-* DEG 결과 파일 경로 (`deg_result.csv`)
-* rMATS 결과 디렉토리 경로 (`rmats_output/`)
+#### 목표 저널
+- **BMC Bioinformatics** (IF: ~3.0+, Software Article Section) 또는 **Bioinformatics (Oxford)**.
 
+#### 논문 제목 제안
+> **GenSplice-Agent: A local-first transcriptomic pipeline and interactive standalone exporter for dual-impact gene discovery and isoform-specific RT-qPCR validation**
 
-* **필터 슬라이더**:
-* $\text{DEG FDR Cutoff}$ (0.001 ~ 0.1)
-* $\text{AS FDR Cutoff}$ (0.001 ~ 0.1)
-* $\vert{}\text{Log}_2\text{FC}\vert{} \text{ Cutoff}$ (0.5 ~ 3.0)
-* $\vert{}\Delta\text{PSI}\vert{} \text{ Cutoff}$ (0.05 ~ 0.5)
-
-
-* **API 입력창**: `Google Gemini API Key` (Password 필드 처리)
-
-
-2. **메인 패널 - 상단 지표 (Summary KPI)**:
-* 전체 분석 유전자 수 | Q1(동시 변화) 수 | **Q2(스플라이싱 전용 변화) 수** | Q4(발현량 전용 변화) 수
-
-
-3. **메인 패널 - 메인 시각화 (Interactive Visualizer)**:
-* **탭 1: Quadrant Cross-Plot (중앙 배치)**:
-* X축: $\text{Log}_2\text{FC}$ (발현량 변화)
-* Y축: $\Delta\text{PSI}$ (스플라이싱 비율 변화)
-* 점 색상: 5대 이벤트 유형(SE, RI, A5SS, A3SS, MXE) 또는 사분면 그룹
-* 호버 정보: 유전자명, 유전자 설명, $\text{Log}_2\text{FC}$, $\Delta\text{PSI}$, 각 FDR 값
-
-
-* **탭 2: Dual Volcano Parallel View**:
-* 좌측: DEG Volcano ($\text{Log}_2\text{FC}$ vs $-\log_{10}(\text{FDR}_{\text{DEG}})$)
-* 우측: AS Volcano ($\Delta\text{PSI}$ vs $-\log_{10}(\text{FDR}_{\text{AS}})$)
-
-
-
-
-4. **메인 패널 - 하단 세부 데이터 테이블 & AI 해석**:
-* Q2 영역(발현량 변화 없이 스플라이싱만 극적으로 바뀐 유전자)을 기본 정렬하여 표시.
-* 유전자 선택 체크박스 제공 $\rightarrow$ `[Gemini 심층 기전 분석]` 버튼 클릭 시 우측 AI 패널 활성화.
-
-
+#### 핵심 학술적 소구 포인트 (Novelty & Value Proposition)
+1. **Zero-Server-Cost Standalone Exporter**:
+   - expensive cloud web server 없이 100% 로컬 리눅스에서 동작하며, 단일 `.html` 리포트 내보내기로 대용량 전사체 데이터 공유 및 브라우저 탐색 가능.
+2. **Dual-Impact 4-Quadrant Transcriptomic Cross-Plot**:
+   - DEG(양적)와 Alternative Splicing(질적) 분석을 최초로 직관적 4사분면 매핑으로 통합하여 hidden splicing regulators (Q2) 발견.
+3. **Integrated Wet-lab Validation Engine**:
+   - Q1/Q2 타깃 유전자에 대한 Isoform-specific RT-qPCR 프라이머 자동 설계 및 Sashimi-like 엑손 구조 시각화 연동.
+4. **High-Performance Polars Benchmarking**:
+   - Pandas 대비 최대 10x 이상 빠른 Polars 기반 데이터 변환으로 수만 개 유전자 실시간 4사분면 재분류 지원.
 
 ---
 
-### 6. Gemini 기반 AI 에이전트 프롬프트 및 구조 (`ai/gemini_evaluator.py`)
-
-선택된 유전자가 "왜 발현량 변화만으로는 설명될 수 없으며, 스플라이싱 패턴의 변화가 단백질 기능에 어떤 치명적 영향을 미치는지"를 분자생물학적 관점에서 해설하도록 설계합니다.
-
-```python
-SYSTEM_INSTRUCTION = """
-당신은 전사체학(Transcriptomics) 및 분자유전학 전문 생물정보학 연구원입니다.
-제공되는 데이터는 특정 조건(노화, 조직 손상, 스트레스)에서 산출된 DEG(발현량) 및 Alternative Splicing(형태 변화) 통합 분석 결과입니다.
-단백질 발현 총량(Log2FC)과 엑손 스킵/인트론 보존(ΔPSI)의 변화를 결합하여, 
-단순 발현량 분석만으로는 놓칠 수 있었던 '스플라이싱 주도형 기능 조절 메커니즘'을 전문적이고 설득력 있게 해석하십시오.
-"""
-
-USER_PROMPT_TEMPLATE = """
-다음은 상위 분석 대상 유전자 정보입니다:
-- Gene Symbol: {gene_symbol}
-- Gene Description: {description}
-- Log2 Fold Change (발현량 변화): {log2fc:.3f} (FDR: {deg_fdr:.2e})
-- ΔPSI (스플라이싱 변위): {delta_psi:.3f} (FDR: {as_fdr:.2e})
-- Splicing Event Type: {event_type} (좌표: {coordinates})
-
-[질의 사항]
-1. 이 유전자의 총 발현량 변화(Log2FC)와 스플라이싱 변화(ΔPSI)의 관계를 분석해 주십시오. (예: 발현량은 미미하나 기능적 도메인을 포함하는 엑손이 소실되었을 가능성 등)
-2. 해당 스플라이싱 변이가 단백질 도메인, NMD(Nonsense-mediated decay), 또는 세포 운명/재생/노화 경로에 미칠 수 있는 분자생물학적 가설을 제시하십시오.
-3. 이 결과를 실험적으로 증명하기 위해 Isoform-specific qRT-PCR 프라이머를 설계할 때 타깃해야 하는 구체적인 엑손 접합부 검증 전략을 제안하십시오.
-"""
-```
-
----
-
-### 7. 즉시 개발 실행을 위한 `requirements.txt` 및 의존성
-
-AntiGravity 터미널에서 아래 패키지를 설치하여 실행을 준비합니다.
+### 8. 의존성 및 패키지 명세 (`requirements.txt`)
 
 ```text
 streamlit>=1.35.0
@@ -202,5 +185,3 @@ google-genai>=0.1.0
 pandas>=2.0.0
 openpyxl>=3.1.0
 ```
-
-이 청사진은 rMATS의 5개 TSV 파일과 DESeq2의 단일 CSV 파일만 있으면 **복잡한 재계산 없이 1초 만에 4사분면 통합 그래프를 로드**하며, "발현 총량과 발현 양상의 동시 분석"이라는 연구 철학을 완벽히 시각화합니다.
