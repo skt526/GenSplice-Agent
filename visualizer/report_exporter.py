@@ -676,7 +676,7 @@ def export_html_report(
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-bottom: 12px;">
             <h2 style="color: #0F172A; margin: 0; border: none; padding: 0;">🧬 Event-Level Isoform Annotation & NMD Prediction Matrix</h2>
             <button class="btn-download-csv" id="download-isoform-csv-btn">
-                📥 전체 다운로드 (.csv)
+                📥 Download All Isoforms (.csv)
             </button>
         </div>
 
@@ -1333,13 +1333,13 @@ def export_html_report(
 
             if (countLabel) {{
                 if (isoformShowAll) {{
-                    countLabel.textContent = `(전체 ${{rows.length}}개 표시 중)`;
+                    countLabel.textContent = `(Showing all ${{rows.length}} records)`;
                 }} else {{
-                    countLabel.textContent = matchCount > 0 ? `(${{upper}} 관련 ${{matchCount}}개 이벤트)` : `(현재 유전자 목록 외 - 전체 데이터는 CSV 다운로드 가능)`;
+                    countLabel.textContent = matchCount > 0 ? `(${{matchCount}} isoform event${{matchCount > 1 ? 's' : ''}} for ${{upper}})` : `(0 records in displayed list - full data available via CSV download)`;
                 }}
             }}
             if (toggleBtn) {{
-                toggleBtn.textContent = isoformShowAll ? `🎯 선택 유전자 (${{upper}})만 보기` : `👁️ 전체 유전자 보기`;
+                toggleBtn.textContent = isoformShowAll ? `🎯 Show Selected Gene (${{upper}}) Only` : `👁️ Show All Genes`;
             }}
         }}
 
