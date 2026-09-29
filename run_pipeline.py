@@ -589,7 +589,7 @@ def main():
     print(f"  - Checkpoint:    {CHECKPOINT_FILE}")
     print(f"  - Status Log:    {STATUS_LOG_FILE}")
     print(f"  - Archived Copy: {archive_dir}/ (contains gensplice_report.html)")
-    print(f"\nYou can now launch the dashboard using: streamlit run app.py\n")
+    print(f"\nYou can open your standalone interactive report at: {html_report_path}\n")
 
 if __name__ == "__main__":
     main()

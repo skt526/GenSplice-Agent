@@ -1,15 +1,15 @@
 # GenSplice-Agent 🧬
 
-> **통합 전사체 발현량(DEG) 및 대립적 스플라이싱(Alternative Splicing) 시각화·AI 해석 대시보드**
+> **통합 전사체 발현량(DEG) 및 대립적 스플라이싱(Alternative Splicing) 시각화·독립형 HTML 내보내기 리포트 플랫폼**
 
-`GenSplice-Agent`는 유전자의 발현량 변화(Quantity, DEG)와 스플라이싱 형태의 질적 변화(Quality, Alternative Splicing)를 단일 사분면 좌표계로 통합하고, Google Gemini AI를 통해 분자생물학적 기전을 해설하는 전사체학 전문 통합 플랫폼입니다.
+`GenSplice-Agent`는 유전자의 발현량 변화(Quantity, DEG)와 스플라이싱 형태의 질적 변화(Quality, Alternative Splicing)를 단일 사분면 좌표계로 통합하고, **서버 유지비 0원(Zero Cloud Server Cost)**으로 로컬에서 구동되며 인터랙티브 독립형 HTML 리포트(`gensplice_report.html`)를 내보내는 전사체학 전문 통합 플랫폼입니다.
 
 ---
 
 ## 🚦 명령 워크플로우 (Command Workflow)
 
 ### 🧪 1. 시스템 동작 검증용 (Testing)
-설치 직후 예제 데이터셋(GSE52778 Dexamethasone 모델)으로 파이프라인 전 과정이 이상 없이 작동하는지 검증합니다:
+설치 직후 예제 데이터셋(GSE52778 Dexamethasone 모델)으로 파이프라인 전 과정 및 스탠드얼론 HTML 리포트 조성이 이상 없이 작동하는지 검증합니다:
 ```bash
 bash install.sh ➔ ./test
 ```
@@ -33,10 +33,9 @@ bash install.sh ➔ ./ref human ➔ ./GenSplice
 | | `rmats` | `>= 4.3.0` | Alternative Splicing (SE, RI, A5SS, A3SS, MXE) 분석 |
 | | `subread` | `>= 2.0.6` | `featureCounts` 전사체 정량 산출 |
 | | `R` (r-base) | `>= 4.2` | rMATS 및 DESeq2 통계 검증 백엔드 |
-| **파이썬 GUI** | `streamlit` | `>= 1.35.0` | 웹 대시보드 인터페이스 |
-| | `polars` | `>= 0.20.0` | 고속 데이터 결합 및 4사분면 파서 |
-| | `plotly` | `>= 5.20.0` | 4사분면 cross-plot & Dual Volcano 시각화 |
-| | `google-genai` | `>= 0.1.0` | Gemini API 기반 생물학적 기전 해석 에이전트 |
+| **데이터 & 시각화 백엔드** | `polars` | `>= 0.20.0` | 고속 데이터 결합 및 4사분면 파서 |
+| | `plotly` | `>= 5.20.0` | 4사분면 cross-plot & Sashimi 비주얼 생성기 |
+| | `pyyaml` | `>= 6.0` | YAML 환경 설정 파일 로더 |
 
 ---
 
@@ -64,12 +63,12 @@ GenSplice-Agent/
 │   ├── control/            # 대조군 FASTQ 파일들 (.fastq / .fq.gz)
 │   └── treatment/          # 실험군/노화 FASTQ 파일들 (.fastq / .fq.gz)
 ├── {organism}-ref/         # 참조 유전체(FASTA, GTF) 및 STAR 인덱스 저장 폴더
-├── outputs/                # 중간 결과 및 최종 결과 자동 저장 폴더
-│   ├── 01_clean_fq/        # fastp QC/트리밍 결과 FASTQ
-│   ├── 02_aligned_bam/     # STAR 정렬 결과 BAM 파일
-│   ├── 03_deg/             # DESeq2 / featureCounts 정량 결과
-│   └── 04_rmats/           # rMATS 5대 이벤트 분석 결과
-└── app.py                  # GenSplice-Agent Streamlit 대시보드 앱
+└── outputs/                # 중간 결과 및 최종 독립형 HTML 결과 리포트 저장 폴더
+    ├── 01_clean_fq/        # fastp QC/트리밍 결과 FASTQ
+    ├── 02_aligned_bam/     # STAR 정렬 결과 BAM 파일
+    ├── 03_deg/             # DESeq2 / featureCounts 정량 결과
+    ├── 04_rmats/           # rMATS 5대 이벤트 분석 결과
+    └── gensplice_report.html # [최종] 단독 실행형 인터랙티브 HTML 대시보드 리포트
 ```
 
 ---

@@ -1,14 +1,12 @@
 # GenSplice-Agent AntiGravity 통합 개발 청사진 (Blueprint)
 
-유전자의 발현 총량(Quantity, DEG)뿐만 아니라 스플라이싱 형태의 질적 변화(Quality, Alternative Splicing)가 생체 조절 기전에서 갖는 중요성을 직관적으로 입증하기 위한 `GenSplice-Agent`의 AntiGravity 전용 통합 개발 청사진(Blueprint)입니다.
+유전자의 발현 총량(Quantity, DEG)뿐만 아니라 스플라이싱 형태의 질적 변화(Quality, Alternative Splicing)가 생체 조절 기전에서 갖는 중요성을 직관적으로 입증하기 위한 `GenSplice-Agent`의 SCIE 저널 게재용 통합 개발 청사진(Blueprint)입니다.
 
 ---
 
 ### 1. 핵심 생물학적 가설 및 시각화 컨셉
 
 기존 유전체 연구의 대다수는 총 발현량(DEG)에만 매몰되어, "전체 유전자 발현량에는 유의미한 변화가 없으나, 기능적 엑손이 탈락되거나 인트론이 삽입되어 단백질 기능이 완전히 바뀌는 핵심 조절자(Alternative Splicing)"를 놓치는 중대한 한계를 지닙니다.
-
-실제로 가뭄 스트레스 전사체 연구에서 총 발현량(DEG)에는 유의차가 없었으나 스플라이싱 변이체(Isoform)만 통계적으로 유의미하게 변화한 유전자(예: *GRMZM2G140355*)가 발견된 사례처럼, 발현량과 발현 양상을 동시에 추적해야 질환 및 노화의 진짜 기전을 포착할 수 있습니다.
 
 이 도구는 DEG 결과와 rMATS 스플라이싱 결과를 단일 좌표계로 결합하여 전체 전사체를 다음 4개 사분면(Quadrant)으로 즉각 분류합니다:
 
@@ -26,155 +24,143 @@
 
 ---
 
-### 2. Zero-Server-Cost 로컬 리눅스 CLI 및 단독 실행형 HTML 리포트 아키텍처
+### 2. SCIE 저널 게재용 핵심 차별화 모듈 (Technical Novelty)
 
-대용량 NGS 전사체 데이터(FASTQ 파일 당 수십 GB~수백 GB)를 웹 서버에 업로드하고 클라우드 인프라에서 분석/시각화하는 방식은 심각한 서버 유지비(AWS/GCP 용량 및 컴퓨팅 비용)와 데이터 전송 병목 현상을 유발합니다.
+`GenSplice-Agent`는 단순 파이프라인 래퍼를 넘어, 학술적 독창성(Novelty)을 확보하기 위해 다음 4대 핵심 기술 모듈을 확장 탑재합니다.
 
-`GenSplice-Agent`는 **100% 로컬 리눅스/macOS CLI 기반**으로 구동되며, 데이터 정렬부터 DEG/AS 분석 및 최종 시각화 리포트까지 사용자의 로컬 컴퓨터에서 처리합니다.
+#### 🧬 모듈 A: NMD & Frameshift 고위험군(High-Risk) 자동 판정 엔진 (`core/risk_evaluator.py`)
+스플라이싱 이벤트가 단백질 기능에 미치는 치명적 영향을 게놈 좌표 레벨에서 정밀 분석하여 위험도를 분류합니다.
+- 🚨 **HIGH RISK**: 
+  - **Frame-shift**: 포함/탈락 엑손 길이($L$)가 3의 배수가 아님 ($\Delta L \pmod 3 \neq 0$).
+  - **NMD (Nonsense-Mediated Decay)**: 프레임시프트로 인해 조기 종단 코돈(PTC, Premature Termination Codon)이 생성되어 mRNA가 자동 파괴되는 경우 (50-nt rule 적용).
+- ⚠️ **MEDIUM RISK**:
+  - **In-frame Domain Loss**: $3$의 배수 변이로 프레임은 유지되나, 주요 단백질 도메인(Pfam/UniProt CDS 영역)이 소실된 경우.
+- ℹ️ **LOW RISK**:
+  - 5'-UTR / 3'-UTR 스플라이싱 또는 비암호화 영역 변형.
 
-#### 선행 연구 및 펍메드(PubMed) 논문 사례
-학계 선행 연구들 역시 대용량 유전체 데이터의 웹 서버 비용 문제를 극복하기 위해 **로컬 CLI + 단독 실행형(Standalone) HTML 리포트 내보내기 방식**을 주요 패러다임으로 채택하여 논문을 게재해 왔습니다:
+#### 🎨 모듈 B: 정상 vs 변이 Isoform 구조 비교 시각화 (`visualizer/isoform_switch.py`)
+- Control 대표 Isoform과 Treatment에서 전환된 Isoform의 엑손-인트론 구조를 Plotly 기반 듀얼 트랙으로 시각화.
+- 변이 엑손(Exon Skipping 등)을 빨간색/주황색으로 강조(Highlight)하고 소실된 도메인 및 예상되는 단백질 기능 변화를 직관적으로 제시.
 
-1. **MultiQC** (Ewels et al., *Bioinformatics* 2016, DOI: [10.1093/bioinformatics/btw354](https://doi.org/10.1093/bioinformatics/btw354)):
-   - 다양한 NGS 툴 결과를 단일 독립형 HTML 대시보드로 요약. 서버 설치 없이 로컬에서 즉시 열람 가능.
-2. **fastp** (Chen et al., *Bioinformatics* 2018, DOI: [10.1093/bioinformatics/bty560](https://doi.org/10.1093/bioinformatics/bty560)):
-   - Ultra-fast FASTQ preprocessor로, 자바스크립트/그래프가 임베디드된 로컬 독립형 HTML 리포트 출력.
-3. **Degust** (Powell et al., Monash Univ.):
-   - 로컬 RNA-Seq DEG 인터랙티브 시각화 툴로, 단일 HTML/JS 파일 추출 지원.
-4. **maser** (Kinser et al., *Bioinformatics* 2022, DOI: [10.1093/bioinformatics/btac655](https://doi.org/10.1093/bioinformatics/btac655)):
-   - rMATS 스플라이싱 이벤트 시각화 R 패키지로, 리포트 생성 및 비주얼 추출 지원.
-5. **RNA-Seq-Pop** (Incorvaia et al., *GigaScience* 2021):
-   - 집단 전사체 파이프라인으로 로컬 실행 후 독립형 HTML 리포트 내보내기.
+#### 🧪 모듈 C: rMAPS 기반 상위 RBP (RNA-Binding Protein) 모티프 역추적 엔진 (`core/rmaps_wrapper.py`)
+- **목적**: Q1/Q2 사분면 유전자들의 스플라이싱 변화를 유발한 상위 조절 인자(Master Splicing Factor) 역추적.
+- **기능**:
+  - rMATS 결과(SE, RI, A5SS, A3SS, MXE)를 입력으로 하여 **rMAPS (rMAPS2)** 백엔드 모듈 연동.
+  - 변이 엑손 및 양측 250bp 인트론 영역에서 RBP 결합 모티프(CIS-BP-RNA / RBPDB 기준)의 통계적 농축(Enrichment) 분석 수행.
+  - SRSF1, PTBP1, hnRNPA1 등 어떤 스플라이싱 인자가 해당 전사체 변동의 주범인지 예측 결과 제공.
 
-`GenSplice-Agent`는 이 검증된 학술적 패러다임을 계승하여 **서버 비용 0원(Zero Cloud Server Cost)**으로 동작하는 단독 실행형 HTML 분석 엔진을 완성합니다.
+#### 🤖 모듈 D: Multi-LLM (Gemini/ChatGPT) & No-API Dual 에이전트 섹션 (`ai/multi_llm_evaluator.py`)
+대시보드 상에 **AI 해석 섹션**을 구성하고 듀얼 엑세스 모드를 제공합니다.
+1. **API 입력 모드 (Gemini API Key 또는 ChatGPT API Key)**:
+   - 사용자가 Google Gemini Key 또는 OpenAI ChatGPT Key를 입력하면, DEG/AS 수치 및 NMD/Frameshift 위험도 결과를 종합 분석.
+   - 해당 약물/실험 조건이 특정 신호 전달 경로를 **어떤 기전(Mechanism of Action, MoA)으로 작용 또는 망가뜨리고 있는지** 생물학적 보고서 자동 생성.
+2. **No-API 버튼 (Fallback Mode)**:
+   - API 키가 없거나 사용을 원치 않을 경우 **"No-API (PubMed 논문 검색)"** 버튼 제공.
+   - 버튼 클릭 시 타깃 유전자별 **PubMed REST API 기반 실시간 논문 검색 및 문헌 링크 섹션**으로 즉시 이동.
 
 ---
 
-### 3. 검증된 오픈소스 자산 활용 명세
-
-바퀴를 다시 발명하지 않고, 검증된 학계 표준의 데이터 규격과 오픈소스 UI/통계 로직을 결합합니다.
+### 3. 검증된 오픈소스 자산 및 기술 스택
 
 1. **입력 데이터 규격**:
    - **DEG 자산**: DESeq2 / edgeR의 표준 출력 포맷 (`gene_id`, `log2FoldChange`, `pvalue`, `padj`).
    - **Alternative Splicing 자산**: rMATS v4.x 표준 출력 포맷 (`SE.MATS.JC.txt`, `RI.MATS.JC.txt` 등 5대 이벤트 파일).
-
-2. **분석 및 UI 인터페이스 차용**:
-   - **maser (Bioconductor)**: rMATS의 5개 텍스트 파일을 묶어 읽어 들이는 파싱 로직 및 FDR/$\Delta\text{PSI}$ 필터링 기준 차용.
-   - **Degust (Monash Univ.)**: 수만 개 행을 버벅임 없이 슬라이더로 실시간 필터링하는 반응형 데이터 연동 방식 차용.
-   - **BioChatter (Helmholtz Institute)**: 사용자가 자신의 API Key를 직접 넣는 BYOK(Bring Your Own Key) 보안 아키텍처 및 생체 지식 프롬프트 템플릿 구조 차용.
-
-3. **고속 데이터 및 벤치마크 엔진**:
-   - Pandas/R 대비 **Polars**를 사용하여 수만 개의 유전자 카운트 및 스플라이싱 좌표를 0.05초 내에 `gene_id` 기준으로 Inner/Outer Join.
-   - 메모리(RAM Peak RSS) 및 실행 속도 벤치마크 평가 모듈 탑재 (`core/benchmark.py`).
+2. **백엔드 분석 & RBP 엔진**:
+   - **rMATS / rMAPS**: Differential Alternative Splicing 및 RBP motif enrichment 계산 백엔드.
+   - **Polars**: 수만 개의 유전자 카운트 및 스플라이싱 좌표를 0.05초 내 고속 Join/Filter.
+3. **인터페이스 & 에이전트**:
+   - **Streamlit**: 파이썬 기반 인터랙티브 대시보드 UI.
+   - **google-genai / openai SDK**: Gemini 2.5/3.0 및 GPT-4o API 호출 기반 분자 기전 해석.
 
 ---
 
-### 4. 확장 신규 모듈 명세
-
-`GenSplice-Agent`의 학술적 가치와 wet-lab 검증 연계성을 극대화하기 위해 다음 3대 신규 엔진을 추가 구성합니다.
-
-#### 모듈 1: 초고속 벤치마크 평가 엔진 (`core/benchmark.py`)
-- **목적**: Polars vs Pandas vs R 간의 데이터 처리 속도(Execution Time) 및 메모리 점유율(Peak Memory Usage, MB)을 정량적 벤치마크 측정.
-- **기능**:
-  - 수천~수십만 행의 DEG 및 rMATS 대용량 TSV 데이터를 대상으로 조인/필터링 성능 측정.
-  - 리포트 대시보드에 벤치마크 결과 그래프 및 요약 표 제공.
-
-#### 모듈 2: 엑손-인트론 구조 & Sashimi Visualizer (`visualizer/exon_structure.py`)
-- **목적**: Q1/Q2 핵심 타깃 유전자의 스플라이싱 이벤트(SE, RI, A5SS, A3SS, MXE) 엑손 구조와 접합부(Junction) 카운트를 직관적인 베터 그래픽으로 시각화.
-- **기능**:
-  - GTF 좌표 기반 엑손(Exon) - 인트론(Intron) 영역 자동 매핑.
-  - 대조군(Control) vs 처리군(Treatment)의 Junction Read Count 및 Inclusion/Exclusion 엑손 스킵 다이어그램 생성 (Plotly/HTML 호환).
-
-#### 모듈 3: Isoform-Specific RT-qPCR Primer Design Engine (`core/primer_designer.py`)
-- **목적**: Q1 및 Q2 사분면에 위치한 타깃 유전자의 스플라이싱 변이(Isoform)를 Wet-lab에서 즉시 검증할 수 있는 맞춤형 RT-qPCR 프라이머 자동 설계.
-- **기능**:
-  - Isoform-specific Exon-Exon Junction을 교차하는 프라이머 쌍(Forward/Reverse) 자동 생성.
-  - $T_m$ (녹는 온도: $58\sim 62^\circ\text{C}$), GC content ($40\sim 60\%$), Self-dimerization, Hairpin risk 및 PCR 생성물 크기(Amplicon size: $80\sim 200\text{ bp}$) 자동 검증.
-  - HTML 리포트에 Primer Table 및 주문용 Sequence 복사 기능 제공.
-
----
-
-### 5. AntiGravity 기반 시스템 아키텍처 및 디렉토리 구조
+### 4. AntiGravity 기반 시스템 아키텍처 및 디렉토리 구조
 
 ```text
 GenSplice-Agent/
-├── install.sh              # 1-Click 환경 설치 스크립트 (Conda/Bioconda)
+├── install.sh              # 1-Click 환경 설치 스크립트 (Conda/Bioconda: rMATS, rMAPS 포함)
 ├── ref.sh                  # 레퍼런스 게놈 (FASTA, GTF) 원클릭 다운로더
 ├── run_pipeline.py         # 전체 파이프라인 오케스트레이터 (Python 메인 실행기)
 ├── config.yaml             # 참조 유전체 경로 및 파이프라인 스레드 설정
-├── environment.yml         # Conda/Bioconda 환경 패키지 명세서
+├── environment.yml         # Conda/Bioconda 환경 패키지 명세서 (rMAPS2 포함)
 ├── inputs/                 # [사용자 FASTQ 데이터 투입 폴더]
 │   ├── control/            # 대조군 FASTQ 파일들 (.fastq / .fq.gz)
-│   └── treatment/          # 실험군/노화 FASTQ 파일들 (.fastq / .fq.gz)
-├── outputs/                # 중간 결과 및 최종 결과 자동 저장 폴더
+│   └── treatment/          # 실험군 FASTQ 파일들 (.fastq / .fq.gz)
+├── outputs/                # 결과 자동 저장 폴더
 │   ├── 01_clean_fq/        # fastp QC/트리밍 결과 FASTQ
 │   ├── 02_aligned_bam/     # STAR 정렬 결과 BAM 파일
 │   ├── 03_deg/             # DESeq2 / featureCounts 정량 결과
-│   └── 04_rmats/           # rMATS 5대 이벤트 분석 결과
-├── app.py                  # GenSplice-Agent Streamlit 대시보드 앱
-├── config.py               # 기본 임계값(FDR, ΔPSI, Log2FC) 및 색상 테마
+│   ├── 04_rmats/           # rMATS 5대 이벤트 분석 결과
+│   └── 05_rmaps/           # [신규] rMAPS RBP 모티프 농축 분석 결과
+├── app.py                  # GenSplice-Agent Streamlit 대시보드 앱 (AI & PubMed 섹션 통합)
+├── config.py               # 기본 임계값(FDR, ΔPSI, Log2FC) 및 위험도 라벨 설정
 ├── core/
 │   ├── __init__.py
-│   ├── deg_loader.py       # DESeq2/edgeR 결과 CSV/TSV 파서 (Polars)
+│   ├── deg_loader.py       # DESeq2/edgeR 결과 TSV 파서 (Polars)
 │   ├── rmats_loader.py     # rMATS 5대 이벤트 파일 병합 로더 (Polars)
-│   ├── merger.py           # DEG + AS 테이블 간의 고속 Join 및 사분면 라벨러
-│   ├── benchmark.py        # [신규] Polars 대용량 데이터 벤치마크 평가 엔진
-│   └── primer_designer.py  # [신규] Isoform-Specific RT-qPCR 프라이머 설계 엔진
+│   ├── merger.py           # DEG + AS 테이블 간 고속 Join 및 4사분면 라벨러
+│   ├── risk_evaluator.py   # [신규] NMD & Frameshift 고위험군 자동 판정 모듈
+│   └── rmaps_wrapper.py    # [신규] rMAPS RBP 모티프 역추적 파이프라인 래퍼
 ├── visualizer/
 │   ├── __init__.py
 │   ├── quadrant_plot.py    # Log2FC vs ΔPSI 4사분면 인터랙티브 산점도 (Plotly)
-│   ├── dual_volcano.py     # DEG Volcano와 AS Volcano를 나란히 배치한 듀얼 뷰
-│   ├── exon_structure.py  # [신규] 엑손-인트론 구조 & Sashimi-style 비주얼 엔진
-│   └── report_exporter.py  # 단독 실행형 HTML 독립 리포트 생성기
+│   ├── dual_volcano.py     # DEG Volcano & AS Volcano 듀얼 뷰
+│   ├── isoform_switch.py   # [신규] 정상 vs 변이 Isoform 구조 비교 시각화 엔진
+│   └── rbp_motif_plot.py   # [신규] RBP 모티프 농축 P-value 워터폴 그래프
 ├── ai/
 │   ├── __init__.py
-│   └── gemini_evaluator.py # google-genai SDK 기반 양적/질적 변화 종합 해석기
+│   ├── multi_llm_evaluator.py # [신규] Gemini / ChatGPT / No-API Dual 해석 에이전트
+│   └── pubmed_fetcher.py   # [신규] No-API 모드용 PubMed REST API 논문 검색기
 ├── requirements.txt        # 파이썬 의존성 패키지 명세서
 └── test_data/              # 검증용 Mock 데이터셋 (DEG 1개, rMATS 5개)
 ```
 
 ---
 
-### 6. 데이터 통합 로직 및 사분면 매핑 알고리즘 (`core/merger.py`)
+### 5. AI & No-API 섹션 인터랙션 로직 명세 (`ai/multi_llm_evaluator.py`)
 
-DEG와 Alternative Splicing 데이터는 유전자 심볼(`geneSymbol` 또는 `GeneID`)을 키로 결합됩니다.
+#### (1) UI 렌더링 구성
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 🤖 GenSplice AI Mechanism Interpretation & Literature Explorer          │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Select Provider: [ Gemini (google-genai) | ChatGPT (openai) ]           │
+│ API Key: [ Enter your API Key here...                              ]     │
+│                                                                         │
+│ 🔘 [ Run AI MoA Analysis ]      OR      🔘 [ No-API: PubMed Search ]    │
+└─────────────────────────────────────────────────────────────────────────┘
+```
 
-#### (1) 조인 및 결측치 처리 규칙
-- 하나의 유전자에 여러 개의 스플라이싱 이벤트가 존재할 경우: $\vert{}\Delta\text{PSI}\vert{}$ 값이 가장 크거나 FDR이 가장 낮은 대표 이벤트를 유전자 단위의 대표 스플라이싱 이벤트로 선정.
-- DEG에는 존재하나 AS 이벤트가 검출되지 않은 경우: $\Delta\text{PSI} = 0, \text{Event} = \text{'None'}$으로 처리.
-- AS에는 존재하나 DEG에 없는 경우: $\text{Log}_2\text{FC} = 0, \text{FDR}_{\text{DEG}} = 1.0$으로 처리.
-
-#### (2) 4사분면 자동 분류 기준 수식
-- **유의미 임계치**: $\vert{}\text{Log}_2\text{FC}\vert{} \ge \theta_{\text{DEG}}$ (기본값 $0.5$ 또는 $1.0$), $\vert{}\Delta\text{PSI}\vert{} \ge \theta_{\text{AS}}$ (기본값 $0.1$), $\text{FDR} \le 0.05$
-- **분류 체계**:
-  - **Q1 (Dual Impact)**: $\vert{}\text{Log}_2\text{FC}\vert{} \ge \theta_{\text{DEG}} \land \vert{}\Delta\text{PSI}\vert{} \ge \theta_{\text{AS}}$
-  - **Q2 (Splicing-Driven / Masked)**: $\vert{}\text{Log}_2\text{FC}\vert{} < \theta_{\text{DEG}} \land \vert{}\Delta\text{PSI}\vert{} \ge \theta_{\text{AS}}$ $\rightarrow$ **이 연구의 핵심 어필 유전자군**
-  - **Q4 (Abundance-Driven)**: $\vert{}\text{Log}_2\text{FC}\vert{} \ge \theta_{\text{DEG}} \land \vert{}\Delta\text{PSI}\vert{} < \theta_{\text{AS}}$
-  - **Q3 (Background / Static)**: 나머지 전체 (기본 시각화 Off 처리로 리소스 최적화)
+#### (2) 분기 처리 로직
+- **[Run AI MoA Analysis] 클릭 시**:
+  - 선택된 유전자(Q1/Q2/Q4)의 $\text{Log}_2\text{FC}$, $\Delta\text{PSI}$, NMD/Frameshift 판정 결과, rMAPS 상위 RBP 모티프 결과를 프롬프트로 구성.
+  - Gemini / ChatGPT API를 호출하여 약물의 **기전(MoA) 및 세포 신호전달망 교란 영향** 보고서 출력.
+- **[No-API: PubMed Search] 클릭 시**:
+  - LLM API 호출 없이 아래 **PubMed Paper Explorer** 섹션으로 즉시 스크롤 이동.
+  - 선택 유전자 심볼(e.g., `CRISPLD2 alternative splicing`) 기반 NCBI PubMed 검색 결과 및 바로가기 URL 카드 생성.
 
 ---
 
-### 7. BMC Bioinformatics 논문 출판 블루프린트 (Publication Roadmap)
+### 6. SCIE 저널 출판 로드맵 (Publication Strategy)
 
 #### 목표 저널
-- **BMC Bioinformatics** (IF: ~3.0+, Software Article Section) 또는 **Bioinformatics (Oxford)**.
+- **BMC Bioinformatics** (SCIE, IF ~3.0)
+- **Frontiers in Genetics / Frontiers in Bioinformatics** (SCIE, IF ~2.8~3.2)
+- **Genes** (MDPI, SCIE, IF ~2.8)
+- **PLOS ONE** (SCIE, IF ~2.9)
 
 #### 논문 제목 제안
-> **GenSplice-Agent: A local-first transcriptomic pipeline and interactive standalone exporter for dual-impact gene discovery and isoform-specific RT-qPCR validation**
+> **GenSplice-Agent: An integrative pipeline for dual-impact transcriptomic cross-plotting, NMD risk assessment, and RBP motif tracking with multi-LLM interpretation**
 
-#### 핵심 학술적 소구 포인트 (Novelty & Value Proposition)
-1. **Zero-Server-Cost Standalone Exporter**:
-   - expensive cloud web server 없이 100% 로컬 리눅스에서 동작하며, 단일 `.html` 리포트 내보내기로 대용량 전사체 데이터 공유 및 브라우저 탐색 가능.
-2. **Dual-Impact 4-Quadrant Transcriptomic Cross-Plot**:
-   - DEG(양적)와 Alternative Splicing(질적) 분석을 최초로 직관적 4사분면 매핑으로 통합하여 hidden splicing regulators (Q2) 발견.
-3. **Integrated Wet-lab Validation Engine**:
-   - Q1/Q2 타깃 유전자에 대한 Isoform-specific RT-qPCR 프라이머 자동 설계 및 Sashimi-like 엑손 구조 시각화 연동.
-4. **High-Performance Polars Benchmarking**:
-   - Pandas 대비 최대 10x 이상 빠른 Polars 기반 데이터 변환으로 수만 개 유전자 실시간 4사분면 재분류 지원.
+#### 학술적 논문 소구점 (Novelty Summary)
+1. **Dual-Impact 4-Quadrant Mapping**: DEG(양적)와 AS(질적) 통합을 통한 hidden splicing regulator (Q2) 발견.
+2. **Automated NMD & Frameshift Risk Profiling**: 게놈 좌표 기반 엑손 스킵의 치명적 도메인/NMD 위험도 자동 분류.
+3. **rMAPS-Integrated Upstream RBP Discovery**: 변이 엑손 상위 조절 RBP 모티프의 통계적 농축 파이프라인 탑재.
+4. **Flexible Multi-LLM / No-API Hybrid Architecture**: Gemini/ChatGPT 키 입력 기반 분자 기전 자동 요약 및 No-API PubMed 문헌 검색 듀얼 지원.
 
 ---
 
-### 8. 의존성 및 패키지 명세 (`requirements.txt`)
+### 7. 파이썬 의존성 명세 (`requirements.txt`)
 
 ```text
 streamlit>=1.35.0
@@ -182,6 +168,9 @@ polars>=0.20.0
 pyarrow>=15.0.0
 plotly>=5.20.0
 google-genai>=0.1.0
+openai>=1.12.0
+requests>=2.31.0
 pandas>=2.0.0
 openpyxl>=3.1.0
+biopython>=1.81
 ```
