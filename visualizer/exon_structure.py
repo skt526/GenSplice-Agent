@@ -356,6 +356,7 @@ def plot_exon_structure(
             tickformat=",d"
         ),
         yaxis=dict(
+            automargin=True,
             showticklabels=True,
             tickvals=[2, -2],
             ticktext=[f"<b>{tick_inclusion}</b>", f"<b>{tick_exclusion}</b>"],
@@ -365,7 +366,7 @@ def plot_exon_structure(
         paper_bgcolor="#FFFFFF",
         showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=11)),
-        margin=dict(l=40, r=40, t=30, b=40),
+        margin=dict(l=180, r=40, t=30, b=40),
         height=380
     )
 

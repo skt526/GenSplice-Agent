@@ -263,12 +263,14 @@ def export_html_report(
         isoform_df = isoform_df.head(150)
 
     isoform_rows_list = []
+    isoform_records_list = []
     for _, r in isoform_df.iterrows():
         nmd_badge_style = "background:#FEF2F2; color:#EF4444; border:1px solid #EF4444;" if "NMD Sensitive" in str(r['nmd_prediction']) else "background:#EFF6FF; color:#2563EB; border:1px solid #3B82F6;"
         risk_badge_style = "background:#FEF2F2; color:#DC2626; border:1px solid #EF4444; font-weight:800;" if "High" in str(r['impairment_tier']) else ("background:#FFFBEB; color:#D97706; border:1px solid #F59E0B; font-weight:800;" if "Moderate" in str(r['impairment_tier']) else "background:#F0FDF4; color:#16A34A; border:1px solid #22C55E; font-weight:800;")
+        gene_sym = str(r['geneSymbol'])
         isoform_rows_list.append(f"""
-            <tr>
-                <td><b>{r['geneSymbol']}</b></td>
+            <tr class="isoform-data-row" data-gene="{gene_sym.upper()}">
+                <td><b>{gene_sym}</b></td>
                 <td><span class="badge" style="{risk_badge_style}">{r['impairment_tier']}</span></td>
                 <td><span style="font-size:12px; font-weight:600; color:#334155;">{r['primary_dysfunction_cause']}</span></td>
                 <td><span class="badge" style="background:#F1F5F9; color:#334155; font-weight:700;">{r['event_type']}</span></td>
@@ -282,7 +284,23 @@ def export_html_report(
                 <td><span style="font-size:12px; color:#475569;">{r['localization_consequence']}</span></td>
             </tr>
         """)
+        isoform_records_list.append({
+            "gene_symbol": gene_sym,
+            "impairment_tier": str(r.get("impairment_tier", "")),
+            "primary_dysfunction_cause": str(r.get("primary_dysfunction_cause", "")),
+            "event_type": str(r.get("event_type", "")),
+            "transcript_id": str(r.get("transcript_id", "")),
+            "coordinates": str(r.get("coordinates", "")),
+            "delta_psi": float(r.get("delta_psi", 0.0)),
+            "log2FoldChange": float(r.get("log2FoldChange", 0.0)),
+            "cds_frame": str(r.get("cds_frame", "")),
+            "nmd_prediction": str(r.get("nmd_prediction", "")),
+            "ptc_position": str(r.get("ptc_position", "")),
+            "protein_domain": str(r.get("protein_domain", "")),
+            "localization_consequence": str(r.get("localization_consequence", ""))
+        })
     isoform_table_rows_html = "\n".join(isoform_rows_list)
+    isoform_records_json = json.dumps(isoform_records_list)
 
     primary_ncbi_genes = list(dict.fromkeys([g.strip().upper() for g in splicing_genes if g]))[:15]
     if not primary_ncbi_genes:
@@ -655,8 +673,23 @@ def export_html_report(
 
     <!-- SECTION 2: Event-Level Isoform Annotation & NMD Prediction Card -->
     <div class="card" id="isoform-annotation-card">
-        <h2 style="color: #0F172A; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-top: 0;">🧬 Event-Level Isoform Annotation & NMD Prediction Matrix</h2>
-        <div style="overflow-x: auto; overflow-y: auto; max-height: 420px; margin-top: 16px; border: 1px solid #CBD5E1; border-radius: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-bottom: 12px;">
+            <h2 style="color: #0F172A; margin: 0; border: none; padding: 0;">🧬 Event-Level Isoform Annotation & NMD Prediction Matrix</h2>
+            <button class="btn-download-csv" id="download-isoform-csv-btn">
+                📥 전체 다운로드 (.csv)
+            </button>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; margin-bottom: 12px; background: #F8FAFC; padding: 10px 16px; border-radius: 8px; border: 1px solid #E2E8F0;">
+            <span style="font-size: 13px; color: #334155; font-weight: 600;">
+                🔗 Synchronized Target: <b id="isoform-filter-gene" style="color: #1E40AF; font-size: 14px;">-</b> <span id="isoform-filter-count" style="font-size: 12px; color: #64748B; margin-left: 6px;"></span>
+            </span>
+            <button id="isoform-toggle-view-btn" style="background: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 6px; padding: 5px 12px; font-size: 12px; color: #334155; cursor: pointer; font-weight: 700; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                👁️ Show All Genes
+            </button>
+        </div>
+
+        <div style="overflow-x: auto; overflow-y: auto; max-height: 420px; border: 1px solid #CBD5E1; border-radius: 8px;">
             <table class="data-table" id="isoform-table">
                 <thead>
                     <tr>
@@ -685,13 +718,9 @@ def export_html_report(
     <div class="card" id="sashimi-card">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-bottom: 12px;">
             <h2 style="color: #0F172A; margin: 0; border: none; padding: 0;">🧩 Visual Exon-Intron Structure & Sashimi Engine</h2>
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <label for="sashimi-gene-select" style="font-weight: 700; font-size: 14px;">🔍 Select Splicing Target Gene:</label>
-                <select id="sashimi-gene-select" style="padding: 7px 14px; border-radius: 8px; border: 1px solid #CBD5E1; font-weight: 700; font-size: 14px; background: #FFFFFF; cursor: pointer;">
-                </select>
-            </div>
+            <span style="font-size: 13px; color: #64748B; font-weight: 600;">🔗 Synchronized with NCBI Gene Selection</span>
         </div>
-        <div id="sashimi-chart-container" style="margin-top: 8px;">
+        <div id="sashimi-chart-container" style="margin-top: 8px; width: 85%; margin-left: auto; margin-right: auto;">
             {sashimi_html}
         </div>
         <div style="text-align: center; margin-top: 12px; padding-top: 10px; border-top: 1px solid #E2E8F0; font-size: 15px; font-weight: 700; color: #1E293B;">
@@ -703,7 +732,7 @@ def export_html_report(
     <div class="card" id="primer-card">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-bottom: 16px;">
             <h2 style="color: #0F172A; margin: 0; border: none; padding: 0;">🧪 Isoform-Specific RT-qPCR Primer Designer (Q2/Q1 Wet-Lab Validation)</h2>
-            <span style="font-size: 13px; color: #64748B; font-weight: 600;">🔗 Synchronized with Visual Exon-Intron Selection</span>
+            <span style="font-size: 13px; color: #64748B; font-weight: 600;">🔗 Synchronized with NCBI Gene Selection</span>
         </div>
         
         <!-- Target Gene Location & Exon Region Banner -->
@@ -744,6 +773,7 @@ def export_html_report(
         const ncbiPubmedData = {ncbi_pubmed_json};
         const primerRecords = {primer_records_json};
         const sashimiGeneData = {sashimi_data_json};
+        const isoformRecords = {isoform_records_json};
         let currentGoData = {go_records_json};
         let currentKeggData = {kegg_records_json};
         
@@ -755,8 +785,9 @@ def export_html_report(
         const generateBtn = document.getElementById('generate-enrichment-btn');
         const downloadGoBtn = document.getElementById('download-go-csv-btn');
         const downloadKeggBtn = document.getElementById('download-kegg-csv-btn');
+        const downloadIsoformBtn = document.getElementById('download-isoform-csv-btn');
+        const toggleIsoformBtn = document.getElementById('isoform-toggle-view-btn');
         const ncbiSelect = document.getElementById('ncbi-gene-select');
-        const sashimiSelect = document.getElementById('sashimi-gene-select');
 
         let currentFilteredGenes = [];
 
@@ -948,7 +979,7 @@ def export_html_report(
             }} else {{
                 ncbiSelect.value = activeOptions[0];
             }}
-            renderNcbiGeneDetails(ncbiSelect.value);
+            handleMasterGeneSelection(ncbiSelect.value);
         }}
 
         function renderSashimiPlot(geneSymbol) {{
@@ -1252,6 +1283,7 @@ def export_html_report(
                     tickformat: ",d"
                 }},
                 yaxis: {{
+                    automargin: true,
                     showticklabels: true,
                     tickvals: [2, -2],
                     ticktext: [`<b>${{tick_inc}}</b>`, `<b>${{tick_exc}}</b>`],
@@ -1261,7 +1293,7 @@ def export_html_report(
                 paper_bgcolor: "#FFFFFF",
                 showlegend: true,
                 legend: {{ orientation: "h", yanchor: "bottom", y: 1.02, xanchor: "right", x: 1, font: {{ size: 11 }} }},
-                margin: {{ l: 40, r: 40, t: 30, b: 40 }},
+                margin: {{ l: 180, r: 40, t: 40, b: 40 }},
                 height: 380,
                 shapes: shapes
             }};
@@ -1269,51 +1301,84 @@ def export_html_report(
             Plotly.newPlot(sashimiDiv, traces, layout, {{ responsive: true, displayModeBar: false }});
         }}
 
-        function handleSashimiGeneChange(geneSymbol) {{
+        function handleMasterGeneSelection(geneSymbol) {{
             if (!geneSymbol) return;
+            renderNcbiGeneDetails(geneSymbol);
+            filterIsoformTable(geneSymbol);
             renderSashimiPlot(geneSymbol);
             renderPrimerDetails(geneSymbol);
         }}
 
-        function updateSashimiDropdown(splicingGeneList) {{
-            const select = document.getElementById('sashimi-gene-select');
-            if (!select) return;
-            const uniqueGenes = [...new Set(splicingGeneList.filter(Boolean))];
-            
-            let activeOptions = uniqueGenes;
-            if (!activeOptions.length && typeof rawGeneData !== 'undefined' && rawGeneData.length) {{
-                activeOptions = [...new Set(rawGeneData.filter(g => g.delta_psi && Math.abs(g.delta_psi) >= 0.05).map(g => g.geneSymbol).filter(Boolean))];
-            }}
-            if (!activeOptions.length && primerRecords && primerRecords.length) {{
-                activeOptions = [...new Set(primerRecords.map(r => r.gene_symbol).filter(Boolean))];
-            }}
-            
-            const prevVal = select.value;
-            select.innerHTML = '';
-            if (!activeOptions.length) {{
-                const opt = document.createElement('option');
-                opt.value = "";
-                opt.textContent = "No genes available";
-                select.appendChild(opt);
-                return;
-            }}
+        let isoformShowAll = false;
+        function filterIsoformTable(geneSymbol) {{
+            const upper = (geneSymbol || '').trim().toUpperCase();
+            const filterLabel = document.getElementById('isoform-filter-gene');
+            const countLabel = document.getElementById('isoform-filter-count');
+            const toggleBtn = document.getElementById('isoform-toggle-view-btn');
+            if (filterLabel) filterLabel.textContent = upper || '-';
 
-            activeOptions.forEach(g => {{
-                const opt = document.createElement('option');
-                opt.value = g;
-                opt.textContent = g;
-                select.appendChild(opt);
+            const rows = document.querySelectorAll('.isoform-data-row');
+            if (!rows.length) return;
+
+            let matchCount = 0;
+            rows.forEach(r => {{
+                const rGene = (r.getAttribute('data-gene') || '').trim().toUpperCase();
+                if (isoformShowAll || rGene === upper) {{
+                    r.style.display = '';
+                    if (rGene === upper) matchCount++;
+                }} else {{
+                    r.style.display = 'none';
+                }}
             }});
 
-            if (activeOptions.includes(prevVal)) {{
-                select.value = prevVal;
-            }} else if (activeOptions.length) {{
-                select.value = activeOptions[0];
+            if (countLabel) {{
+                if (isoformShowAll) {{
+                    countLabel.textContent = `(전체 ${{rows.length}}개 표시 중)`;
+                }} else {{
+                    countLabel.textContent = matchCount > 0 ? `(${{upper}} 관련 ${{matchCount}}개 이벤트)` : `(현재 유전자 목록 외 - 전체 데이터는 CSV 다운로드 가능)`;
+                }}
             }}
+            if (toggleBtn) {{
+                toggleBtn.textContent = isoformShowAll ? `🎯 선택 유전자 (${{upper}})만 보기` : `👁️ 전체 유전자 보기`;
+            }}
+        }}
 
-            if (select.value) {{
-                handleSashimiGeneChange(select.value);
-            }}
+        function toggleIsoformView() {{
+            isoformShowAll = !isoformShowAll;
+            const currentGene = ncbiSelect ? ncbiSelect.value : '';
+            filterIsoformTable(currentGene);
+        }}
+
+        function downloadIsoformCSV() {{
+            if (!isoformRecords || !isoformRecords.length) return;
+            const headers = ["Gene", "Impairment Tier", "Primary Dysfunction Cause", "Event Type", "Transcript ID", "Coordinates", "Delta PSI", "Log2FC", "CDS Frame", "PTC & NMD Status", "PTC Position", "Protein Domain Impact", "Localization Consequence"];
+            let csvContent = headers.join(",") + "\\n";
+            isoformRecords.forEach(r => {{
+                const row = [
+                    `"${{r.gene_symbol || ''}}"`,
+                    `"${{r.impairment_tier || ''}}"`,
+                    `"${{r.primary_dysfunction_cause || ''}}"`,
+                    `"${{r.event_type || ''}}"`,
+                    `"${{r.transcript_id || ''}}"`,
+                    `"${{r.coordinates || ''}}"`,
+                    (r.delta_psi !== undefined ? r.delta_psi : 0).toFixed(4),
+                    (r.log2FoldChange !== undefined ? r.log2FoldChange : 0).toFixed(4),
+                    `"${{r.cds_frame || ''}}"`,
+                    `"${{r.nmd_prediction || ''}}"`,
+                    `"${{r.ptc_position || ''}}"`,
+                    `"${{r.protein_domain || ''}}"`,
+                    `"${{r.localization_consequence || ''}}"`
+                ];
+                csvContent += row.join(",") + "\\n";
+            }});
+
+            const blob = new Blob([csvContent], {{ type: 'text/csv;charset=utf-8;' }});
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.setAttribute("download", `gensplice_isoform_annotation_matrix_all_genes.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         }}
 
         function renderPrimerDetails(geneSymbol) {{
@@ -1406,7 +1471,6 @@ def export_html_report(
 
             const splicingGenes = currentFilteredGenes.filter(g => g.current_quadrant === 'Q1' || g.current_quadrant === 'Q2').map(g => (g.geneSymbol || '').toUpperCase());
             updateNcbiDropdown(splicingGenes);
-            updateSashimiDropdown(splicingGenes);
 
             const quadDiv = document.getElementById('plotly-quad-div');
             if (quadDiv && window.Plotly) {{
@@ -1748,10 +1812,13 @@ def export_html_report(
         if (downloadGoBtn) downloadGoBtn.addEventListener('click', downloadGoCSV);
         if (downloadKeggBtn) downloadKeggBtn.addEventListener('click', downloadKeggCSV);
         if (ncbiSelect) {{
-            ncbiSelect.addEventListener('change', (e) => renderNcbiGeneDetails(e.target.value));
+            ncbiSelect.addEventListener('change', (e) => handleMasterGeneSelection(e.target.value));
         }}
-        if (sashimiSelect) {{
-            sashimiSelect.addEventListener('change', (e) => handleSashimiGeneChange(e.target.value));
+        if (downloadIsoformBtn) {{
+            downloadIsoformBtn.addEventListener('click', downloadIsoformCSV);
+        }}
+        if (toggleIsoformBtn) {{
+            toggleIsoformBtn.addEventListener('click', toggleIsoformView);
         }}
         const copyPromptBtn = document.getElementById('copy-prompt-btn');
         if (copyPromptBtn) {{
