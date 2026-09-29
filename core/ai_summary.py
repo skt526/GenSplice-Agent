@@ -16,7 +16,7 @@ LOCAL_PUBMED_CACHE = {}
 
 def generate_biological_insights(df_merged, df_go=None, df_kegg=None) -> dict:
     """
-    Generates rule-based biological mechanism insights and recommendations for active Q1 genes.
+    Generates rule-based biological mechanism insights and recommendations for active Splicing targets (Q1 + Q2).
     100% Free, 0s latency, no external API key needed.
     """
     if isinstance(df_merged, pl.DataFrame):
@@ -24,53 +24,55 @@ def generate_biological_insights(df_merged, df_go=None, df_kegg=None) -> dict:
     else:
         df_pd = df_merged.copy()
 
-    q1_df = df_pd[df_pd["quadrant"] == "Q1"]
-    if q1_df.empty:
-        q1_df = df_pd
+    splicing_df = df_pd[df_pd["quadrant"].isin(["Q1", "Q2"])]
+    if splicing_df.empty:
+        splicing_df = df_pd
 
-    q1_count = len(q1_df)
+    q1_count = len(df_pd[df_pd["quadrant"] == "Q1"])
+    q2_count = len(df_pd[df_pd["quadrant"] == "Q2"])
+    total_splicing_count = len(splicing_df)
 
     insights = {
         "status": "success",
+        "splicing_gene_count": total_splicing_count,
         "q1_gene_count": q1_count,
+        "q2_gene_count": q2_count,
         "executive_summary_en": "",
         "key_mechanism": "",
         "hypotheses": [],
         "wet_lab_validations": [],
-        "q1_genes": q1_df["geneSymbol"].tolist() if "geneSymbol" in q1_df.columns else []
+        "splicing_genes": splicing_df["geneSymbol"].tolist() if "geneSymbol" in splicing_df.columns else []
     }
 
-    # Extract top 5 genes for specific insights dynamically from actual dataset
-    top_genes = q1_df["geneSymbol"].head(5).tolist() if ("geneSymbol" in q1_df.columns and not q1_df.empty) else []
+    # Extract top target genes dynamically from Q2 (splicing-driven) and Q1 (dual responders)
+    top_genes = splicing_df["geneSymbol"].head(6).tolist() if ("geneSymbol" in splicing_df.columns and not splicing_df.empty) else []
     if not top_genes and "geneSymbol" in df_pd.columns and not df_pd.empty:
-        top_genes = df_pd["geneSymbol"].head(5).tolist()
+        top_genes = df_pd["geneSymbol"].head(6).tolist()
     genes_str = ", ".join(top_genes) if top_genes else "key target genes"
 
-
     insights["executive_summary_en"] = (
-        f"Transcriptomic profiling identified {q1_count} Q1 dual-responder genes exhibiting concurrent expression differential "
-        f"and significant alternative splicing regulation (e.g., {genes_str}). "
-        f"Integrative analysis reveals that alternative splicing predominantly alters coding sequence reading frames, introducing premature termination codons (PTC) "
-        f"and targeting transcripts for Nonsense-Mediated mRNA Decay (NMD). This dual-layer perturbation leads to functional loss-of-function (LoF) "
-        f"or dominant-negative isoform expressions independently of total transcript abundance."
+        f"Transcriptomic profiling identified a total of {total_splicing_count} alternative splicing target genes ({q1_count} Q1 Dual Responders + {q2_count} Q2 Splicing-Driven Regulators, e.g., {genes_str}). "
+        f"While conventional differential expression analysis captures only the quantitative changes in Q1/Q4, GenSplice-Agent reveals that alternative splicing in both Q1 and Q2 "
+        f"systematically alters coding sequence reading frames, introducing premature termination codons (PTC) and triggering Nonsense-Mediated mRNA Decay (NMD). "
+        f"This dual-layer regulatory architecture indicates that post-transcriptional splicing quality control plays an indispensable role alongside transcriptional quantity control."
     )
 
     insights["key_mechanism"] = (
-        f"In key target genes ({genes_str}), alternative exon inclusion/skipping disrupt critical catalytic and regulatory protein domains, "
-        f"shifting sub-cellular localization or promoting NMD degradation. Consequently, measuring total gene expression level alone is insufficient "
-        f"to capture cellular phenotypic changes."
+        f"Across top splicing targets ({genes_str}), alternative exon inclusion/skipping selectively disrupts critical catalytic, interaction, and regulatory domains. "
+        f"In Q1 genes, splicing synergizes with expression fold-change to amplify or attenuate pathway throughput, whereas in Q2 genes, splicing mediates functional silencing "
+        f"or dominant-negative isoform production while total mRNA levels remain steady."
     )
 
     insights["hypotheses"] = [
-        f"Splicing-driven NMD degradation of key regulators ({genes_str}) serves as a primary mechanism of functional gene inactivation.",
-        "Isoform switching produces truncated dominant-negative protein variants that competitively inhibit wild-type signaling pathways.",
-        "Differential inclusion of signal sequence exons alters protein subcellular distribution (e.g., nuclear vs. cytoplasmic retention)."
+        f"Splicing-driven NMD degradation of key splicing targets ({genes_str}) serves as a primary post-transcriptional mechanism governing functional protein abundance.",
+        "Isoform switching in Q1 and Q2 regulators generates truncated or dominant-negative protein variants that competitively alter downstream signal transduction.",
+        "Differential inclusion of regulatory exons alters sub-cellular localization, membrane anchoring, and ligand-binding affinities."
     ]
 
     insights["wet_lab_validations"] = [
-        f"Design isoform-specific RT-qPCR primers targeting inclusion vs. exclusion splice junctions for top Q1 genes ({genes_str}).",
+        f"Design isoform-specific RT-qPCR primers targeting inclusion vs. exclusion splice junctions for top Q1+Q2 targets ({genes_str}).",
         "Perform Western Blotting using domain-specific antibodies to validate truncated vs. full-length protein isoform expression ratios.",
-        "Construct Minigene splice reporter assays to evaluate cis-acting splicing regulatory elements and trans-acting RBP binding."
+        "Construct Minigene splice reporter assays to evaluate cis-acting splicing regulatory elements and upstream RBP interactions."
     ]
 
     return insights
@@ -92,18 +94,19 @@ def generate_detailed_bio_prompt(
     else:
         df_pd = df_merged.copy()
 
-    q1_df = df_pd[df_pd["quadrant"] == "Q1"]
-    if q1_df.empty:
-        q1_df = df_pd
+    splicing_df = df_pd[df_pd["quadrant"].isin(["Q1", "Q2"])]
+    if splicing_df.empty:
+        splicing_df = df_pd
 
-    top_q1 = q1_df.head(10)
+    top_splicing = splicing_df.head(12)
     gene_list_str = ""
-    for idx, r in top_q1.iterrows():
+    for idx, r in top_splicing.iterrows():
         gene = r.get("geneSymbol", "Unknown")
+        quad = r.get("quadrant", "Q2")
         log2fc = r.get("log2FoldChange", 0.0)
         dpsi = r.get("delta_psi", 0.0)
         event = r.get("event_type", "SE")
-        gene_list_str += f"- Gene: {gene} | Event: {event} | Log2FC: {log2fc:.2f} | ΔPSI: {dpsi:.3f}\n"
+        gene_list_str += f"- Gene: {gene} | Quadrant: {quad} | Event: {event} | Log2FC: {log2fc:.2f} | ΔPSI: {dpsi:.3f}\n"
 
     go_str = "No significant GO terms."
     if df_go is not None and not df_go.empty:
@@ -120,7 +123,7 @@ def generate_detailed_bio_prompt(
     prompt = f"""You are a Principal Investigator in Molecular Biology & Bio-computational Transcriptomics.
 Analyze the following high-throughput RNA-seq & rMATS alternative splicing dataset.
 
-# KEY DEG & SPLICING DUAL-RESPONDER GENES (Q1):
+# KEY ALTERNATIVE SPLICING TARGET GENES (Q1 Dual Responders + Q2 Splicing-Driven Regulators):
 {gene_list_str}
 
 # TOP ENRICHED BIOLOGICAL PROCESSES (GO Terms):
@@ -132,7 +135,7 @@ Analyze the following high-throughput RNA-seq & rMATS alternative splicing datas
 # STRUCTURED REPORT OUTPUT
 Structure your response into 5 clear sections:
 1. **Executive Summary & Biological Mechanism of Action (MoA)**
-2. **Isoform Switching vs Expression Paradox (5 Paradigms Evaluation)**
+2. **Isoform Switching vs Expression Paradox (Q1 Dual Responders vs Q2 Splicing-Driven Regulators)**
 3. **Hub Gene Co-regulation & Pathway Crosstalk**
 4. **Experimental Wet-Lab Validation Strategy** (RT-qPCR isoform-specific primers, Minigene reporter assays, Western Blot)
 5. **Draft Discussion Section for High-Impact Publication** (Nature/Cell style paragraph)

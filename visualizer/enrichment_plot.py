@@ -73,8 +73,9 @@ def build_enrichment_chart(df_enr: pd.DataFrame, title: str, bar_color: str = "#
 def build_enrichment_dot_plot(
     df_enr: pd.DataFrame, 
     title: str,
-    color_scale: str = "Purples_r",
-    border_color: str = "#6B21A8"
+    color_scale: str = "Blues_r",
+    border_color: str = "#1D4ED8",
+    quadrant_label: str = "Q2"
 ) -> go.Figure:
     """
     Builds a dynamic Dot / Bubble plot for enrichment results with Quadrant Category on X-axis.
@@ -112,7 +113,7 @@ def build_enrichment_dot_plot(
     df_sorted["Display_Term"] = df_sorted["Term"].apply(
         lambda t: t[:50] + "..." if len(str(t)) > 53 else str(t)
     )
-    df_sorted["Quadrant"] = "Q1"
+    df_sorted["Quadrant"] = quadrant_label
 
     fig = px.scatter(
         df_sorted,

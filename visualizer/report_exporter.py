@@ -3,7 +3,7 @@ GenSplice-Agent Standalone HTML Exporter Module
 Light Mode interactive HTML report with:
 - Outside plot header: 'Color Classification' (with Q1-Q4 descriptions)
 - Inside plot legend title: 'On/Off' (strictly Q1, Q2, Q3, Q4)
-- GO Term & KEGG Pathway Enrichment Charts & Tables focused on Q1
+- GO Term & KEGG Pathway Enrichment Charts & Tables focused on Q2 (Splicing-Driven Only)
 - Client-Side Real-Time Plotly Graph & Table Re-Calculation with Dynamic Action Effects
 """
 
@@ -44,18 +44,26 @@ def export_html_report(
     bm_res = benchmark_polars_vs_pandas(num_genes=min(max(df_merged.height, 1000), 10000))
 
     # Visual Exon-Intron Structure Engine (Sashimi Plot)
-    top_gene_symbol = "STAT3"
-    top_coords = "chr17:42300000:42301500:42303000"
+    top_gene_symbol = "CRISPLD2"
+    top_coords = "chr16:84860000:84861500:84863000"
     top_event = "SE"
     top_delta_psi = 0.35
 
-    q1_top = df_merged.filter(pl.col("quadrant") == "Q1")
-    if q1_top.height > 0:
-        row0 = q1_top.to_dicts()[0]
-        top_gene_symbol = row0.get("geneSymbol", "STAT3")
+    q2_top = df_merged.filter(pl.col("quadrant") == "Q2")
+    if q2_top.height > 0:
+        row0 = q2_top.to_dicts()[0]
+        top_gene_symbol = row0.get("geneSymbol", "CRISPLD2")
         top_coords = row0.get("coordinates", top_coords)
         top_event = row0.get("event_type", "SE")
         top_delta_psi = row0.get("delta_psi", 0.35)
+    else:
+        q1_top = df_merged.filter(pl.col("quadrant") == "Q1")
+        if q1_top.height > 0:
+            row0 = q1_top.to_dicts()[0]
+            top_gene_symbol = row0.get("geneSymbol", "STAT3")
+            top_coords = row0.get("coordinates", top_coords)
+            top_event = row0.get("event_type", "SE")
+            top_delta_psi = row0.get("delta_psi", 0.35)
 
     fig_sashimi = plot_exon_structure(
         gene_symbol=top_gene_symbol,
@@ -65,9 +73,9 @@ def export_html_report(
     )
     sashimi_html = fig_sashimi.to_html(full_html=False, include_plotlyjs=False, div_id="plotly-sashimi-div")
 
-    # Isoform-Specific RT-qPCR Primer Designer Engine
-    q1_q2_sub = df_merged.filter(pl.col("quadrant").is_in(["Q1", "Q2"]))
-    primer_df = generate_primer_table_for_targets(q1_q2_sub.head(10) if q1_q2_sub.height > 0 else df_merged.head(5))
+    # Isoform-Specific RT-qPCR Primer Designer Engine (Q2/Q1 Targets)
+    q2_q1_sub = df_merged.filter(pl.col("quadrant").is_in(["Q2", "Q1"]))
+    primer_df = generate_primer_table_for_targets(q2_q1_sub.head(10) if q2_q1_sub.height > 0 else df_merged.head(5))
     primer_rows_html = ""
     if primer_df.height > 0:
         for r in primer_df.iter_rows(named=True):
@@ -82,23 +90,26 @@ def export_html_report(
             </tr>
             """
 
-    # Pre-generate GO & KEGG Enrichment for target quadrants Q1, Q2, Q4
+    # Pre-generate GO & KEGG Enrichment for target quadrants Q1, Q2, Q1+Q2, Q4
     q1_genes = df_merged.filter(pl.col("quadrant") == "Q1").select("geneSymbol").to_series().to_list()
     q2_genes = df_merged.filter(pl.col("quadrant") == "Q2").select("geneSymbol").to_series().to_list()
+    splicing_genes = df_merged.filter(pl.col("quadrant").is_in(["Q1", "Q2"])).select("geneSymbol").to_series().to_list()
     q4_genes = df_merged.filter(pl.col("quadrant") == "Q4").select("geneSymbol").to_series().to_list()
     all_genes = df_merged.select("geneSymbol").to_series().to_list()
 
     df_go_q1 = fetch_enrichment(q1_genes, gene_sets=["GO_Biological_Process_2023"], top_n=8)
     df_go_q2 = fetch_enrichment(q2_genes, gene_sets=["GO_Biological_Process_2023"], top_n=8)
+    df_go_splicing = fetch_enrichment(splicing_genes, gene_sets=["GO_Biological_Process_2023"], top_n=8)
     df_go_q4 = fetch_enrichment(q4_genes, gene_sets=["GO_Biological_Process_2023"], top_n=8)
 
     df_kegg_q1 = fetch_enrichment(q1_genes, gene_sets=["KEGG_2021_Human"], top_n=8)
     df_kegg_q2 = fetch_enrichment(q2_genes, gene_sets=["KEGG_2021_Human"], top_n=8)
+    df_kegg_splicing = fetch_enrichment(splicing_genes, gene_sets=["KEGG_2021_Human"], top_n=8)
     df_kegg_q4 = fetch_enrichment(q4_genes, gene_sets=["KEGG_2021_Human"], top_n=8)
 
 
-    df_go = df_go_q1
-    df_kegg = df_kegg_q1
+    df_go = df_go_splicing if (df_go_splicing is not None and not df_go_splicing.empty) else (df_go_q2 if (df_go_q2 is not None and not df_go_q2.empty) else df_go_q1)
+    df_kegg = df_kegg_splicing if (df_kegg_splicing is not None and not df_kegg_splicing.empty) else (df_kegg_q2 if (df_kegg_q2 is not None and not df_kegg_q2.empty) else df_kegg_q1)
 
     # Build Interactive Plotly Comparative Dot Plots for GO & KEGG (X-axis: Q1, Q2, Q4)
     fig_go = build_combined_quadrant_dot_plot(df_go_q1, df_go_q2, df_go_q4, "Comparative GO Biological Process Dot + Bubble Plot (X-axis: Q1, Q2, Q4)", y_title="GO Biological Process Term")
@@ -138,10 +149,10 @@ def export_html_report(
     # Select & optimize essential columns for client-side JS engine (drops HTML size from 182MB down to ~1.5MB)
     essential_cols = [c for c in ["geneSymbol", "gene_id", "log2FoldChange", "delta_psi", "deg_fdr", "as_fdr", "quadrant", "event_type", "coordinates"] if c in df_merged.columns]
     
-    # Priority sorting: Q1 dual responders -> Q2 splicing -> Q4 DEG -> Q3 invariant
+    # Priority sorting: Q2 splicing-driven -> Q1 dual responders -> Q4 DEG -> Q3 invariant
     df_sorted = df_merged.with_columns([
-        pl.when(pl.col("quadrant") == "Q1").then(1)
-        .when(pl.col("quadrant") == "Q2").then(2)
+        pl.when(pl.col("quadrant") == "Q2").then(1)
+        .when(pl.col("quadrant") == "Q1").then(2)
         .when(pl.col("quadrant") == "Q4").then(3)
         .otherwise(4).alias("quad_priority")
     ]).sort(["quad_priority", "as_fdr", "deg_fdr"], descending=[False, False, False])
@@ -198,9 +209,9 @@ def export_html_report(
         as_fdr_cutoff=as_fdr_cutoff
     )
 
-    # Pre-generate Event-Level Isoform Annotation Table Rows (capped to top 150 candidate events to avoid DOM bloat)
-    q1_sub = df_merged.filter(pl.col("quadrant") == "Q1")
-    isoform_df = annotate_isoform_events(q1_sub if q1_sub.height > 0 else df_merged)
+    # Pre-generate Event-Level Isoform Annotation Table Rows (Focusing on Q1+Q2 alternative splicing targets)
+    splicing_sub = df_merged.filter(pl.col("quadrant").is_in(["Q1", "Q2"]))
+    isoform_df = annotate_isoform_events(splicing_sub if splicing_sub.height > 0 else df_merged)
     if len(isoform_df) > 150:
         isoform_df = isoform_df.head(150)
 
@@ -226,7 +237,7 @@ def export_html_report(
         """)
     isoform_table_rows_html = "\n".join(isoform_rows_list)
 
-    primary_ncbi_genes = list(dict.fromkeys(q1_genes[:10])) if q1_genes else []
+    primary_ncbi_genes = list(dict.fromkeys(splicing_genes[:12])) if splicing_genes else (list(dict.fromkeys(all_genes[:12])) if all_genes else [])
 
     ncbi_pubmed_map = {}
     for g in primary_ncbi_genes:
@@ -542,7 +553,7 @@ def export_html_report(
     <!-- GO Term Enrichment Section (Graph Only + Download Button on Header Right) -->
     <div class="card" id="go-card-section">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border-color); padding-bottom: 12px; margin-bottom: 12px;">
-            <h2 id="go-title" style="margin: 0; border: none; padding: 0;">🧬 GO Term Biological Process Enrichment (Q1: Both DEG & Splicing)</h2>
+            <h2 id="go-title" style="margin: 0; border: none; padding: 0;">🧬 GO Term Biological Process Enrichment (Q1 + Q2: Splicing Targets)</h2>
             <button class="btn-download-csv" id="download-go-csv-btn">
                 📥 Download GO Table (.csv)
             </button>
@@ -555,7 +566,7 @@ def export_html_report(
     <!-- KEGG Pathway Enrichment Section (Graph Only + Download Button on Header Right) -->
     <div class="card" id="kegg-card-section">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border-color); padding-bottom: 12px; margin-bottom: 12px;">
-            <h2 id="kegg-title" style="margin: 0; border: none; padding: 0;">🛤️ KEGG Pathway Enrichment (Q1: Both DEG & Splicing)</h2>
+            <h2 id="kegg-title" style="margin: 0; border: none; padding: 0;">🛤️ KEGG Pathway Enrichment (Q1 + Q2: Splicing Targets)</h2>
             <button class="btn-download-csv" id="download-kegg-csv-btn">
                 📥 Download KEGG Table (.csv)
             </button>
@@ -570,7 +581,7 @@ def export_html_report(
         <h2 style="color: #0F172A; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-top: 0;">📚 NCBI / PubMed Automated Gene & Literature Explorer</h2>
         
         <div style="margin-top: 16px; margin-bottom: 16px;">
-            <label for="ncbi-gene-select" style="font-weight: 700; font-size: 14px; margin-right: 10px;">🔍 Select Q1 Target Gene:</label>
+            <label for="ncbi-gene-select" style="font-weight: 700; font-size: 14px; margin-right: 10px;">🔍 Select Splicing Target Gene (Q1 + Q2):</label>
             <select id="ncbi-gene-select" style="padding: 8px 14px; border-radius: 8px; border: 1px solid #CBD5E1; font-weight: 700; font-size: 14px; background: #FFFFFF; cursor: pointer;">
             </select>
         </div>
@@ -626,7 +637,7 @@ def export_html_report(
 
     <!-- SECTION 4: Isoform-Specific RT-qPCR Primer Designer Matrix Card -->
     <div class="card" id="primer-card">
-        <h2 style="color: #0F172A; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-top: 0;">🧪 Isoform-Specific RT-qPCR Primer Designer (Q1/Q2 Wet-Lab Validation)</h2>
+        <h2 style="color: #0F172A; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-top: 0;">🧪 Isoform-Specific RT-qPCR Primer Designer (Q2/Q1 Wet-Lab Validation)</h2>
         <div style="overflow-x: auto; margin-top: 16px; border: 1px solid #CBD5E1; border-radius: 8px;">
             <table class="data-table">
                 <thead>
@@ -708,7 +719,7 @@ def export_html_report(
             }};
 
             const ncbi = data.ncbi || {{}};
-            document.getElementById('ncbi-gene-title').innerHTML = `🧬 NCBI Gene Details: <code style="color:#A855F7;">${{symbol}}</code>`;
+            document.getElementById('ncbi-gene-title').innerHTML = `🧬 NCBI Gene Details: <code style="color:#2563EB;">${{symbol}}</code>`;
             document.getElementById('ncbi-official-name').innerHTML = `<b>Official Name:</b> ${{ncbi.official_name || symbol}}`;
             document.getElementById('ncbi-meta').innerHTML = `<b>NCBI Gene ID:</b> <code>${{ncbi.ncbi_id || 'N/A'}}</code> | <b>Map Location:</b> ${{ncbi.chromosome || 'N/A'}}`;
             document.getElementById('ncbi-summary-desc').textContent = ncbi.summary || "No description available.";
@@ -727,16 +738,16 @@ def export_html_report(
             document.getElementById('pubmed-papers-container').innerHTML = pubHtml || '<p style="color:#64748B;">No literature records found.</p>';
         }}
 
-        function updateNcbiDropdown(q1GeneList) {{
+        function updateNcbiDropdown(splicingGeneList) {{
             if (!ncbiSelect) return;
-            const uniqueQ1 = [...new Set(q1GeneList.filter(Boolean))];
+            const uniqueGenes = [...new Set(splicingGeneList.filter(Boolean))];
             
-            let activeOptions = uniqueQ1;
+            let activeOptions = uniqueGenes;
             if (!activeOptions.length && typeof rawGeneData !== 'undefined' && rawGeneData.length) {{
                 const fcCut = parseFloat(fcSlider.value || 1.0);
                 const psiCut = parseFloat(psiSlider.value || 0.1);
                 const sigGenes = rawGeneData
-                    .filter(g => (Math.abs(g.log2FoldChange || 0) >= fcCut && (g.deg_fdr || 1) <= 0.05) || (Math.abs(g.delta_psi || 0) >= psiCut && (g.as_fdr || 1) <= 0.05))
+                    .filter(g => Math.abs(g.delta_psi || 0) >= psiCut && (g.as_fdr === undefined || g.as_fdr === null || g.as_fdr <= 0.05 || g.as_fdr === 1.0))
                     .map(g => g.geneSymbol)
                     .filter(Boolean);
                 activeOptions = [...new Set(sigGenes)];
@@ -816,8 +827,8 @@ def export_html_report(
             document.getElementById('kpi-q3').textContent = q3;
             document.getElementById('kpi-q4').textContent = q4;
 
-            const q1Genes = currentFilteredGenes.filter(g => g.current_quadrant === 'Q1').map(g => (g.geneSymbol || '').toUpperCase());
-            updateNcbiDropdown(q1Genes);
+            const splicingGenes = currentFilteredGenes.filter(g => g.current_quadrant === 'Q1' || g.current_quadrant === 'Q2').map(g => (g.geneSymbol || '').toUpperCase());
+            updateNcbiDropdown(splicingGenes);
 
             const quadDiv = document.getElementById('plotly-quad-div');
             if (quadDiv && window.Plotly) {{
@@ -857,8 +868,8 @@ def export_html_report(
             const fcCut = parseFloat(fcSlider.value).toFixed(2);
             const psiCut = parseFloat(psiSlider.value).toFixed(2);
             
-            const q1Genes = currentFilteredGenes.filter(g => g.current_quadrant === 'Q1').map(g => (g.geneSymbol || '').toUpperCase());
-            const activeGenes = q1Genes;
+            const splicingGenes = currentFilteredGenes.filter(g => g.current_quadrant === 'Q1' || g.current_quadrant === 'Q2').map(g => (g.geneSymbol || '').toUpperCase());
+            const activeGenes = splicingGenes;
 
             if (!activeGenes.length) {{
                 currentGoData = [];
@@ -867,13 +878,13 @@ def export_html_report(
                 const keggDiv = document.getElementById('plotly-kegg-div');
                 if (goDiv && window.Plotly) {{
                     Plotly.react(goDiv, [], {{
-                        title: "<b>No Q1 target genes found under current thresholds (Log₂FC ≥ " + fcCut + ", ΔPSI ≥ " + psiCut + ")</b>",
+                        title: "<b>No Q1/Q2 splicing target genes found under current thresholds (ΔPSI ≥ " + psiCut + ")</b>",
                         paper_bgcolor: "#FFFFFF", plot_bgcolor: "#F8FAFC", height: 350
                     }});
                 }}
                 if (keggDiv && window.Plotly) {{
                     Plotly.react(keggDiv, [], {{
-                        title: "<b>No Q1 target genes found under current thresholds (Log₂FC ≥ " + fcCut + ", ΔPSI ≥ " + psiCut + ")</b>",
+                        title: "<b>No Q1/Q2 splicing target genes found under current thresholds (ΔPSI ≥ " + psiCut + ")</b>",
                         paper_bgcolor: "#FFFFFF", plot_bgcolor: "#F8FAFC", height: 350
                     }});
                 }}
@@ -943,7 +954,7 @@ def export_html_report(
             // Re-render Plotly GO Dot + Bubble Plot (X-axis: Q1, Q2, Q4)
             const goDiv = document.getElementById('plotly-go-div');
             if (goDiv && window.Plotly && sortedGo.length) {{
-                const xVal = sortedGo.map(() => 'Q1');
+                const xVal = sortedGo.map(() => 'Q1+Q2');
                 const yVal = sortedGo.map(item => item.term.length > 45 ? item.term.slice(0,45) + '...' : item.term).reverse();
                 const markerSizes = sortedGo.map(item => Math.min(Math.max(item.count * 4, 10), 26)).reverse();
                 const colorVals = sortedGo.map(item => parseFloat(item.logP)).reverse();
@@ -955,18 +966,18 @@ def export_html_report(
                     marker: {{
                         size: markerSizes,
                         color: colorVals,
-                        colorscale: 'Purples',
+                        colorscale: 'Blues',
                         showscale: true,
                         colorbar: {{ title: '-log₁₀(p-val)' }},
-                        line: {{ color: '#4C1D95', width: 1.5 }}
+                        line: {{ color: '#1E40AF', width: 1.5 }}
                     }}
                 }}], {{
                     ...goDiv.layout,
                     xaxis: {{
                         type: 'category',
                         categoryorder: 'array',
-                        categoryarray: ['Q1', 'Q2', 'Q4'],
-                        title: '<b>Quadrant Category (X-axis: Q1, Q2, Q4)</b>'
+                        categoryarray: ['Q1', 'Q2', 'Q1+Q2', 'Q4'],
+                        title: '<b>Splicing Target Category (Q1 + Q2)</b>'
                     }}
                 }});
             }}
@@ -974,7 +985,7 @@ def export_html_report(
             // Re-render Plotly KEGG Dot + Bubble Plot (X-axis: Q1, Q2, Q4)
             const keggDiv = document.getElementById('plotly-kegg-div');
             if (keggDiv && window.Plotly && sortedKegg.length) {{
-                const xVal = sortedKegg.map(() => 'Q1');
+                const xVal = sortedKegg.map(() => 'Q1+Q2');
                 const yVal = sortedKegg.map(item => item.term.length > 45 ? item.term.slice(0,45) + '...' : item.term).reverse();
                 const markerSizes = sortedKegg.map(item => Math.min(Math.max(item.count * 4, 10), 26)).reverse();
                 const colorVals = sortedKegg.map(item => parseFloat(item.logP)).reverse();
@@ -986,39 +997,39 @@ def export_html_report(
                     marker: {{
                         size: markerSizes,
                         color: colorVals,
-                        colorscale: 'Purples',
+                        colorscale: 'Blues',
                         showscale: true,
                         colorbar: {{ title: '-log₁₀(p-val)' }},
-                        line: {{ color: '#4C1D95', width: 1.5 }}
+                        line: {{ color: '#1E40AF', width: 1.5 }}
                     }}
                 }}], {{
                     ...keggDiv.layout,
                     xaxis: {{
                         type: 'category',
                         categoryorder: 'array',
-                        categoryarray: ['Q1', 'Q2', 'Q4'],
-                        title: '<b>Quadrant Category (X-axis: Q1, Q2, Q4)</b>'
+                        categoryarray: ['Q1', 'Q2', 'Q1+Q2', 'Q4'],
+                        title: '<b>Splicing Target Category (Q1 + Q2)</b>'
                     }}
                 }});
             }}
 
             // Update AI Insights Summary Text if card is present
-            const topHubStr = activeGenes.slice(0,4).join(', ');
+            const topHubStr = activeGenes.slice(0,5).join(', ');
             const aiSummaryElem = document.getElementById('ai-summary-text');
             if (aiSummaryElem) {{
-                aiSummaryElem.innerHTML = `Under the current threshold criteria (Log₂FC ≥ ${{fcCut}}, ΔPSI ≥ ${{psiCut}}), a total of <b>${{q1Genes.length}} Q1 target genes</b> exhibit concurrent differential expression and alternative splicing. Notably, key hub genes including <b>${{topHubStr}}</b> significantly overlap across top enriched signaling pathways.`;
-                const tagQ1 = document.getElementById('ai-tag-q1');
+                aiSummaryElem.innerHTML = `Under the current threshold criteria (ΔPSI ≥ ${{psiCut}}), a total of <b>${{splicingGenes.length}} Splicing target genes (Q1 Dual Responders + Q2 Splicing-Driven)</b> exhibit significant alternative splicing regulation. Notably, key splicing targets including <b>${{topHubStr}}</b> significantly overlap across top enriched pathways.`;
+                const tagSplicing = document.getElementById('ai-tag-q2') || document.getElementById('ai-tag-q1');
                 const tagHubs = document.getElementById('ai-tag-hubs');
-                if (tagQ1) tagQ1.textContent = `Active Q1 Genes: ${{q1Genes.length}}`;
+                if (tagSplicing) tagSplicing.textContent = `Active Splicing Genes (Q1+Q2): ${{splicingGenes.length}}`;
                 if (tagHubs) tagHubs.textContent = `Hub Genes: ${{topHubStr}}`;
             }}
 
             const promptBox = document.getElementById('ai-prompt-box');
             if (promptBox) {{
-                promptBox.value = `[GenSplice Analysis Prompt]\\nLog2FC Cutoff: ${{fcCut}}, DeltaPSI Cutoff: ${{psiCut}}\\nActive Q1 Dual Responder Genes (${{q1Genes.length}}): ${{q1Genes.slice(0,15).join(', ')}}\\n\\nPlease provide an in-depth biological mechanism summary explaining the interplay between expression fold-change and alternative splicing in these Q1 dual responder genes.`;
+                promptBox.value = `[GenSplice Analysis Prompt]\\nDeltaPSI Cutoff: ${{psiCut}}\\nActive Splicing Target Genes (Q1+Q2, ${{splicingGenes.length}}): ${{splicingGenes.slice(0,15).join(', ')}}\\n\\nPlease provide an in-depth biological mechanism summary explaining the role of alternative splicing across these Q1 dual responder and Q2 splicing-driven regulator genes.`;
             }}
 
-            const noticeText = `✔ Re-calculated & Graph Updated for Log₂FC ≥ ${{fcCut}}, ΔPSI ≥ ${{psiCut}} • Active Q1 Genes: ${{q1Genes.length}}`;
+            const noticeText = `✔ Re-calculated & Graph Updated for ΔPSI ≥ ${{psiCut}} • Active Splicing Genes (Q1+Q2): ${{splicingGenes.length}}`;
             const goNot = document.getElementById('go-notice');
             const keggNot = document.getElementById('kegg-notice');
             if (goNot) goNot.textContent = noticeText;
@@ -1106,7 +1117,7 @@ def export_html_report(
             const blob = new Blob([csvContent], {{ type: 'text/csv;charset=utf-8;' }});
             const link = document.createElement("a");
             link.href = URL.createObjectURL(blob);
-            link.setAttribute("download", `go_enrichment_q1_FC${{fcSlider.value}}_dPSI${{psiSlider.value}}.csv`);
+            link.setAttribute("download", `go_enrichment_splicing_Q1_Q2_FC${{fcSlider.value}}_dPSI${{psiSlider.value}}.csv`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -1121,7 +1132,7 @@ def export_html_report(
             const blob = new Blob([csvContent], {{ type: 'text/csv;charset=utf-8;' }});
             const link = document.createElement("a");
             link.href = URL.createObjectURL(blob);
-            link.setAttribute("download", `kegg_enrichment_q1_FC${{fcSlider.value}}_dPSI${{psiSlider.value}}.csv`);
+            link.setAttribute("download", `kegg_enrichment_splicing_Q1_Q2_FC${{fcSlider.value}}_dPSI${{psiSlider.value}}.csv`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
