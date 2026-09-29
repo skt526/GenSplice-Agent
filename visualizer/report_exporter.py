@@ -9,15 +9,15 @@ Light Mode interactive HTML report with:
 
 import os
 import json
+import time
 import polars as pl
 import pandas as pd
 from visualizer.quadrant_plot import build_quadrant_plot
-from visualizer.enrichment_plot import build_enrichment_chart, build_enrichment_dot_plot, build_combined_quadrant_dot_plot
+from visualizer.enrichment_plot import build_enrichment_chart
 from core.merger import get_quadrant_kpis
 from core.enrichment import fetch_enrichment
 from core.ai_summary import generate_biological_insights, fetch_ncbi_gene_summary, fetch_pubmed_literature, generate_detailed_bio_prompt
 from core.isoform_annotator import annotate_isoform_events
-from core.benchmark import benchmark_polars_vs_pandas
 from visualizer.exon_structure import plot_exon_structure
 from core.primer_designer import generate_primer_table_for_targets
 
@@ -31,7 +31,7 @@ def export_html_report(
     as_fdr_cutoff: float = 0.05
 ) -> str:
     """
-    Exports a self-contained Light Mode interactive HTML report with GO & KEGG Plotly charts and tables.
+    Exports a self-contained Light Mode interactive HTML report with standard horizontal GO & KEGG Plotly bar charts.
     """
     os.makedirs(os.path.dirname(output_html_path), exist_ok=True)
 
@@ -39,9 +39,6 @@ def export_html_report(
     quad_html = fig_quad.to_html(full_html=False, include_plotlyjs="cdn", div_id="plotly-quad-div")
 
     kpis = get_quadrant_kpis(df_merged)
-
-    # Benchmark Evaluation Engine Calculation
-    bm_res = benchmark_polars_vs_pandas(num_genes=min(max(df_merged.height, 1000), 10000))
 
     # Visual Exon-Intron Structure Engine (Sashimi Plot)
     top_gene_symbol = "CRISPLD2"
@@ -75,14 +72,24 @@ def export_html_report(
 
     # Isoform-Specific RT-qPCR Primer Designer Engine (Q2/Q1 Targets)
     q2_q1_sub = df_merged.filter(pl.col("quadrant").is_in(["Q2", "Q1"]))
-    primer_df = generate_primer_table_for_targets(q2_q1_sub.head(10) if q2_q1_sub.height > 0 else df_merged.head(5))
+    target_candidates = q2_q1_sub if q2_q1_sub.height > 0 else df_merged
+    primer_df = generate_primer_table_for_targets(target_candidates.head(30))
+    primer_records = primer_df.to_dicts() if primer_df.height > 0 else []
+    primer_records_json = json.dumps(primer_records)
+
+    first_primer_gene = primer_records[0]["gene_symbol"] if primer_records else ""
+    first_coords = primer_records[0].get("coordinates", "N/A") if primer_records else "N/A"
+    first_event = primer_records[0].get("event_type", "SE") if primer_records else "SE"
+
     primer_rows_html = ""
     if primer_df.height > 0:
-        for r in primer_df.iter_rows(named=True):
+        for r in primer_df.filter(pl.col("gene_symbol") == first_primer_gene).iter_rows(named=True):
+            isoform_badge = '<span class="badge" style="background:#EFF6FF; color:#2563EB; border:1px solid #3B82F6;">Inclusion Isoform</span>' if r['target_isoform'].lower() == 'inclusion' else '<span class="badge" style="background:#FDF2F8; color:#DB2777; border:1px solid #EC4899;">Exclusion Isoform</span>'
             primer_rows_html += f"""
             <tr>
                 <td><b>{r['gene_symbol']}</b></td>
-                <td><span class="badge badge-blue">{r['target_isoform']}</span></td>
+                <td>{isoform_badge}</td>
+                <td><b>{r.get('target_region', r['target_isoform'] + ' Junction')}</b><br><span style="font-size:11px; color:#64748B;">Coords: <code>{r.get('coordinates', 'N/A')}</code></span></td>
                 <td><code style="font-weight:700; color:#1E40AF;">{r['fwd_sequence']}</code><br><span style="font-size:11px; color:#64748B;">Tm: {r['fwd_tm_celsius']}°C | GC: {r['fwd_gc_pct']}%</span></td>
                 <td><code style="font-weight:700; color:#1E40AF;">{r['rev_sequence']}</code><br><span style="font-size:11px; color:#64748B;">Tm: {r['rev_tm_celsius']}°C | GC: {r['rev_gc_pct']}%</span></td>
                 <td><b>{r['amplicon_size_bp']} bp</b></td>
@@ -90,32 +97,21 @@ def export_html_report(
             </tr>
             """
 
-    # Pre-generate GO & KEGG Enrichment for target quadrants Q1, Q2, Q1+Q2, Q4
-    q1_genes = df_merged.filter(pl.col("quadrant") == "Q1").select("geneSymbol").to_series().to_list()
-    q2_genes = df_merged.filter(pl.col("quadrant") == "Q2").select("geneSymbol").to_series().to_list()
+    # Splicing genes (Q1 + Q2)
     splicing_genes = df_merged.filter(pl.col("quadrant").is_in(["Q1", "Q2"])).select("geneSymbol").to_series().to_list()
-    q4_genes = df_merged.filter(pl.col("quadrant") == "Q4").select("geneSymbol").to_series().to_list()
+    if not splicing_genes:
+        splicing_genes = df_merged.select("geneSymbol").to_series().to_list()
     all_genes = df_merged.select("geneSymbol").to_series().to_list()
 
-    df_go_q1 = fetch_enrichment(q1_genes, gene_sets=["GO_Biological_Process_2023"], top_n=8)
-    df_go_q2 = fetch_enrichment(q2_genes, gene_sets=["GO_Biological_Process_2023"], top_n=8)
-    df_go_splicing = fetch_enrichment(splicing_genes, gene_sets=["GO_Biological_Process_2023"], top_n=8)
-    df_go_q4 = fetch_enrichment(q4_genes, gene_sets=["GO_Biological_Process_2023"], top_n=8)
+    # Pre-generate GO & KEGG Enrichment for Q1+Q2 Splicing Targets only (Q4 completely removed)
+    df_go = fetch_enrichment(splicing_genes, gene_sets=["GO_Biological_Process_2023"], top_n=10)
+    df_kegg = fetch_enrichment(splicing_genes, gene_sets=["KEGG_2021_Human"], top_n=10)
 
-    df_kegg_q1 = fetch_enrichment(q1_genes, gene_sets=["KEGG_2021_Human"], top_n=8)
-    df_kegg_q2 = fetch_enrichment(q2_genes, gene_sets=["KEGG_2021_Human"], top_n=8)
-    df_kegg_splicing = fetch_enrichment(splicing_genes, gene_sets=["KEGG_2021_Human"], top_n=8)
-    df_kegg_q4 = fetch_enrichment(q4_genes, gene_sets=["KEGG_2021_Human"], top_n=8)
-
-
-    df_go = df_go_splicing if (df_go_splicing is not None and not df_go_splicing.empty) else (df_go_q2 if (df_go_q2 is not None and not df_go_q2.empty) else df_go_q1)
-    df_kegg = df_kegg_splicing if (df_kegg_splicing is not None and not df_kegg_splicing.empty) else (df_kegg_q2 if (df_kegg_q2 is not None and not df_kegg_q2.empty) else df_kegg_q1)
-
-    # Build Interactive Plotly Comparative Dot Plots for GO & KEGG (X-axis: Q1, Q2, Q4)
-    fig_go = build_combined_quadrant_dot_plot(df_go_q1, df_go_q2, df_go_q4, "Comparative GO Biological Process Dot + Bubble Plot (X-axis: Q1, Q2, Q4)", y_title="GO Biological Process Term")
+    # Build Standard Horizontal Plotly Bar Charts for GO & KEGG (Q1 + Q2)
+    fig_go = build_enrichment_chart(df_go, "GO Term Biological Process Enrichment (Q1 + Q2: Splicing Targets)", bar_color="#3B82F6")
     go_chart_html = fig_go.to_html(full_html=False, include_plotlyjs=False, div_id="plotly-go-div")
 
-    fig_kegg = build_combined_quadrant_dot_plot(df_kegg_q1, df_kegg_q2, df_kegg_q4, "Comparative KEGG Pathway Dot + Bubble Plot (X-axis: Q1, Q2, Q4)", y_title="KEGG Pathway Term")
+    fig_kegg = build_enrichment_chart(df_kegg, "KEGG Pathway Enrichment (Q1 + Q2: Splicing Targets)", bar_color="#8B5CF6")
     kegg_chart_html = fig_kegg.to_html(full_html=False, include_plotlyjs=False, div_id="plotly-kegg-div")
 
     go_records = []
@@ -177,12 +173,9 @@ def export_html_report(
 
     raw_data_json = df_compact.to_pandas().to_json(orient="records")
 
-    # Dynamically build gene -> pathways map from actual GO and KEGG enrichment results
+    # Dynamically build gene -> pathways map from actual GO and KEGG enrichment results (Q1+Q2 Splicing Targets)
     gene_pathway_map = {}
-    for df_enr, key in [
-        (df_go_q1, "go"), (df_go_q2, "go"), (df_go_q4, "go"),
-        (df_kegg_q1, "kegg"), (df_kegg_q2, "kegg"), (df_kegg_q4, "kegg")
-    ]:
+    for df_enr, key in [(df_go, "go"), (df_kegg, "kegg")]:
         if df_enr is not None and not df_enr.empty:
             df_enr_pd = df_enr.to_pandas() if isinstance(df_enr, pl.DataFrame) else df_enr
             for _, row in df_enr_pd.iterrows():
@@ -196,7 +189,6 @@ def export_html_report(
                         if term not in gene_pathway_map[g_clean][key]:
                             gene_pathway_map[g_clean][key].append(term)
     gene_pathway_json = json.dumps(gene_pathway_map)
-
 
     insights = generate_biological_insights(df_merged, df_go, df_kegg)
     detailed_prompt = generate_detailed_bio_prompt(
@@ -237,14 +229,19 @@ def export_html_report(
         """)
     isoform_table_rows_html = "\n".join(isoform_rows_list)
 
-    primary_ncbi_genes = list(dict.fromkeys(splicing_genes[:12])) if splicing_genes else (list(dict.fromkeys(all_genes[:12])) if all_genes else [])
+    primary_ncbi_genes = list(dict.fromkeys([g.strip().upper() for g in splicing_genes if g]))[:15]
+    if not primary_ncbi_genes:
+        primary_ncbi_genes = list(dict.fromkeys([g.strip().upper() for g in all_genes if g]))[:15]
 
     ncbi_pubmed_map = {}
     for g in primary_ncbi_genes:
+        s_info = fetch_ncbi_gene_summary(g)
+        p_info = fetch_pubmed_literature(g, top_n=3)
         ncbi_pubmed_map[g] = {
-            "ncbi": fetch_ncbi_gene_summary(g),
-            "pubmed": fetch_pubmed_literature(g, top_n=3)
+            "ncbi": s_info,
+            "pubmed": p_info
         }
+        time.sleep(0.35)  # Respect NCBI 3 req/sec rate limit
     ncbi_pubmed_json = json.dumps(ncbi_pubmed_map)
 
     full_html = f"""<!DOCTYPE html>
@@ -627,57 +624,54 @@ def export_html_report(
                 </tbody>
             </table>
         </div>
+    </div>
+
     <!-- SECTION 3: Visual Exon-Intron Sashimi Structure Engine Card -->
     <div class="card" id="sashimi-card">
-        <h2 style="color: #0F172A; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-top: 0;">🧩 Visual Exon-Intron Structure & Sashimi Engine (Top Target: {top_gene_symbol})</h2>
-        <div id="sashimi-chart-container" style="margin-top: 16px;">
+        <h2 style="color: #0F172A; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-top: 0;">🧩 Visual Exon-Intron Structure & Sashimi Engine</h2>
+        <div id="sashimi-chart-container" style="margin-top: 12px;">
             {sashimi_html}
+        </div>
+        <div style="text-align: center; margin-top: 12px; padding-top: 10px; border-top: 1px solid #E2E8F0; font-size: 15px; font-weight: 700; color: #1E293B;">
+            📊 <b>{top_gene_symbol} Exon Structure & Splicing Sashimi Plot</b> ({top_event} | ΔPSI = {top_delta_psi:+.2f})
         </div>
     </div>
 
     <!-- SECTION 4: Isoform-Specific RT-qPCR Primer Designer Matrix Card -->
     <div class="card" id="primer-card">
-        <h2 style="color: #0F172A; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-top: 0;">🧪 Isoform-Specific RT-qPCR Primer Designer (Q2/Q1 Wet-Lab Validation)</h2>
-        <div style="overflow-x: auto; margin-top: 16px; border: 1px solid #CBD5E1; border-radius: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-bottom: 16px;">
+            <h2 style="color: #0F172A; margin: 0; border: none; padding: 0;">🧪 Isoform-Specific RT-qPCR Primer Designer (Q2/Q1 Wet-Lab Validation)</h2>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <label for="primer-gene-select" style="font-weight: 700; font-size: 14px;">Select Gene:</label>
+                <select id="primer-gene-select" style="padding: 7px 14px; border-radius: 8px; border: 1px solid #CBD5E1; font-weight: 700; font-size: 14px; background: #FFFFFF; cursor: pointer;">
+                </select>
+            </div>
+        </div>
+        
+        <!-- Target Gene Location & Exon Region Banner -->
+        <div id="primer-location-banner" style="background: #F1F5F9; border-left: 4px solid #3B82F6; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; color: #334155;">
+            <b>Selected Target:</b> <span id="primer-banner-gene" style="font-weight: 800; color: #1E40AF;">{first_primer_gene}</span> | 
+            <b>Target Coordinates:</b> <code id="primer-banner-coords" style="color: #0F172A; font-weight: 700;">{first_coords}</code> | 
+            <b>Targeted Splicing Event:</b> <span id="primer-banner-event" class="badge" style="background: #E0E7FF; color: #3730A3;">{first_event}</span>
+        </div>
+
+        <div style="overflow-x: auto; border: 1px solid #CBD5E1; border-radius: 8px;">
             <table class="data-table">
                 <thead>
                     <tr>
                         <th>Target Gene</th>
                         <th>Target Isoform</th>
+                        <th>Targeted Splice Junction / Region</th>
                         <th>Forward Primer (5'->3') & Tm</th>
                         <th>Reverse Primer (5'->3') & Tm</th>
                         <th>Amplicon Size</th>
                         <th>Primer Quality</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="primer-table-body">
                     {primer_rows_html}
                 </tbody>
             </table>
-        </div>
-    </div>
-
-    <!-- SECTION 5: High-Performance Polars Benchmarking Card -->
-    <div class="card" id="benchmark-card">
-        <h2 style="color: #0F172A; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-top: 0;">⚡ High-Performance Polars Engine Benchmark</h2>
-        <p style="color: #475569; font-size: 14px;">Evaluated join performance and memory overhead across <b>{bm_res['num_genes']} genes</b>:</p>
-        <div class="kpi-container">
-            <div class="kpi-card" style="border-top: 4px solid #10B981;">
-                <div class="label" style="color: #10B981;">Polars Execution Time</div>
-                <div class="value" style="color: #10B981;">{bm_res['polars_time_ms']} ms</div>
-            </div>
-            <div class="kpi-card" style="border-top: 4px solid #64748B;">
-                <div class="label" style="color: #64748B;">Pandas Execution Time</div>
-                <div class="value" style="color: #64748B;">{bm_res['pandas_time_ms']} ms</div>
-            </div>
-            <div class="kpi-card" style="border-top: 4px solid #8B5CF6;">
-                <div class="label" style="color: #8B5CF6;">Speedup Factor</div>
-                <div class="value" style="color: #8B5CF6;">{bm_res['speedup_factor']}x</div>
-            </div>
-            <div class="kpi-card" style="border-top: 4px solid #06B6D4;">
-                <div class="label" style="color: #06B6D4;">Polars Peak RAM</div>
-                <div class="value" style="color: #06B6D4;">{bm_res['polars_mem_mb']} MB</div>
-            </div>
         </div>
     </div>
 
@@ -690,6 +684,7 @@ def export_html_report(
         const rawGeneData = {raw_data_json};
         const genePathways = {gene_pathway_json};
         const ncbiPubmedData = {ncbi_pubmed_json};
+        const primerRecords = {primer_records_json};
         let currentGoData = {go_records_json};
         let currentKeggData = {kegg_records_json};
         
@@ -702,40 +697,156 @@ def export_html_report(
         const downloadGoBtn = document.getElementById('download-go-csv-btn');
         const downloadKeggBtn = document.getElementById('download-kegg-csv-btn');
         const ncbiSelect = document.getElementById('ncbi-gene-select');
+        const primerSelect = document.getElementById('primer-gene-select');
 
         let currentFilteredGenes = [];
 
-        function renderNcbiGeneDetails(symbol) {{
+        function displayNcbiData(symbol, data) {{
+            const ncbi = (data && data.ncbi) ? data.ncbi : {{}};
+            const geneId = (ncbi.ncbi_id && ncbi.ncbi_id !== 'N/A') ? ncbi.ncbi_id : null;
+            const ncbiLink = geneId ? `https://www.ncbi.nlm.nih.gov/gene/${{geneId}}` : `https://www.ncbi.nlm.nih.gov/gene/?term=${{encodeURIComponent(symbol)}}`;
+            const pubmedSearchUrl = `https://pubmed.ncbi.nlm.nih.gov/?term=${{encodeURIComponent(symbol + " alternative splicing")}}`;
+
+            const geneTitle = document.getElementById('ncbi-gene-title');
+            if (geneTitle) {{
+                geneTitle.innerHTML = `🧬 NCBI Gene Details: <code style="color:#2563EB;">${{symbol}}</code> <a href="${{ncbiLink}}" target="_blank" style="font-size:12px; margin-left:8px; color:#2563EB; text-decoration:none;">🔗 Open in NCBI ↗</a>`;
+            }}
+            const officialName = document.getElementById('ncbi-official-name');
+            if (officialName) {{
+                officialName.innerHTML = `<b>Official Name:</b> ${{ncbi.official_name || (symbol + ' (Homo sapiens)')}}`;
+            }}
+            const meta = document.getElementById('ncbi-meta');
+            if (meta) {{
+                const idDisplay = geneId ? `<a href="${{ncbiLink}}" target="_blank" style="color:#2563EB; font-weight:700;">${{geneId}}</a>` : `<a href="${{ncbiLink}}" target="_blank" style="color:#2563EB; font-weight:700;">Search NCBI</a>`;
+                meta.innerHTML = `<b>NCBI Gene ID:</b> ${{idDisplay}} | <b>Map Location:</b> ${{ncbi.chromosome || 'Homo sapiens'}}`;
+            }}
+            const summaryDesc = document.getElementById('ncbi-summary-desc');
+            if (summaryDesc) {{
+                summaryDesc.textContent = ncbi.summary || `Official NCBI summary for ${{symbol}}.`;
+            }}
+
+            const pubmedList = (data && data.pubmed) ? data.pubmed : [];
+            const pubContainer = document.getElementById('pubmed-papers-container');
+            if (pubContainer) {{
+                if (pubmedList.length > 0) {{
+                    let pubHtml = '';
+                    pubmedList.forEach(paper => {{
+                        pubHtml += `
+                        <div style="background-color: #F8FAFC; border-left: 4px solid #3B82F6; border-radius: 8px; padding: 12px 14px; border: 1px solid #E2E8F0; margin-bottom: 8px;">
+                            <a href="${{paper.url}}" target="_blank" style="text-decoration: none; font-weight: 700; color: #1D4ED8; font-size: 0.95rem;">🔗 ${{paper.title}}</a><br>
+                            <div style="font-size: 0.82rem; color: #64748B; margin-top: 4px;">
+                                <b>Journal:</b> ${{paper.journal}} (${{paper.pub_date}}) | <b>PMID:</b> <a href="${{paper.url}}" target="_blank" style="color:#2563EB; font-weight:700;">${{paper.pmid}}</a>
+                            </div>
+                        </div>`;
+                    }});
+                    pubContainer.innerHTML = pubHtml;
+                }} else {{
+                    pubContainer.innerHTML = `
+                    <div style="padding:16px; background:#F8FAFC; border-radius:8px; border:1px dashed #CBD5E1; text-align:center;">
+                        <p style="color:#64748B; margin-bottom:8px; font-size:13px;">No pre-cached literature records found for <b>${{symbol}}</b>.</p>
+                        <a href="${{pubmedSearchUrl}}" target="_blank" style="display:inline-block; padding:8px 14px; background:#3B82F6; color:#FFF; font-weight:700; border-radius:6px; text-decoration:none; font-size:13px;">🔍 Search PubMed for "${{symbol}} splicing" ↗</a>
+                    </div>`;
+                }}
+            }}
+        }}
+
+        async function renderNcbiGeneDetails(symbol, fetchIfMissing = true) {{
             if (!symbol) return;
-            const data = ncbiPubmedData[symbol] || {{
+            const upper = symbol.trim().toUpperCase();
+            
+            // Check cache
+            const cached = ncbiPubmedData[upper] || ncbiPubmedData[symbol];
+            if (cached && cached.ncbi && cached.ncbi.ncbi_id && cached.ncbi.ncbi_id !== 'N/A') {{
+                displayNcbiData(upper, cached);
+                return;
+            }}
+
+            // Live fetch via NCBI E-utilities (CORS enabled)
+            if (fetchIfMissing) {{
+                const titleElem = document.getElementById('ncbi-gene-title');
+                if (titleElem) titleElem.innerHTML = `🧬 NCBI Gene Details: <code style="color:#2563EB;">${{upper}}</code> <span style="font-size:12px; color:#3B82F6;">(Fetching live from NCBI...)</span>`;
+                const nameElem = document.getElementById('ncbi-official-name');
+                if (nameElem) nameElem.innerHTML = `<b>Official Name:</b> <i>Connecting to NIH NCBI E-utilities...</i>`;
+                const pubElem = document.getElementById('pubmed-papers-container');
+                if (pubElem) pubElem.innerHTML = `<p style="color:#64748B;"><i>Searching PubMed for ${{upper}} literature...</i></p>`;
+
+                try {{
+                    // 1. Search NCBI Gene
+                    const sUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=gene&term=${{encodeURIComponent(upper)}}[Gene+Name]+AND+Homo+sapiens[Organism]&retmode=json`;
+                    const sResp = await fetch(sUrl);
+                    const sData = await sResp.json();
+                    const idList = sData.esearchresult?.idlist || [];
+                    
+                    let ncbiId = "N/A";
+                    let officialName = `${{upper}} (Homo sapiens)`;
+                    let mapLoc = "N/A";
+                    let summary = `Official NCBI Gene record for ${{upper}}.`;
+
+                    if (idList.length > 0) {{
+                        ncbiId = idList[0];
+                        const sumUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=gene&id=${{ncbiId}}&retmode=json`;
+                        const sumResp = await fetch(sumUrl);
+                        const sumData = await sumResp.json();
+                        const ginfo = sumData.result?.[ncbiId] || {{}};
+                        officialName = ginfo.description || officialName;
+                        mapLoc = ginfo.maplocation || "N/A";
+                        summary = ginfo.summary || summary;
+                    }}
+
+                    // 2. Search PubMed
+                    const pSearchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${{encodeURIComponent(upper + " alternative splicing")}}&retmax=3&sort=pub_date&retmode=json`;
+                    const pResp = await fetch(pSearchUrl);
+                    const pData = await pResp.json();
+                    const pmidList = pData.esearchresult?.idlist || [];
+                    let papers = [];
+
+                    if (pmidList.length > 0) {{
+                        const pSumUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${{pmidList.join(",")}}&retmode=json`;
+                        const pSumResp = await fetch(pSumUrl);
+                        const pSumData = await pSumResp.json();
+                        const pMap = pSumData.result || {{}};
+                        pmidList.forEach(pmid => {{
+                            const p = pMap[pmid] || {{}};
+                            papers.push({{
+                                pmid: pmid,
+                                title: p.title || `Research on ${{upper}} splicing regulation`,
+                                journal: p.source || "PubMed",
+                                pub_date: (p.pubdate || "").split(" ")[0],
+                                url: `https://pubmed.ncbi.nlm.nih.gov/${{pmid}}/`
+                            }});
+                        }});
+                    }}
+
+                    ncbiPubmedData[upper] = {{
+                        ncbi: {{
+                            gene_symbol: upper,
+                            ncbi_id: ncbiId,
+                            official_name: officialName,
+                            chromosome: mapLoc,
+                            summary: summary
+                        }},
+                        pubmed: papers
+                    }};
+
+                    displayNcbiData(upper, ncbiPubmedData[upper]);
+                    return;
+                }} catch (e) {{
+                    console.warn("NCBI live fetch failed:", e);
+                }}
+            }}
+
+            // Fallback
+            const fallback = cached || {{
                 ncbi: {{
-                    gene_symbol: symbol,
+                    gene_symbol: upper,
                     ncbi_id: "N/A",
-                    official_name: `${{symbol}} (Homo sapiens)`,
-                    chromosome: "N/A",
-                    summary: `Official NCBI summary for ${{symbol}}.`
+                    official_name: `${{upper}} (Homo sapiens)`,
+                    chromosome: "Homo sapiens",
+                    summary: `Official NCBI record for ${{upper}}. Click link to view gene details on NCBI.`
                 }},
                 pubmed: []
             }};
-
-            const ncbi = data.ncbi || {{}};
-            document.getElementById('ncbi-gene-title').innerHTML = `🧬 NCBI Gene Details: <code style="color:#2563EB;">${{symbol}}</code>`;
-            document.getElementById('ncbi-official-name').innerHTML = `<b>Official Name:</b> ${{ncbi.official_name || symbol}}`;
-            document.getElementById('ncbi-meta').innerHTML = `<b>NCBI Gene ID:</b> <code>${{ncbi.ncbi_id || 'N/A'}}</code> | <b>Map Location:</b> ${{ncbi.chromosome || 'N/A'}}`;
-            document.getElementById('ncbi-summary-desc').textContent = ncbi.summary || "No description available.";
-
-            const pubmedList = data.pubmed || [];
-            let pubHtml = '';
-            pubmedList.forEach(paper => {{
-                pubHtml += `
-                <div style="background-color: #F8FAFC; border-left: 4px solid #3B82F6; border-radius: 8px; padding: 12px 14px; border: 1px solid #E2E8F0; border-left: 4px solid #3B82F6;">
-                    <a href="${{paper.url}}" target="_blank" style="text-decoration: none; font-weight: 700; color: #1D4ED8; font-size: 0.95rem;">🔗 ${{paper.title}}</a><br>
-                    <div style="font-size: 0.82rem; color: #64748B; margin-top: 4px;">
-                        <b>Journal:</b> ${{paper.journal}} (${{paper.pub_date}}) | <b>PMID:</b> <code style="color:#2563EB;">${{paper.pmid}}</code>
-                    </div>
-                </div>`;
-            }});
-            document.getElementById('pubmed-papers-container').innerHTML = pubHtml || '<p style="color:#64748B;">No literature records found.</p>';
+            displayNcbiData(upper, fallback);
         }}
 
         function updateNcbiDropdown(splicingGeneList) {{
@@ -779,6 +890,63 @@ def export_html_report(
                 ncbiSelect.value = activeOptions[0];
             }}
             renderNcbiGeneDetails(ncbiSelect.value);
+        }}
+
+        function updatePrimerDropdown() {{
+            if (!primerSelect || !primerRecords || !primerRecords.length) return;
+            const uniqueGenes = [...new Set(primerRecords.map(r => r.gene_symbol).filter(Boolean))];
+            primerSelect.innerHTML = '';
+            uniqueGenes.forEach(g => {{
+                const opt = document.createElement('option');
+                opt.value = g;
+                opt.textContent = g;
+                primerSelect.appendChild(opt);
+            }});
+            if (uniqueGenes.length) {{
+                primerSelect.value = uniqueGenes[0];
+                renderPrimerDetails(uniqueGenes[0]);
+            }}
+        }}
+
+        function renderPrimerDetails(geneSymbol) {{
+            if (!geneSymbol || !primerRecords) return;
+            const rows = primerRecords.filter(r => (r.gene_symbol || '').toUpperCase() === geneSymbol.toUpperCase());
+            const tbody = document.getElementById('primer-table-body');
+            if (!tbody) return;
+
+            if (!rows.length) {{
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#64748B;">No primer pairs available for this gene.</td></tr>';
+                return;
+            }}
+
+            const first = rows[0];
+            const bannerGene = document.getElementById('primer-banner-gene');
+            const bannerCoords = document.getElementById('primer-banner-coords');
+            const bannerEvent = document.getElementById('primer-banner-event');
+            if (bannerGene) bannerGene.textContent = first.gene_symbol;
+            if (bannerCoords) bannerCoords.textContent = first.coordinates || 'N/A';
+            if (bannerEvent) bannerEvent.textContent = first.event_type || 'SE';
+
+            let html = '';
+            rows.forEach(r => {{
+                const isInc = (r.target_isoform || '').toLowerCase() === 'inclusion';
+                const badge = isInc ?
+                    '<span class="badge" style="background:#EFF6FF; color:#2563EB; border:1px solid #3B82F6;">Inclusion Isoform</span>' :
+                    '<span class="badge" style="background:#FDF2F8; color:#DB2777; border:1px solid #EC4899;">Exclusion Isoform</span>';
+                
+                html += `
+                <tr>
+                    <td><b>${{r.gene_symbol}}</b></td>
+                    <td>${{badge}}</td>
+                    <td><b>${{r.target_region || (r.target_isoform + ' Junction')}}</b><br><span style="font-size:11px; color:#64748B;">Coords: <code>${{r.coordinates || 'N/A'}}</code></span></td>
+                    <td><code style="font-weight:700; color:#1E40AF;">${{r.fwd_sequence}}</code><br><span style="font-size:11px; color:#64748B;">Tm: ${{r.fwd_tm_celsius}}°C | GC: ${{r.fwd_gc_pct}}%</span></td>
+                    <td><code style="font-weight:700; color:#1E40AF;">${{r.rev_sequence}}</code><br><span style="font-size:11px; color:#64748B;">Tm: ${{r.rev_tm_celsius}}°C | GC: ${{r.rev_gc_pct}}%</span></td>
+                    <td><b>${{r.amplicon_size_bp}} bp</b></td>
+                    <td><span class="badge" style="background:#F0FDF4; color:#16A34A; border:1px solid #22C55E;">${{r.primer_quality}}</span></td>
+                </tr>
+                `;
+            }});
+            tbody.innerHTML = html;
         }}
 
         function updateThresholds() {{
@@ -951,65 +1119,57 @@ def export_html_report(
                 }};
             }});
 
-            // Re-render Plotly GO Dot + Bubble Plot (X-axis: Q1, Q2, Q4)
+            // Re-render Plotly GO Horizontal Bar Chart (Q1 + Q2 Splicing Targets)
             const goDiv = document.getElementById('plotly-go-div');
             if (goDiv && window.Plotly && sortedGo.length) {{
-                const xVal = sortedGo.map(() => 'Q1+Q2');
-                const yVal = sortedGo.map(item => item.term.length > 45 ? item.term.slice(0,45) + '...' : item.term).reverse();
-                const markerSizes = sortedGo.map(item => Math.min(Math.max(item.count * 4, 10), 26)).reverse();
-                const colorVals = sortedGo.map(item => parseFloat(item.logP)).reverse();
+                const yVal = sortedGo.map(item => item.term.length > 50 ? item.term.slice(0,50) + '...' : item.term).reverse();
+                const xVal = sortedGo.map(item => parseFloat(item.logP)).reverse();
+                const hoverText = sortedGo.map(item => `<b>${{item.term}}</b><br>-log₁₀(p): ${{item.logP}}<br>Count: ${{item.count}}<br>Associated Genes: ${{item.genes}}`).reverse();
                 Plotly.react(goDiv, [{{
                     x: xVal,
                     y: yVal,
-                    mode: 'markers',
-                    type: 'scatter',
+                    type: 'bar',
+                    orientation: 'h',
+                    text: xVal.map(v => v.toFixed(1)),
+                    textposition: 'auto',
                     marker: {{
-                        size: markerSizes,
-                        color: colorVals,
-                        colorscale: 'Blues',
-                        showscale: true,
-                        colorbar: {{ title: '-log₁₀(p-val)' }},
-                        line: {{ color: '#1E40AF', width: 1.5 }}
-                    }}
+                        color: '#3B82F6',
+                        line: {{ color: '#1E40AF', width: 1 }}
+                    }},
+                    hoverinfo: 'text',
+                    hovertext: hoverText
                 }}], {{
                     ...goDiv.layout,
-                    xaxis: {{
-                        type: 'category',
-                        categoryorder: 'array',
-                        categoryarray: ['Q1', 'Q2', 'Q1+Q2', 'Q4'],
-                        title: '<b>Splicing Target Category (Q1 + Q2)</b>'
-                    }}
+                    margin: {{ l: 260, r: 20, t: 40, b: 40 }},
+                    xaxis: {{ title: '<b>-log₁₀(p-value)</b>' }},
+                    yaxis: {{ automargin: true }}
                 }});
             }}
 
-            // Re-render Plotly KEGG Dot + Bubble Plot (X-axis: Q1, Q2, Q4)
+            // Re-render Plotly KEGG Horizontal Bar Chart (Q1 + Q2 Splicing Targets)
             const keggDiv = document.getElementById('plotly-kegg-div');
             if (keggDiv && window.Plotly && sortedKegg.length) {{
-                const xVal = sortedKegg.map(() => 'Q1+Q2');
-                const yVal = sortedKegg.map(item => item.term.length > 45 ? item.term.slice(0,45) + '...' : item.term).reverse();
-                const markerSizes = sortedKegg.map(item => Math.min(Math.max(item.count * 4, 10), 26)).reverse();
-                const colorVals = sortedKegg.map(item => parseFloat(item.logP)).reverse();
+                const yVal = sortedKegg.map(item => item.term.length > 50 ? item.term.slice(0,50) + '...' : item.term).reverse();
+                const xVal = sortedKegg.map(item => parseFloat(item.logP)).reverse();
+                const hoverText = sortedKegg.map(item => `<b>${{item.term}}</b><br>-log₁₀(p): ${{item.logP}}<br>Count: ${{item.count}}<br>Associated Genes: ${{item.genes}}`).reverse();
                 Plotly.react(keggDiv, [{{
                     x: xVal,
                     y: yVal,
-                    mode: 'markers',
-                    type: 'scatter',
+                    type: 'bar',
+                    orientation: 'h',
+                    text: xVal.map(v => v.toFixed(1)),
+                    textposition: 'auto',
                     marker: {{
-                        size: markerSizes,
-                        color: colorVals,
-                        colorscale: 'Blues',
-                        showscale: true,
-                        colorbar: {{ title: '-log₁₀(p-val)' }},
-                        line: {{ color: '#1E40AF', width: 1.5 }}
-                    }}
+                        color: '#8B5CF6',
+                        line: {{ color: '#6D28D9', width: 1 }}
+                    }},
+                    hoverinfo: 'text',
+                    hovertext: hoverText
                 }}], {{
                     ...keggDiv.layout,
-                    xaxis: {{
-                        type: 'category',
-                        categoryorder: 'array',
-                        categoryarray: ['Q1', 'Q2', 'Q1+Q2', 'Q4'],
-                        title: '<b>Splicing Target Category (Q1 + Q2)</b>'
-                    }}
+                    margin: {{ l: 260, r: 20, t: 40, b: 40 }},
+                    xaxis: {{ title: '<b>-log₁₀(p-value)</b>' }},
+                    yaxis: {{ automargin: true }}
                 }});
             }}
 
@@ -1180,6 +1340,9 @@ def export_html_report(
         if (ncbiSelect) {{
             ncbiSelect.addEventListener('change', (e) => renderNcbiGeneDetails(e.target.value));
         }}
+        if (primerSelect) {{
+            primerSelect.addEventListener('change', (e) => renderPrimerDetails(e.target.value));
+        }}
         const copyPromptBtn = document.getElementById('copy-prompt-btn');
         if (copyPromptBtn) {{
             copyPromptBtn.addEventListener('click', copyPromptText);
@@ -1189,6 +1352,7 @@ def export_html_report(
         }}
 
         updateThresholds();
+        updatePrimerDropdown();
     </script>
 </body>
 </html>

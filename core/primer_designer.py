@@ -42,6 +42,7 @@ def design_rtqpcr_primers(
     gene_symbol: str,
     event_type: str = "SE",
     target_isoform: str = "Inclusion",
+    coordinates: str = "chr1:100000-101000",
     upstream_exon_seq: str = "CTAGCTAGCTAGCGATCGATCGATCGATCGATCGAT",
     target_exon_seq: str = "GATCGATCGATCGATCGATCGATCGATCGATC",
     downstream_exon_seq: str = "ATCGATCGATCGATCGATCGATCGATCGATCG"
@@ -51,15 +52,17 @@ def design_rtqpcr_primers(
     
     Returns a dictionary with Forward & Reverse primer sequences, Tm, GC%, Amplicon size, and Status.
     """
-    # Build target junction template sequence
+    # Build target junction template sequence and location description
     if target_isoform.lower() == "inclusion":
-        # Junction spans Upstream Exon -> Target Skipped Exon
         junction_seq = upstream_exon_seq[-20:] + target_exon_seq[:20]
         target_name = f"{gene_symbol}_Inc_Isoform"
+        target_region = f"Exon 1 - Exon 2 Junction (Inclusion)"
+        junction_location = f"{coordinates} (Exon 1/2 Junction)"
     else:
-        # Junction spans Upstream Exon -> Downstream Exon (Skipping Target Exon)
         junction_seq = upstream_exon_seq[-20:] + downstream_exon_seq[:20]
         target_name = f"{gene_symbol}_Exc_Isoform"
+        target_region = f"Exon 1 - Exon 3 Junction (Exclusion / Skip)"
+        junction_location = f"{coordinates} (Exon 1/3 Junction)"
 
     # Default heuristic primer extraction
     fwd_seq = junction_seq[:20]
@@ -85,6 +88,9 @@ def design_rtqpcr_primers(
         "target_isoform": target_isoform,
         "target_name": target_name,
         "event_type": event_type,
+        "coordinates": coordinates,
+        "target_region": target_region,
+        "junction_location": junction_location,
         "fwd_sequence": fwd_seq,
         "fwd_tm_celsius": fwd_tm,
         "fwd_gc_pct": fwd_gc,
@@ -107,11 +113,12 @@ def generate_primer_table_for_targets(target_genes_df: pl.DataFrame) -> pl.DataF
     for row in target_genes_df.iter_rows(named=True):
         symbol = row.get("geneSymbol", "Unknown")
         event = row.get("event_type", "SE")
+        coords = row.get("coordinates", "chr1:100000:101000:102000")
         
         # Design Inclusion Primer Pair
-        inc_p = design_rtqpcr_primers(gene_symbol=symbol, event_type=event, target_isoform="Inclusion")
+        inc_p = design_rtqpcr_primers(gene_symbol=symbol, event_type=event, target_isoform="Inclusion", coordinates=coords)
         # Design Exclusion Primer Pair
-        exc_p = design_rtqpcr_primers(gene_symbol=symbol, event_type=event, target_isoform="Exclusion")
+        exc_p = design_rtqpcr_primers(gene_symbol=symbol, event_type=event, target_isoform="Exclusion", coordinates=coords)
         
         results.append(inc_p)
         results.append(exc_p)
