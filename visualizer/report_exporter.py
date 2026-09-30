@@ -732,7 +732,7 @@ def export_html_report(
             <h2 style="color: #0F172A; margin: 0; border: none; padding: 0;">🧩 Visual Exon-Intron Structure & Sashimi Engine</h2>
             <span style="font-size: 13px; color: #64748B; font-weight: 600;">🔗 Synchronized with NCBI Gene Selection</span>
         </div>
-        <div id="sashimi-chart-container" style="margin-top: 8px; width: 85%; margin-left: auto; margin-right: auto;">
+        <div id="sashimi-chart-container" style="margin-top: 8px; width: 100%;">
             {sashimi_html}
         </div>
         <div style="text-align: center; margin-top: 12px; padding-top: 10px; border-top: 1px solid #E2E8F0; font-size: 15px; font-weight: 700; color: #1E293B;">
