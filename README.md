@@ -1,81 +1,81 @@
 # GenSplice-Agent 🧬
 
-> **통합 전사체 발현량(DEG) 및 대립적 스플라이싱(Alternative Splicing) 시각화·독립형 HTML 내보내기 리포트 플랫폼**
+> **Integrated Transcriptomic Profiling & Alternative Splicing Visualization Platform with Standalone Interactive Reporting**
 
-`GenSplice-Agent`는 유전자의 발현량 변화(Quantity, DEG)와 스플라이싱 형태의 질적 변화(Quality, Alternative Splicing)를 단일 사분면 좌표계로 통합하고, **서버 유지비 0원(Zero Cloud Server Cost)**으로 로컬에서 구동되며 인터랙티브 독립형 HTML 리포트(`gensplice_report.html`)를 내보내는 전사체학 전문 통합 플랫폼입니다.
-
----
-
-## 🚦 명령 워크플로우 (Command Workflow)
-
-### 🧪 1. 시스템 동작 검증용 (Testing)
-설치 직후 예제 데이터셋(GSE52778 Dexamethasone 모델)으로 파이프라인 전 과정 및 스탠드얼론 HTML 리포트 조성이 이상 없이 작동하는지 검증합니다:
-```bash
-bash install.sh ➔ ./test
-```
-*(또는 `./install` ➔ `./test`)*
-
-### 🧬 2. 실제 전사체 샘플 분석용 (Real Analysis)
-원하는 레퍼런스 게놈(Human, Mouse, Rice 등)을 세팅하고 실제 파이프라인 분석을 구동합니다:
-```bash
-bash install.sh ➔ ./ref human ➔ ./GenSplice
-```
-*(또는 `./install` ➔ `./ref human` ➔ `./GenSplice`)*
+`GenSplice-Agent` is a unified computational transcriptomics platform that integrates quantitative gene expression changes (DEG, PyDESeq2) and qualitative isoform variations (Alternative Splicing, rMATS) into a single 4-quadrant coordinate space. It executes locally with **zero cloud/server costs** and generates a fully self-contained, interactive HTML report (`gensplice_report.html`).
 
 ---
 
-## 📦 필수 의존성 환경 (Conda/Bioconda Ecosystem)
+## 🚦 Command Workflow
 
-| 구분 | 도구/패키지명 | 추천 버전 | 용도 및 역할 |
+### 🧪 1. System Verification & Testing
+Verify that the end-to-end pipeline and standalone HTML report generation execute properly on the reference test dataset (GSE52778 Dexamethasone model):
+```bash
+bash install.sh && ./test
+```
+*(Or `./install` followed by `./test`)*
+
+### 🧬 2. Production Sample Analysis
+Configure the desired reference genome (Human, Mouse, Rice, etc.) and launch the analysis pipeline on your experimental samples:
+```bash
+bash install.sh && ./ref human && ./GenSplice
+```
+*(Or `./install` followed by `./ref human` followed by `./GenSplice`)*
+
+---
+
+## 📦 Required Dependencies (Conda/Bioconda Ecosystem)
+
+| Category | Tool / Package | Recommended Version | Primary Role & Description |
 | :--- | :--- | :--- | :--- |
-| **CLI 분석 도구** | `fastp` | `>= 0.23.4` | FASTQ 시퀀싱 데이터 품질 관리(QC) 및 어댑터 트리밍 |
-| | `STAR` | `>= 2.7.11a` | RNA-seq 리드 게놈 정렬 및 2-pass 정렬 엔진 |
-| | `rmats` | `>= 4.3.0` | Alternative Splicing (SE, RI, A5SS, A3SS, MXE) 분석 |
-| | `subread` | `>= 2.0.6` | `featureCounts` 전사체 정량 산출 |
-| | `R` (r-base) | `>= 4.2` | rMATS 및 DESeq2 통계 검증 백엔드 |
-| **데이터 & 시각화 백엔드** | `polars` | `>= 0.20.0` | 고속 데이터 결합 및 4사분면 파서 |
-| | `plotly` | `>= 5.20.0` | 4사분면 cross-plot & Sashimi 비주얼 생성기 |
-| | `pyyaml` | `>= 6.0` | YAML 환경 설정 파일 로더 |
+| **CLI Tools** | `fastp` | `>= 0.23.4` | Raw FASTQ read quality control (QC) and automated adapter trimming |
+| | `STAR` | `>= 2.7.11a` | High-performance splice-aware genome alignment engine (2-pass mode) |
+| | `rmats` | `>= 4.3.0` | Differential alternative splicing analysis (SE, RI, A5SS, A3SS, MXE) |
+| | `subread` | `>= 2.0.6` | `featureCounts` transcriptomic read quantification engine |
+| | `R` (r-base) | `>= 4.2` | Statistical verification backend for rMATS |
+| **Data & Visualizer** | `polars` | `>= 0.20.0` | High-throughput columnar table merging and fast 4-quadrant parser |
+| | `plotly` | `>= 5.20.0` | Interactive 4-quadrant cross-plot & Sashimi exon structure visualizer |
+| | `pyyaml` | `>= 6.0` | Pipeline configuration loader |
 
 ---
 
-## 🧪 검증용 데이터셋 명세 (GSE52778 Airway Smooth Muscle)
+## 🧪 Benchmark Dataset Specification (GSE52778 Airway Smooth Muscle)
 
-`./test` 구동 시 사용되는 예제 데이터셋은 학계 검증 표준 세트입니다:
+The test dataset bundled with `./test` is a widely recognized academic standard benchmark:
 - **GEO Accession**: GSE52778 (SRA: SRP033346) (Himes et al., 2014)
-- **연구 모델**: Human Airway Smooth Muscle Cell (Control vs Dexamethasone 처리군)
-- **검증 타깃 유전자**: 면역/스플라이싱 타깃 유전자 (*DUSP1*, *CRISPLD2*)의 DEG 및 5대 스플라이싱 변이 자동 검출 확인.
+- **Experimental Model**: Human Airway Smooth Muscle Cells (Control vs. Dexamethasone-treated)
+- **Target Regulators**: Validated automated detection of differential expression and 5 major alternative splicing classes across immune-modulatory targets (e.g., *DUSP1*, *CRISPLD2*).
 
 ---
 
-## 📁 디렉토리 구조 (Directory Architecture)
+## 📁 Directory Architecture
 
 ```text
 GenSplice-Agent/
-├── install.sh              # 1-Click 환경 설치 스크립트 (Conda/Bioconda)
-├── test.sh                 # 시스템 작동 검증 테스트 스크립트 (GSE52778)
-├── ref.sh                  # 레퍼런스 게놈 (FASTA, GTF) 원클릭 다운로더
-├── GenSplice               # 메인 파이프라인 실행 래퍼 명령 스크립트
-├── run_pipeline.py         # 전체 파이프라인 오케스트레이터 (Python 메인 실행기)
-├── config.yaml             # 참조 유전체 경로 및 파이프라인 스레드 설정
-├── environment.yml         # Conda/Bioconda 환경 패키지 명세서
-├── inputs/                 # [사용자 FASTQ 데이터 투입 폴더]
-│   ├── control/            # 대조군 FASTQ 파일들 (.fastq / .fq.gz)
-│   └── treatment/          # 실험군/노화 FASTQ 파일들 (.fastq / .fq.gz)
-├── {organism}-ref/         # 참조 유전체(FASTA, GTF) 및 STAR 인덱스 저장 폴더
-└── outputs/                # 중간 결과 및 최종 독립형 HTML 결과 리포트 저장 폴더
-    ├── 01_clean_fq/        # fastp QC/트리밍 결과 FASTQ
-    ├── 02_aligned_bam/     # STAR 정렬 결과 BAM 파일
-    ├── 03_deg/             # DESeq2 / featureCounts 정량 결과
-    ├── 04_rmats/           # rMATS 5대 이벤트 분석 결과
-    └── gensplice_report.html # [최종] 단독 실행형 인터랙티브 HTML 대시보드 리포트
+├── install.sh              # One-click environment installer (Conda/Bioconda)
+├── test.sh                 # End-to-end verification script using GSE52778 benchmark
+├── ref.sh                  # One-click reference genome & annotation downloader
+├── GenSplice               # Main pipeline execution wrapper script
+├── run_pipeline.py         # Pipeline orchestrator and workflow manager (Python)
+├── config.yaml             # Pipeline configuration (threads, paths, cutoffs)
+├── environment.yml         # Conda environment specification
+├── inputs/                 # [User FASTQ Input Directory]
+│   ├── control/            # Control replicate FASTQ files (.fastq / .fq.gz)
+│   └── treatment/          # Treatment replicate FASTQ files (.fastq / .fq.gz)
+├── {organism}-ref/         # Downloaded reference genome (FASTA, GTF) and STAR index
+└── outputs/                # Analysis outputs and standalone HTML report
+    ├── 01_clean_fq/        # fastp trimmed and filtered FASTQ files
+    ├── 02_aligned_bam/     # Coordinate-sorted BAM alignment files
+    ├── 03_deg/             # PyDESeq2 / featureCounts gene-level quantification
+    ├── 04_rmats/           # rMATS 5-event alternative splicing matrices
+    └── gensplice_report.html # [Final] Standalone interactive HTML report dashboard
 ```
 
 ---
 
-## 📥 입력 데이터 포맷 명세 (Input FASTQ Specification)
+## 📥 Input Data Specification (FASTQ)
 
-실제 RNA-seq 데이터를 분석할 때, `inputs/` 디렉터리에 대조군(Control)과 실험군(Treatment) 샘플 파일들을 배치합니다:
+To analyze raw RNA-seq data, place paired-end or single-end sequencing files into the `inputs/` subdirectories:
 
 ```text
 inputs/
@@ -87,20 +87,20 @@ inputs/
     └── sampleB_2.fq.gz
 ```
 
-### 1. 지원 파일 확장자 (File Extensions)
-- **압축 파일 (권장)**: `.fq.gz`, `.fastq.gz`
-- **비압축 파일**: `.fq`, `.fastq`
+### 1. Supported File Extensions
+- **Compressed (Recommended)**: `.fq.gz`, `.fastq.gz`
+- **Uncompressed**: `.fq`, `.fastq`
 
-### 2. 페어드 엔드 (Paired-End) 파일 명명 규칙
-자동 샘플 쌍 매핑을 위해 아래 접미사 패턴 중 하나를 사용해야 합니다:
-- **패턴 1**: `*_1.fq.gz` / `*_2.fq.gz` 또는 `*_1.fastq.gz` / `*_2.fastq.gz`
-- **패턴 2**: `*_R1.fastq.gz` / `*_R2.fastq.gz` 또는 `*_R1_001.fastq.gz` / `*_R2_001.fastq.gz`
+### 2. Paired-End File Naming Conventions
+Sample pairs are automatically recognized using standard read pair suffixes:
+- **Pattern 1**: `*_1.fq.gz` / `*_2.fq.gz` or `*_1.fastq.gz` / `*_2.fastq.gz`
+- **Pattern 2**: `*_R1.fastq.gz` / `*_R2.fastq.gz` or `*_R1_001.fastq.gz` / `*_R2_001.fastq.gz`
 
-### 3. 싱글 엔드 (Single-End) 지원
-- `sampleA.fq.gz` 와 같이 단일 파일로 투입된 경우 자동으로 Single-End 데이터로 감지되어 QC 및 Alignment가 수행됩니다.
+### 3. Single-End Support
+- Single files (e.g., `sampleA.fq.gz`) are automatically detected as single-end reads, and QC/alignment stages adjust parameters accordingly.
 
 ---
 
-## 📄 문서
-- [BLUEPRINT.md](BLUEPRINT.md): GenSplice-Agent 시스템 설계 청사진 및 알고리즘 명세
-- [environment.yml](environment.yml): Conda/Bioconda 환경 명세서
+## 📄 Documentation
+- [BLUEPRINT.md](BLUEPRINT.md): Architecture blueprint, 4-quadrant mathematical model, and methodology.
+- [environment.yml](environment.yml): Conda environment definition.

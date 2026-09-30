@@ -16,7 +16,7 @@ from visualizer.quadrant_plot import build_quadrant_plot
 from visualizer.enrichment_plot import build_enrichment_chart
 from core.merger import get_quadrant_kpis
 from core.enrichment import fetch_enrichment
-from core.ai_summary import generate_biological_insights, fetch_ncbi_gene_summary, fetch_pubmed_literature, generate_detailed_bio_prompt
+from core.ai_summary import fetch_ncbi_gene_summary, fetch_pubmed_literature
 from core.isoform_annotator import annotate_isoform_events
 from visualizer.exon_structure import plot_exon_structure, resolve_gene_exon_coords
 from core.primer_designer import generate_primer_table_for_targets
@@ -249,17 +249,6 @@ def export_html_report(
                         if term not in gene_pathway_map[g_clean][key]:
                             gene_pathway_map[g_clean][key].append(term)
     gene_pathway_json = json.dumps(gene_pathway_map)
-
-    insights = generate_biological_insights(df_merged, df_go, df_kegg)
-    detailed_prompt = generate_detailed_bio_prompt(
-        df_merged=df_merged,
-        df_go=df_go,
-        df_kegg=df_kegg,
-        log2fc_cutoff=log2fc_cutoff,
-        delta_psi_cutoff=delta_psi_cutoff,
-        deg_fdr_cutoff=deg_fdr_cutoff,
-        as_fdr_cutoff=as_fdr_cutoff
-    )
 
     # Pre-generate Event-Level Isoform Annotation Table Rows (Covering all candidate splicing targets)
     if "event_type" in df_sorted.columns:
@@ -1754,21 +1743,7 @@ def export_html_report(
                 }});
             }}
 
-            // Update AI Insights Summary Text if card is present
-            const topHubStr = activeGenes.slice(0,5).join(', ');
-            const aiSummaryElem = document.getElementById('ai-summary-text');
-            if (aiSummaryElem) {{
-                aiSummaryElem.innerHTML = `Under the current threshold criteria (ΔPSI ≥ ${{psiCut}}), a total of <b>${{splicingGenes.length}} Splicing target genes (Q1 Dual Responders + Q2 Splicing-Driven)</b> exhibit significant alternative splicing regulation. Notably, key splicing targets including <b>${{topHubStr}}</b> significantly overlap across top enriched pathways.`;
-                const tagSplicing = document.getElementById('ai-tag-q2') || document.getElementById('ai-tag-q1');
-                const tagHubs = document.getElementById('ai-tag-hubs');
-                if (tagSplicing) tagSplicing.textContent = `Active Splicing Genes (Q1+Q2): ${{splicingGenes.length}}`;
-                if (tagHubs) tagHubs.textContent = `Hub Genes: ${{topHubStr}}`;
-            }}
 
-            const promptBox = document.getElementById('ai-prompt-box');
-            if (promptBox) {{
-                promptBox.value = `[GenSplice Analysis Prompt]\\nDeltaPSI Cutoff: ${{psiCut}}\\nActive Splicing Target Genes (Q1+Q2, ${{splicingGenes.length}}): ${{splicingGenes.slice(0,15).join(', ')}}\\n\\nPlease provide an in-depth biological mechanism summary explaining the role of alternative splicing across these Q1 dual responder and Q2 splicing-driven regulator genes.`;
-            }}
 
             const noticeText = `✔ Re-calculated & Graph Updated for ΔPSI ≥ ${{psiCut}} • Active Splicing Genes (Q1+Q2): ${{splicingGenes.length}}`;
             const goNot = document.getElementById('go-notice');
@@ -1879,40 +1854,6 @@ def export_html_report(
             document.body.removeChild(link);
         }}
 
-        function copyPromptText() {{
-            const box = document.getElementById('ai-prompt-box');
-            if (!box) return;
-            box.select();
-            navigator.clipboard.writeText(box.value).then(() => {{
-                const btn = document.getElementById('copy-prompt-btn');
-                if (btn) {{
-                    const orig = btn.innerHTML;
-                    btn.innerHTML = '✨ Copied!';
-                    setTimeout(() => btn.innerHTML = orig, 1500);
-                }}
-            }}).catch(err => {{
-                console.error('Failed to copy: ', err);
-            }});
-        }}
-
-        function openAIWithPrompt(provider) {{
-            const promptBox = document.getElementById('ai-prompt-box');
-            const promptText = promptBox ? promptBox.value : "";
-            
-            if (navigator.clipboard && promptText) {{
-                navigator.clipboard.writeText(promptText);
-            }}
-
-            if (provider === 'chatgpt') {{
-                const encoded = encodeURIComponent(promptText);
-                window.open(`https://chatgpt.com/?q=${{encoded}}`, '_blank');
-            }} else if (provider === 'claude') {{
-                window.open('https://claude.ai/new', '_blank');
-            }} else if (provider === 'gemini') {{
-                window.open('https://gemini.google.com/app', '_blank');
-            }}
-        }}
-
         fcSlider.addEventListener('input', updateThresholds);
         psiSlider.addEventListener('input', updateThresholds);
         downloadBtn.addEventListener('click', downloadFilteredCSV);
@@ -1926,10 +1867,6 @@ def export_html_report(
         }}
         if (toggleIsoformBtn) {{
             toggleIsoformBtn.addEventListener('click', toggleIsoformView);
-        }}
-        const copyPromptBtn = document.getElementById('copy-prompt-btn');
-        if (copyPromptBtn) {{
-            copyPromptBtn.addEventListener('click', copyPromptText);
         }}
         if (generateBtn) {{
             generateBtn.addEventListener('click', triggerEnrichmentWithAction);
