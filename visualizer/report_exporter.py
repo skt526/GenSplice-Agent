@@ -167,33 +167,35 @@ def export_html_report(
     df_go = fetch_enrichment(splicing_genes, gene_sets=["GO_Biological_Process_2023"], top_n=10)
     df_kegg = fetch_enrichment(splicing_genes, gene_sets=["KEGG_2021_Human"], top_n=10)
 
-    # Build Standard Horizontal Plotly Bar Charts for GO & KEGG (Q1 + Q2)
-    fig_go = build_enrichment_chart(df_go, "GO Term Biological Process Enrichment (Q1 + Q2: Splicing Targets)", bar_color="#3B82F6")
-    go_chart_html = fig_go.to_html(full_html=False, include_plotlyjs=False, div_id="plotly-go-div")
-
-    fig_kegg = build_enrichment_chart(df_kegg, "KEGG Pathway Enrichment (Q1 + Q2: Splicing Targets)", bar_color="#8B5CF6")
-    kegg_chart_html = fig_kegg.to_html(full_html=False, include_plotlyjs=False, div_id="plotly-kegg-div")
-
+    import math
     go_records = []
     if df_go is not None and not df_go.empty:
         for _, r in df_go.iterrows():
+            pval = float(r.get('P-value', 1.0))
+            adj_pval = float(r.get('Adjusted P-value', pval))
+            log_p = round(-math.log10(max(pval, 1e-50)), 2) if pval > 0 else 50.0
             go_records.append({
-                "term": str(r['Term']),
-                "overlap": str(r['Overlap']),
-                "pvalue": f"{r['P-value']:.2e}",
-                "adjPvalue": f"{r['Adjusted P-value']:.2e}",
-                "genes": str(r['Genes'])
+                "term": str(r.get('Term', '')),
+                "overlap": str(r.get('Overlap', '')),
+                "pvalue": f"{pval:.2e}",
+                "adjPvalue": f"{adj_pval:.2e}",
+                "logP": log_p,
+                "genes": str(r.get('Genes', ''))
             })
 
     kegg_records = []
     if df_kegg is not None and not df_kegg.empty:
         for _, r in df_kegg.iterrows():
+            pval = float(r.get('P-value', 1.0))
+            adj_pval = float(r.get('Adjusted P-value', pval))
+            log_p = round(-math.log10(max(pval, 1e-50)), 2) if pval > 0 else 50.0
             kegg_records.append({
-                "term": str(r['Term']),
-                "overlap": str(r['Overlap']),
-                "pvalue": f"{r['P-value']:.2e}",
-                "adjPvalue": f"{r['Adjusted P-value']:.2e}",
-                "genes": str(r['Genes'])
+                "term": str(r.get('Term', '')),
+                "overlap": str(r.get('Overlap', '')),
+                "pvalue": f"{pval:.2e}",
+                "adjPvalue": f"{adj_pval:.2e}",
+                "logP": log_p,
+                "genes": str(r.get('Genes', ''))
             })
 
     go_records_json = json.dumps(go_records)
@@ -260,7 +262,8 @@ def export_html_report(
         if has_as_sub.height == 0:
             has_as_sub = df_sorted
 
-    isoform_source_df = has_as_sub.head(250)
+    # Annotate all candidate splicing events without truncation
+    isoform_source_df = has_as_sub
     isoform_df = annotate_isoform_events(isoform_source_df)
 
     isoform_rows_list = []
@@ -621,29 +624,31 @@ def export_html_report(
         </div>
     </div>
 
-    <!-- GO Term Enrichment Section (Graph Only + Download Button on Header Right) -->
-    <div class="card" id="go-card-section">
+    <!-- GO Term Enrichment Section (Initially hidden; revealed upon clicking 'Generate GO / KEGG') -->
+    <div class="card" id="go-card-section" style="display: none;">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border-color); padding-bottom: 12px; margin-bottom: 12px;">
             <h2 id="go-title" style="margin: 0; border: none; padding: 0;">🧬 GO Term Biological Process Enrichment (Q1 + Q2: Splicing Targets)</h2>
             <button class="btn-download-csv" id="download-go-csv-btn">
                 📥 Download GO Table (.csv)
             </button>
         </div>
+        <div id="go-notice" style="font-size: 13px; color: #2563EB; font-weight: 600; margin-top: 8px;"></div>
         <div id="go-chart-container" style="margin-top: 16px;">
-            {go_chart_html}
+            <div id="plotly-go-div" style="width: 100%; height: 380px;"></div>
         </div>
     </div>
 
-    <!-- KEGG Pathway Enrichment Section (Graph Only + Download Button on Header Right) -->
-    <div class="card" id="kegg-card-section">
+    <!-- KEGG Pathway Enrichment Section (Initially hidden; revealed upon clicking 'Generate GO / KEGG') -->
+    <div class="card" id="kegg-card-section" style="display: none;">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border-color); padding-bottom: 12px; margin-bottom: 12px;">
             <h2 id="kegg-title" style="margin: 0; border: none; padding: 0;">🛤️ KEGG Pathway Enrichment (Q1 + Q2: Splicing Targets)</h2>
             <button class="btn-download-csv" id="download-kegg-csv-btn">
                 📥 Download KEGG Table (.csv)
             </button>
         </div>
+        <div id="kegg-notice" style="font-size: 13px; color: #7C3AED; font-weight: 600; margin-top: 8px;"></div>
         <div id="kegg-chart-container" style="margin-top: 16px;">
-            {kegg_chart_html}
+            <div id="plotly-kegg-div" style="width: 100%; height: 380px;"></div>
         </div>
     </div>
 
@@ -775,8 +780,10 @@ def export_html_report(
         const primerRecords = {primer_records_json};
         const sashimiGeneData = {sashimi_data_json};
         const isoformRecords = {isoform_records_json};
-        let currentGoData = {go_records_json};
-        let currentKeggData = {kegg_records_json};
+        const baseGoRecords = {go_records_json};
+        const baseKeggRecords = {kegg_records_json};
+        let currentGoData = [];
+        let currentKeggData = [];
         
         const fcSlider = document.getElementById('fc-slider');
         const psiSlider = document.getElementById('psi-slider');
@@ -1630,6 +1637,9 @@ def export_html_report(
                     'xaxis.range': [-max_x, max_x],
                     'yaxis.range': [-max_y, max_y]
                 }});
+            const goCardElem = document.getElementById('go-card-section');
+            if (goCardElem && goCardElem.style.display === 'block') {{
+                generateEnrichment();
             }}
         }}
 
@@ -1639,12 +1649,19 @@ def export_html_report(
             
             const splicingGenes = currentFilteredGenes.filter(g => g.current_quadrant === 'Q1' || g.current_quadrant === 'Q2').map(g => (g.geneSymbol || '').toUpperCase());
             const activeGenes = splicingGenes;
+            const activeSet = new Set(activeGenes);
+
+            const goCard = document.getElementById('go-card-section');
+            const keggCard = document.getElementById('kegg-card-section');
+            if (goCard) goCard.style.display = 'block';
+            if (keggCard) keggCard.style.display = 'block';
+
+            const goDiv = document.getElementById('plotly-go-div');
+            const keggDiv = document.getElementById('plotly-kegg-div');
 
             if (!activeGenes.length) {{
                 currentGoData = [];
                 currentKeggData = [];
-                const goDiv = document.getElementById('plotly-go-div');
-                const keggDiv = document.getElementById('plotly-kegg-div');
                 if (goDiv && window.Plotly) {{
                     Plotly.react(goDiv, [], {{
                         title: "<b>No Q1/Q2 splicing target genes found under current thresholds (ΔPSI ≥ " + psiCut + ")</b>",
@@ -1660,72 +1677,50 @@ def export_html_report(
                 return;
             }}
 
-
-
-            const goCounts = {{}};
-            const goGeneLists = {{}};
-            const keggCounts = {{}};
-            const keggGeneLists = {{}};
-
-            activeGenes.forEach(gene => {{
-                const info = genePathways[gene] || {{ go: ["General Gene Regulation (GO:0000001)"], kegg: ["Metabolic pathways - Homo sapiens"] }};
-                (info.go || []).forEach(term => {{
-                    goCounts[term] = (goCounts[term] || 0) + 1;
-                    if (!goGeneLists[term]) goGeneLists[term] = [];
-                    if (!goGeneLists[term].includes(gene)) goGeneLists[term].push(gene);
+            function buildProcessedEnrichment(records) {{
+                if (!records || !records.length) return [];
+                const matched = [];
+                records.forEach(r => {{
+                    const rawGenes = (r.genes || '').split(';').map(g => g.trim().toUpperCase()).filter(Boolean);
+                    const matching = rawGenes.filter(g => activeSet.has(g));
+                    if (matching.length > 0) {{
+                        matched.push({{
+                            term: r.term,
+                            count: matching.length,
+                            overlap: `${{matching.length}}/${{activeGenes.length}}`,
+                            pvalue: r.pvalue,
+                            adjPvalue: r.adjPvalue,
+                            logP: parseFloat(r.logP || 0),
+                            genes: matching.join('; ')
+                        }});
+                    }}
                 }});
-                (info.kegg || []).forEach(term => {{
-                    keggCounts[term] = (keggCounts[term] || 0) + 1;
-                    if (!keggGeneLists[term]) keggGeneLists[term] = [];
-                    if (!keggGeneLists[term].includes(gene)) keggGeneLists[term].push(gene);
-                }});
-            }});
 
-            const sortedGo = Object.keys(goCounts).map(t => ({{
-                term: t,
-                count: goCounts[t],
-                genes: goGeneLists[t].join("; "),
-                logP: (goCounts[t] * 2.5 + Math.log10(activeGenes.length + 1) * 1.5).toFixed(2)
-            }})).sort((a,b) => b.count - a.count || parseFloat(b.logP) - parseFloat(a.logP)).slice(0, 8);
+                if (matched.length > 0) {{
+                    return matched.sort((a,b) => b.logP - a.logP).slice(0, 10);
+                }}
 
-            const sortedKegg = Object.keys(keggCounts).map(t => ({{
-                term: t,
-                count: keggCounts[t],
-                genes: keggGeneLists[t].join("; "),
-                logP: (keggCounts[t] * 2.8 + Math.log10(activeGenes.length + 1) * 1.4).toFixed(2)
-            }})).sort((a,b) => b.count - a.count || parseFloat(b.logP) - parseFloat(a.logP)).slice(0, 8);
+                return records.map(r => ({{
+                    term: r.term,
+                    count: (r.genes || '').split(';').length,
+                    overlap: r.overlap,
+                    pvalue: r.pvalue,
+                    adjPvalue: r.adjPvalue,
+                    logP: parseFloat(r.logP || 0),
+                    genes: r.genes
+                }})).slice(0, 10);
+            }}
 
-            // Update internal JSON structures for CSV downloads
-            currentGoData = sortedGo.map(item => {{
-                const pVal = Math.pow(10, -item.logP).toExponential(2);
-                const adjPVal = Math.pow(10, -item.logP * 0.8).toExponential(2);
-                return {{
-                    term: item.term,
-                    overlap: `${{item.count}}/${{activeGenes.length || 10}}`,
-                    pvalue: pVal,
-                    adjPvalue: adjPVal,
-                    genes: item.genes
-                }};
-            }});
+            const sortedGo = buildProcessedEnrichment(baseGoRecords);
+            const sortedKegg = buildProcessedEnrichment(baseKeggRecords);
 
-            currentKeggData = sortedKegg.map(item => {{
-                const pVal = Math.pow(10, -item.logP).toExponential(2);
-                const adjPVal = Math.pow(10, -item.logP * 0.8).toExponential(2);
-                return {{
-                    term: item.term,
-                    overlap: `${{item.count}}/${{activeGenes.length || 10}}`,
-                    pvalue: pVal,
-                    adjPvalue: adjPVal,
-                    genes: item.genes
-                }};
-            }});
+            currentGoData = sortedGo;
+            currentKeggData = sortedKegg;
 
-            // Re-render Plotly GO Horizontal Bar Chart (Q1 + Q2 Splicing Targets)
-            const goDiv = document.getElementById('plotly-go-div');
             if (goDiv && window.Plotly && sortedGo.length) {{
-                const yVal = sortedGo.map(item => item.term.length > 50 ? item.term.slice(0,50) + '...' : item.term).reverse();
+                const yVal = sortedGo.map(item => item.term.length > 55 ? item.term.slice(0,55) + '...' : item.term).reverse();
                 const xVal = sortedGo.map(item => parseFloat(item.logP)).reverse();
-                const hoverText = sortedGo.map(item => `<b>${{item.term}}</b><br>-log₁₀(p): ${{item.logP}}<br>Count: ${{item.count}}<br>Associated Genes: ${{item.genes}}`).reverse();
+                const hoverText = sortedGo.map(item => `<b>${{item.term}}</b><br>-log₁₀(p): ${{item.logP}}<br>p-value: ${{item.pvalue}} | FDR: ${{item.adjPvalue}}<br>Overlap: ${{item.overlap}}<br>Associated Genes: ${{item.genes}}`).reverse();
                 Plotly.react(goDiv, [{{
                     x: xVal,
                     y: yVal,
@@ -1740,19 +1735,21 @@ def export_html_report(
                     hoverinfo: 'text',
                     hovertext: hoverText
                 }}], {{
-                    ...goDiv.layout,
-                    margin: {{ l: 260, r: 20, t: 40, b: 40 }},
+                    margin: {{ l: 280, r: 30, t: 30, b: 50 }},
                     xaxis: {{ title: '<b>-log₁₀(p-value)</b>' }},
-                    yaxis: {{ automargin: true }}
+                    yaxis: {{ automargin: true }},
+                    template: 'plotly_white',
+                    paper_bgcolor: '#FFFFFF',
+                    plot_bgcolor: '#FFFFFF',
+                    height: 380
                 }});
+                Plotly.Plots.resize(goDiv);
             }}
 
-            // Re-render Plotly KEGG Horizontal Bar Chart (Q1 + Q2 Splicing Targets)
-            const keggDiv = document.getElementById('plotly-kegg-div');
             if (keggDiv && window.Plotly && sortedKegg.length) {{
-                const yVal = sortedKegg.map(item => item.term.length > 50 ? item.term.slice(0,50) + '...' : item.term).reverse();
+                const yVal = sortedKegg.map(item => item.term.length > 55 ? item.term.slice(0,55) + '...' : item.term).reverse();
                 const xVal = sortedKegg.map(item => parseFloat(item.logP)).reverse();
-                const hoverText = sortedKegg.map(item => `<b>${{item.term}}</b><br>-log₁₀(p): ${{item.logP}}<br>Count: ${{item.count}}<br>Associated Genes: ${{item.genes}}`).reverse();
+                const hoverText = sortedKegg.map(item => `<b>${{item.term}}</b><br>-log₁₀(p): ${{item.logP}}<br>p-value: ${{item.pvalue}} | FDR: ${{item.adjPvalue}}<br>Overlap: ${{item.overlap}}<br>Associated Genes: ${{item.genes}}`).reverse();
                 Plotly.react(keggDiv, [{{
                     x: xVal,
                     y: yVal,
@@ -1767,16 +1764,18 @@ def export_html_report(
                     hoverinfo: 'text',
                     hovertext: hoverText
                 }}], {{
-                    ...keggDiv.layout,
-                    margin: {{ l: 260, r: 20, t: 40, b: 40 }},
+                    margin: {{ l: 280, r: 30, t: 30, b: 50 }},
                     xaxis: {{ title: '<b>-log₁₀(p-value)</b>' }},
-                    yaxis: {{ automargin: true }}
+                    yaxis: {{ automargin: true }},
+                    template: 'plotly_white',
+                    paper_bgcolor: '#FFFFFF',
+                    plot_bgcolor: '#FFFFFF',
+                    height: 380
                 }});
+                Plotly.Plots.resize(keggDiv);
             }}
 
-
-
-            const noticeText = `✔ Re-calculated & Graph Updated for ΔPSI ≥ ${{psiCut}} • Active Splicing Genes (Q1+Q2): ${{splicingGenes.length}}`;
+            const noticeText = `✔ GO & KEGG Enrichment Generated for ΔPSI ≥ ${{psiCut}} • Active Splicing Targets (Q1+Q2): ${{splicingGenes.length}}`;
             const goNot = document.getElementById('go-notice');
             const keggNot = document.getElementById('kegg-notice');
             if (goNot) goNot.textContent = noticeText;
@@ -1785,16 +1784,18 @@ def export_html_report(
 
         function triggerEnrichmentWithAction() {{
             if (!generateBtn) return;
-            generateBtn.innerHTML = '⚡ Re-calculating GO & KEGG...';
+            generateBtn.innerHTML = '⚡ Generating GO & KEGG...';
             
             const goCard = document.getElementById('go-card-section');
             const keggCard = document.getElementById('kegg-card-section');
             if (goCard) {{
+                goCard.style.display = 'block';
                 goCard.classList.remove('card-updating');
                 void goCard.offsetWidth;
                 goCard.classList.add('card-updating');
             }}
             if (keggCard) {{
+                keggCard.style.display = 'block';
                 keggCard.classList.remove('card-updating');
                 void keggCard.offsetWidth;
                 keggCard.classList.add('card-updating');
@@ -1803,7 +1804,10 @@ def export_html_report(
             setTimeout(() => {{
                 generateEnrichment();
                 generateBtn.innerHTML = '🚀 Generate GO / KEGG';
-            }}, 300);
+                if (goCard) {{
+                    goCard.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+                }}
+            }}, 200);
         }}
 
         function downloadFilteredCSV() {{
