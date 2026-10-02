@@ -123,13 +123,11 @@ def build_quadrant_plot(
     ]
 
     # 3. Add Traces for all 4 quadrants (Q1, Q2, Q3, Q4)
-    # Note: Downsample Q3 background dots if >2500 to keep HTML lightweight
+    # Render all data points without downsampling or artificial caps
     if color_by == "quadrant":
         all_quadrants = ["Q1", "Q2", "Q3", "Q4"]
         for quad in all_quadrants:
             sub = pdf[pdf["quadrant"] == quad] if len(pdf) > 0 and "quadrant" in pdf.columns else pd.DataFrame()
-            if quad == "Q3" and len(sub) > 2500:
-                sub = sub.sample(n=2500, random_state=42)
             fig.add_trace(
                 go.Scatter(
                     x=sub["log2FoldChange"] if len(sub) > 0 else [],

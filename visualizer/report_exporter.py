@@ -12,6 +12,7 @@ import json
 import time
 import polars as pl
 import pandas as pd
+import numpy as np
 from visualizer.quadrant_plot import build_quadrant_plot
 from visualizer.enrichment_plot import build_enrichment_chart
 from core.merger import get_quadrant_kpis
@@ -126,7 +127,7 @@ def export_html_report(
     sashimi_data_json = json.dumps(sashimi_dict)
 
     # Isoform-Specific RT-qPCR Primer Designer Engine (Synchronized with Sashimi Targets)
-    primer_df = generate_primer_table_for_targets(target_candidates.head(80))
+    primer_df = generate_primer_table_for_targets(target_candidates)
     primer_records = primer_df.to_dicts() if primer_df.height > 0 else []
     primer_records_json = json.dumps(primer_records)
 
@@ -164,8 +165,8 @@ def export_html_report(
     all_genes = df_merged.select("geneSymbol").to_series().to_list()
 
     # Pre-generate GO & KEGG Enrichment for Q1+Q2 Splicing Targets only (Q4 completely removed)
-    df_go = fetch_enrichment(splicing_genes, gene_sets=["GO_Biological_Process_2023"], top_n=10)
-    df_kegg = fetch_enrichment(splicing_genes, gene_sets=["KEGG_2021_Human"], top_n=10)
+    df_go = fetch_enrichment(splicing_genes, gene_sets=["GO_Biological_Process_2023"], top_n=50)
+    df_kegg = fetch_enrichment(splicing_genes, gene_sets=["KEGG_2021_Human"], top_n=50)
 
     import math
     go_records = []
@@ -306,9 +307,9 @@ def export_html_report(
     isoform_table_rows_html = "\n".join(isoform_rows_list)
     isoform_records_json = json.dumps(isoform_records_list)
 
-    primary_ncbi_genes = list(dict.fromkeys([g.strip().upper() for g in splicing_genes if g]))[:15]
+    primary_ncbi_genes = list(dict.fromkeys([g.strip().upper() for g in splicing_genes if g]))[:30]
     if not primary_ncbi_genes:
-        primary_ncbi_genes = list(dict.fromkeys([g.strip().upper() for g in all_genes if g]))[:15]
+        primary_ncbi_genes = list(dict.fromkeys([g.strip().upper() for g in all_genes if g]))[:30]
 
     ncbi_pubmed_map = {}
     for g in primary_ncbi_genes:
@@ -320,6 +321,12 @@ def export_html_report(
         }
         time.sleep(0.35)  # Respect NCBI 3 req/sec rate limit
     ncbi_pubmed_json = json.dumps(ncbi_pubmed_map)
+
+    # Dynamic slider limits based on dataset extremes (no artificial hardcoded cap)
+    fc_series = df_merged["log2FoldChange"].to_pandas().dropna() if ("log2FoldChange" in df_merged.columns and df_merged.height > 0) else pd.Series(dtype=float)
+    fc_finite = fc_series[np.isfinite(fc_series)] if len(fc_series) > 0 else pd.Series(dtype=float)
+    max_data_x = float(fc_finite.abs().max()) if len(fc_finite) > 0 else 3.0
+    slider_max_fc = max(round(max_data_x + 0.5, 1), 6.0)
 
     full_html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -554,7 +561,7 @@ def export_html_report(
                         <span style="color: var(--red-deg);">Log₂FC Cutoff (DEG):</span>
                         <span id="fc-val">{log2fc_cutoff:.2f}</span>
                     </label>
-                    <input type="range" id="fc-slider" min="0.1" max="3.0" step="0.05" value="{log2fc_cutoff}">
+                    <input type="range" id="fc-slider" min="0.05" max="{slider_max_fc}" step="0.05" value="{log2fc_cutoff}">
                 </div>
 
                 <div class="slider-group slider-as">
@@ -562,7 +569,7 @@ def export_html_report(
                         <span style="color: var(--blue-as);">ΔPSI Cutoff (AS):</span>
                         <span id="psi-val">{delta_psi_cutoff:.2f}</span>
                     </label>
-                    <input type="range" id="psi-slider" min="0.01" max="0.5" step="0.01" value="{delta_psi_cutoff}">
+                    <input type="range" id="psi-slider" min="0.01" max="1.0" step="0.01" value="{delta_psi_cutoff}">
                 </div>
 
                 <button class="btn-download-csv" id="download-csv-btn">
@@ -1607,6 +1614,13 @@ def export_html_report(
                 const max_x = Math.max(Math.ceil((maxDataX + 0.5) * 10) / 10, layoutAxisX, fcCut + 0.5, 3.5);
                 const max_y = Math.max(Math.ceil((maxDataY + 0.1) * 100) / 100, layoutAxisY, psiCut + 0.1, 1.05);
 
+                if (fcSlider && parseFloat(fcSlider.max) < max_x) {{
+                    fcSlider.max = Math.ceil(max_x);
+                }}
+                if (psiSlider && parseFloat(psiSlider.max) < 1.0) {{
+                    psiSlider.max = 1.0;
+                }}
+
                 const newShapes = [
                     {{ type: 'rect', x0: -fcCut, x1: fcCut, y0: -psiCut, y1: psiCut, fillcolor: 'rgba(241, 245, 249, 0.6)', line: {{ width: 0 }}, layer: 'below' }},
                     {{ type: 'rect', x0: -fcCut, x1: fcCut, y0: psiCut, y1: max_y, fillcolor: 'rgba(59, 130, 246, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
@@ -1697,7 +1711,7 @@ def export_html_report(
                 }});
 
                 if (matched.length > 0) {{
-                    return matched.sort((a,b) => b.logP - a.logP).slice(0, 10);
+                    return matched.sort((a,b) => b.logP - a.logP).slice(0, 25);
                 }}
 
                 return records.map(r => ({{
@@ -1708,7 +1722,7 @@ def export_html_report(
                     adjPvalue: r.adjPvalue,
                     logP: parseFloat(r.logP || 0),
                     genes: r.genes
-                }})).slice(0, 10);
+                }})).slice(0, 25);
             }}
 
             const sortedGo = buildProcessedEnrichment(baseGoRecords);
@@ -1741,7 +1755,7 @@ def export_html_report(
                     template: 'plotly_white',
                     paper_bgcolor: '#FFFFFF',
                     plot_bgcolor: '#FFFFFF',
-                    height: 380
+                    height: Math.max(380, sortedGo.length * 26 + 60)
                 }});
                 Plotly.Plots.resize(goDiv);
             }}
@@ -1770,7 +1784,7 @@ def export_html_report(
                     template: 'plotly_white',
                     paper_bgcolor: '#FFFFFF',
                     plot_bgcolor: '#FFFFFF',
-                    height: 380
+                    height: Math.max(380, sortedKegg.length * 26 + 60)
                 }});
                 Plotly.Plots.resize(keggDiv);
             }}
