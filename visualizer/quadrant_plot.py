@@ -122,10 +122,10 @@ def build_quadrant_plot(
         )
     ]
 
-    # 3. Add Traces for all 4 quadrants (Q1, Q2, Q3, Q4)
-    # Render all data points without downsampling or artificial caps
+    # 3. Add Traces for significant quadrants (Q1, Q2, Q4)
+    # Background genes (Q3) are omitted from plot to prevent HTML size bloat
     if color_by == "quadrant":
-        all_quadrants = ["Q1", "Q2", "Q3", "Q4"]
+        all_quadrants = ["Q1", "Q2", "Q4"]
         for quad in all_quadrants:
             sub = pdf[pdf["quadrant"] == quad] if len(pdf) > 0 and "quadrant" in pdf.columns else pd.DataFrame()
             fig.add_trace(
@@ -134,11 +134,11 @@ def build_quadrant_plot(
                     y=sub["delta_psi"] if len(sub) > 0 else [],
                     mode="markers",
                     name=quad,
-                    visible="legendonly" if quad == "Q3" else True,
+                    visible=True,
                     marker=dict(
                         color=QUADRANT_COLORS.get(quad, "#94A3B8"),
-                        size=10 if quad in ["Q1", "Q2", "Q4"] else 6,
-                        opacity=0.9 if quad in ["Q1", "Q2", "Q4"] else 0.5,
+                        size=10,
+                        opacity=0.9,
                         line=dict(width=0.8, color="#FFFFFF")
                     ),
                     text=sub["hover_text"] if len(sub) > 0 else [],

@@ -13,7 +13,7 @@ import numpy as np
 # Cache dict to prevent redundant API calls
 _ENRICHMENT_CACHE = {}
 
-def fetch_enrichment(gene_list: list[str], gene_sets: list[str], top_n: int = None) -> pd.DataFrame:
+def fetch_enrichment(gene_list: list[str], gene_sets: list[str], top_n: int = 10) -> pd.DataFrame:
     """
     Fetches enrichment results for a list of gene symbols from specified gene_sets via gseapy/Enrichr.
     Falls back to mock/synthetic enrichment if network is offline or gene list is small.
@@ -57,7 +57,7 @@ def fetch_enrichment(gene_list: list[str], gene_sets: list[str], top_n: int = No
     _ENRICHMENT_CACHE[cache_key] = df_mock
     return df_mock
 
-def _generate_mock_enrichment(genes: list[str], gene_sets: list[str], top_n: int = None) -> pd.DataFrame:
+def _generate_mock_enrichment(genes: list[str], gene_sets: list[str], top_n: int = 10) -> pd.DataFrame:
     mock_db = {
         "GO_Biological_Process_2023": [
             ("Alternative mRNA Splicing via Spliceosome (GO:0000381)", 0.0001, 0.001),

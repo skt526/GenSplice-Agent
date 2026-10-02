@@ -165,8 +165,8 @@ def export_html_report(
     all_genes = df_merged.select("geneSymbol").to_series().to_list()
 
     # Pre-generate GO & KEGG Enrichment for Q1+Q2 Splicing Targets only (Q4 completely removed)
-    df_go = fetch_enrichment(splicing_genes, gene_sets=["GO_Biological_Process_2023"], top_n=50)
-    df_kegg = fetch_enrichment(splicing_genes, gene_sets=["KEGG_2021_Human"], top_n=50)
+    df_go = fetch_enrichment(splicing_genes, gene_sets=["GO_Biological_Process_2023"], top_n=10)
+    df_kegg = fetch_enrichment(splicing_genes, gene_sets=["KEGG_2021_Human"], top_n=10)
 
     import math
     go_records = []
@@ -307,9 +307,9 @@ def export_html_report(
     isoform_table_rows_html = "\n".join(isoform_rows_list)
     isoform_records_json = json.dumps(isoform_records_list)
 
-    primary_ncbi_genes = list(dict.fromkeys([g.strip().upper() for g in splicing_genes if g]))[:30]
+    primary_ncbi_genes = list(dict.fromkeys([g.strip().upper() for g in splicing_genes if g]))[:15]
     if not primary_ncbi_genes:
-        primary_ncbi_genes = list(dict.fromkeys([g.strip().upper() for g in all_genes if g]))[:30]
+        primary_ncbi_genes = list(dict.fromkeys([g.strip().upper() for g in all_genes if g]))[:15]
 
     ncbi_pubmed_map = {}
     for g in primary_ncbi_genes:
@@ -1542,7 +1542,6 @@ def export_html_report(
             const quadPoints = {{
                 Q1: {{ x: [], y: [], text: [] }},
                 Q2: {{ x: [], y: [], text: [] }},
-                Q3: {{ x: [], y: [], text: [] }},
                 Q4: {{ x: [], y: [], text: [] }}
             }};
 
@@ -1559,11 +1558,13 @@ def export_html_report(
                 else if (isDegSig && !isAsSig) {{ quad = "Q4"; q4++; }}
                 else {{ quad = "Q3"; q3++; }}
 
-                const hoverText = `<b>Gene Symbol:</b> ${{g.geneSymbol}}<br><b>Gene ID:</b> ${{g.gene_id}}<br><b>Quadrant:</b> ${{quad}}<br><b>Log2FC (DEG):</b> ${{fcVal.toFixed(3)}}<br><b>ΔPSI (Splicing):</b> ${{psiVal.toFixed(3)}}<br><b>DEG FDR:</b> ${{(g.deg_fdr || 1.0).toExponential(2)}}<br><b>rMATS FDR:</b> ${{(g.as_fdr || 1.0).toExponential(2)}}<br><b>Event Type:</b> ${{g.event_type || 'None'}}`;
+                if (quad !== "Q3") {{
+                    const hoverText = `<b>Gene Symbol:</b> ${{g.geneSymbol}}<br><b>Gene ID:</b> ${{g.gene_id}}<br><b>Quadrant:</b> ${{quad}}<br><b>Log2FC (DEG):</b> ${{fcVal.toFixed(3)}}<br><b>ΔPSI (Splicing):</b> ${{psiVal.toFixed(3)}}<br><b>DEG FDR:</b> ${{(g.deg_fdr || 1.0).toExponential(2)}}<br><b>rMATS FDR:</b> ${{(g.as_fdr || 1.0).toExponential(2)}}<br><b>Event Type:</b> ${{g.event_type || 'None'}}`;
 
-                quadPoints[quad].x.push(g.log2FoldChange);
-                quadPoints[quad].y.push(g.delta_psi);
-                quadPoints[quad].text.push(hoverText);
+                    quadPoints[quad].x.push(g.log2FoldChange);
+                    quadPoints[quad].y.push(g.delta_psi);
+                    quadPoints[quad].text.push(hoverText);
+                }}
 
                 const updatedGene = {{ ...g, current_quadrant: quad }};
                 currentFilteredGenes.push(updatedGene);
@@ -1641,7 +1642,6 @@ def export_html_report(
                 const updatedTraces = [
                     {{ x: quadPoints.Q1.x, y: quadPoints.Q1.y, text: quadPoints.Q1.text, mode: 'markers', name: 'Q1', marker: {{ color: '#A855F7', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text', visible: true }},
                     {{ x: quadPoints.Q2.x, y: quadPoints.Q2.y, text: quadPoints.Q2.text, mode: 'markers', name: 'Q2', marker: {{ color: '#3B82F6', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text', visible: true }},
-                    {{ x: quadPoints.Q3.x, y: quadPoints.Q3.y, text: quadPoints.Q3.text, mode: 'markers', name: 'Q3', marker: {{ color: '#94A3B8', size: 6, opacity: 0.5, line: {{ width: 0.5, color: '#FFFFFF' }} }}, hoverinfo: 'text', visible: 'legendonly' }},
                     {{ x: quadPoints.Q4.x, y: quadPoints.Q4.y, text: quadPoints.Q4.text, mode: 'markers', name: 'Q4', marker: {{ color: '#EF4444', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text', visible: true }}
                 ];
 
@@ -1711,7 +1711,7 @@ def export_html_report(
                 }});
 
                 if (matched.length > 0) {{
-                    return matched.sort((a,b) => b.logP - a.logP).slice(0, 25);
+                    return matched.sort((a,b) => b.logP - a.logP).slice(0, 10);
                 }}
 
                 return records.map(r => ({{
@@ -1722,7 +1722,7 @@ def export_html_report(
                     adjPvalue: r.adjPvalue,
                     logP: parseFloat(r.logP || 0),
                     genes: r.genes
-                }})).slice(0, 25);
+                }})).slice(0, 10);
             }}
 
             const sortedGo = buildProcessedEnrichment(baseGoRecords);
@@ -1755,7 +1755,7 @@ def export_html_report(
                     template: 'plotly_white',
                     paper_bgcolor: '#FFFFFF',
                     plot_bgcolor: '#FFFFFF',
-                    height: Math.max(380, sortedGo.length * 26 + 60)
+                    height: 380
                 }});
                 Plotly.Plots.resize(goDiv);
             }}
@@ -1784,7 +1784,7 @@ def export_html_report(
                     template: 'plotly_white',
                     paper_bgcolor: '#FFFFFF',
                     plot_bgcolor: '#FFFFFF',
-                    height: Math.max(380, sortedKegg.length * 26 + 60)
+                    height: 380
                 }});
                 Plotly.Plots.resize(keggDiv);
             }}
