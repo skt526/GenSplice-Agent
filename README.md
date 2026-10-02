@@ -1,15 +1,17 @@
 # GenSplice-Agent 🧬
 
-> **Unified Transcriptomic Profiling & Alternative Splicing Visualization Platform with Standalone Interactive Reporting**
+> **Automated RNA-Seq Alternative Splicing Discovery Platform: Pinpointing Hidden Splicing-Driven Regulators with Standalone Interactive Reporting**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Platform: Linux%20%7C%20macOS](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Report: Standalone%20HTML](https://img.shields.io/badge/report-Standalone%20HTML%20(~500KB)-brightgreen.svg)]()
 
-`GenSplice-Agent` is an automated, high-throughput computational transcriptomics platform designed to bridge the gap between quantitative gene expression changes ($\text{Log}_2\text{FC}$, PyDESeq2) and qualitative post-transcriptional isoform variations ($\Delta\text{PSI}$, rMATS) within a unified 4-quadrant coordinate space.
+`GenSplice-Agent` is an automated computational transcriptomics platform designed specifically to **discover and validate hidden Alternative Splicing (AS) events** that traditional Differential Expression (DEG) pipelines completely miss.
 
-It runs entirely locally with **zero server/cloud dependency**, auto-resumes interrupted runs via persistent checkpoints, and generates an ultra-lightweight, self-contained interactive HTML dashboard (`gensplice_report.html`) complete with exon-intron Sashimi plots, isoform-specific RT-qPCR primer design, and on-demand GO/KEGG pathway enrichment.
+While conventional RNA-seq analyses focus solely on total mRNA quantity ($\text{Log}_2\text{FC}$), critical biological switches frequently occur through **qualitative isoform shifts** ($\Delta\text{PSI}$) without altering total gene expression. `GenSplice-Agent` pinpoints these splicing-driven master regulators, maps their functional consequences (Nonsense-Mediated Decay, reading frame shifts), and auto-designs isoform-specific RT-qPCR primers for laboratory bench validation.
+
+It operates entirely locally with **zero cloud/server dependency**, auto-resumes interrupted runs via fault-tolerant checkpoints, and generates an ultra-lightweight, self-contained interactive HTML dashboard (`gensplice_report.html`, ~500 KB).
 
 ---
 
@@ -25,24 +27,27 @@ flowchart TD
     subgraph CorePipeline["2. High-Performance Core Pipeline"]
         QC["fastp (QC & Automated Adapter Trimming)"]
         ALIGN["STAR 2-Pass (Splice-Aware Alignment)"]
-        DEG["PyDESeq2 (Differential Gene Expression)"]
+        DEG["PyDESeq2 (Gene Abundance Quantification)"]
         AS["rMATS (SE, RI, MXE, A5SS, A3SS Junction Counts)"]
         CHECKPOINT["pipeline_checkpoint.json (Fault-Tolerant Checkpoint Engine)"]
     end
 
-    subgraph Integration["3. 4-Quadrant Biological Integration"]
-        MERGE["Polars Fast Columnar Merger"]
-        QUAD["4-Quadrant Classification Engine (Q1, Q2, Q3, Q4)"]
+    subgraph Integration["3. Transcriptomic Cross-Evaluation Engine"]
+        MERGE["Polars Fast Columnar Integration"]
+        DISCOVERY["Alternative Splicing Discovery & Classification"]
+        DISCOVERY --> SPLICING_ONLY["★ Only Alternative Splicing Genes (Hidden Regulators) ★"]
+        DISCOVERY --> DUAL["Dual-Regulated Genes (Abundance + Splicing)"]
+        DISCOVERY --> DEG_ONLY["Only Differential Expression Genes (Abundance Shift Only)"]
     end
 
     subgraph Report["4. Standalone Interactive HTML Dashboard (~500 KB)"]
-        PLOT["Dynamic 4-Quadrant Cross-Plot with Real-Time Sliders"]
+        PLOT["Cross-Plot with Real-Time Splicing & Expression Sliders"]
         MASTER["Master Gene Selector (Synchronized Across All Panels)"]
         NCBI["NCBI Details & PubMed Literature (NIH E-utilities API)"]
         ISO["Event-Level Isoform Table (Impairment Tiers & NMD/PTC Status)"]
         SASHIMI["Exon-Intron Sashimi Plot (Coverage Arcs & Splice Junctions)"]
         PRIMER["Isoform-Specific RT-qPCR Primer Designer (Inclusion/Exclusion)"]
-        ENRICH["On-Demand GO & KEGG Pathway Enrichment (Enrichr / GSEAPy)"]
+        ENRICH["On-Demand GO & KEGG Pathway Enrichment for Splicing Targets"]
         CSV["One-Click Filtered CSV Data Exporters"]
     end
 
@@ -53,8 +58,8 @@ flowchart TD
     ALIGN --> AS
     DEG --> MERGE
     AS --> MERGE
-    MERGE --> QUAD
-    QUAD --> PLOT
+    MERGE --> DISCOVERY
+    DISCOVERY --> PLOT
     PLOT --> MASTER
     MASTER --> NCBI
     MASTER --> ISO
@@ -70,37 +75,47 @@ flowchart TD
 
 ---
 
-## 1. Overview & Conceptual Architecture (GenSplice 소개)
+## 1. Overview & Alternative Splicing Discovery (GenSplice 소개)
 
-Conventional RNA-seq analysis pipelines disproportionately focus on total transcriptional abundance (Differential Expression Analysis, DEG), systematically overlooking critical regulatory events where total mRNA abundance remains unchanged while alternative exon skipping or inclusion triggers non-functional protein isoforms or Nonsense-Mediated Decay (NMD).
+### 🎯 The Blind Spot of Standard RNA-Seq Analysis
+Standard RNA-seq pipelines evaluate only total transcript abundance (Differential Expression Analysis, DEG). However, in biological systems, many master regulators exert their physiological control not by changing total mRNA quantity, but by **switching between functional and non-functional isoforms**:
+- An alternative exon can be included or skipped, altering critical protein-protein interaction domains or enzymatic active sites.
+- An intron can be retained or a frameshift can be introduced, generating a Premature Termination Codon (PTC) that triggers **Nonsense-Mediated Decay (NMD)**.
+- **Because total transcript counts remain unchanged, conventional DEG pipelines treat these genes as invariant and completely overlook them.**
 
-`GenSplice-Agent` resolves this limitation by projecting every gene onto a two-dimensional transcriptomic coordinate system:
-- **X-axis**: Quantitative transcriptional abundance ($\text{Log}_2\text{FC}$) evaluated via negative-binomial generalized linear modeling (PyDESeq2).
-- **Y-axis**: Qualitative isoform variation ($\Delta\text{PSI}$) determined via junction-centric splice counts (rMATS).
+### 🔍 How GenSplice-Agent Uncovers Splicing Regulators
+`GenSplice-Agent` cross-evaluates quantitative expression changes ($\text{Log}_2\text{FC}$) against qualitative splicing inclusion indices ($\Delta\text{PSI}$):
 
 ```text
-                  ▲ ΔPSI (Alternative Splicing Index)
-                  │
-     [Q2] Splicing-Driven Only   │   [Q1] Dual Responders
-   (Abundance Invariant, AS Switch)│ (Both Abundance and Isoform Altered)
-   ★ Hidden Master Regulators ★   │
-──────────────────┼──────────────────▶ Log2 Fold Change (Expression Abundance)
-     [Q3] Invariant Background   │   [Q4] Expression-Driven Only
-       (Homeostatic Baseline)     │  (Quantity Shift, Isoform Unchanged)
-                  │
+                     ▲ Alternative Splicing Change (|ΔPSI|)
+                     │
+       ★ Only Alternative Splicing Genes ★  │   Dual-Regulated Genes
+     (Abundance Invariant, Isoform Switched)│ (Both Abundance and Isoform Shifted)
+        ★ Missed by Standard DEG! ★         │
+─────────────────────┼─────────────────────▶ Differential Expression (|Log2FC|)
+       Homeostatic Background Genes         │   Only Differential Expression Genes
+         (Baseline, Unchanged)              │  (Abundance Changed, Isoform Unchanged)
+                     │
 ```
 
-### The 4 Biological Quadrants
-1. **Quadrant 1 (Q1 - Dual Responders)**: Significant changes in both transcriptional abundance ($|\text{Log}_2\text{FC}| \ge \text{Cutoff}$) and alternative splicing ($|\Delta\text{PSI}| \ge \text{Cutoff}$). Represents compound regulation where splicing amplifies or reshapes gene expression output.
-2. **Quadrant 2 (Q2 - Splicing-Driven Targets)**: Significant alternative splicing alteration without significant change in total expression abundance. **These hidden regulators are entirely missed by standard DEG pipelines.**
-3. **Quadrant 3 (Q3 - Invariant Background)**: Transcripts maintaining homeostatic baseline without significant expression or splicing variations. To optimize browser rendering performance and minimize HTML file size, Q3 points are excluded from the scatter plot traces while preserving total counts in summary metrics and data exports.
-4. **Quadrant 4 (Q4 - DEG Only)**: Significant expression changes without detectable alterations in alternative splicing patterns.
+### Transcriptomic Classification Categories:
+1. **★ Only Alternative Splicing Genes (Hidden Master Regulators) ★**:
+   - **Characteristics**: Splicing changes significantly ($|\Delta\text{PSI}| \ge \text{Cutoff}$), but total gene expression remains steady ($|\text{Log}_2\text{FC}| < \text{Cutoff}$).
+   - **Significance**: These are prime regulatory candidates operating through qualitative isoform switching. **GenSplice is tailored specifically to discover, visualize, and design validation primers for these genes.**
+2. **Dual-Regulated Genes (Expression + Alternative Splicing)**:
+   - **Characteristics**: Undergo both transcriptional abundance shifts ($|\text{Log}_2\text{FC}| \ge \text{Cutoff}$) and alternative splicing alterations ($|\Delta\text{PSI}| \ge \text{Cutoff}$).
+   - **Significance**: Represents coordinated transcriptional and post-transcriptional reprogramming, where splicing alters protein function alongside quantity changes.
+3. **Only Differential Expression Genes (Abundance Shift Only)**:
+   - **Characteristics**: Significant expression changes ($|\text{Log}_2\text{FC}| \ge \text{Cutoff}$) without detectable alternative splicing variations ($|\Delta\text{PSI}| < \text{Cutoff}$).
+   - **Significance**: Classic DEG targets whose primary mode of regulation is transcriptional upregulation or downregulation.
+4. **Homeostatic Background Genes (Baseline Invariant)**:
+   - Unchanged in both expression abundance and splicing. Excluded from plot canvas traces to optimize browser performance and maintain an ultra-compact report size (~500 KB).
 
 ---
 
 ## 2. Installation (install)
 
-`GenSplice-Agent` provides an automated one-click installation script that establishes the complete Conda / Bioconda environment and checks all CLI binaries.
+`GenSplice-Agent` provides an automated one-click installation script that configures the entire Conda / Bioconda environment and validates all bioinformatics tools.
 
 ```bash
 ./install
@@ -109,10 +124,10 @@ Conventional RNA-seq analysis pipelines disproportionately focus on total transc
 ### What `./install` Automatically Configures:
 - **Bioinformatics CLI Engines**: `fastp` (read QC & trimming), `STAR` (splice-aware aligner), `rmats` (alternative splicing quantitation), `subread` (`featureCounts` read summarization), `R` (r-base runtime).
 - **High-Performance Python Stack**: `polars` (fast columnar processing), `pydeseq2` (DESeq2 GLM modeling), `plotly` (interactive web graphics), `gseapy` (Enrichr API wrapper), `pandas`, `numpy`, `scipy`.
-- **System Architecture Optimization**: Automatically detects hardware threads and available RAM, establishing memory-safe limits for STAR genome indexing and rMATS multithreading.
+- **Hardware Auto-Tuning**: Automatically detects CPU threads and available system RAM, setting memory-safe parameters for STAR genome indexing and rMATS multithreading.
 
-### System Verification & Testing
-To confirm your installation works end-to-end on a benchmark dataset (GSE52778 human airway smooth muscle cells, Dexamethasone model) in under 60 seconds:
+### Quick Benchmark Verification
+To confirm that your environment, alignment engine, splicing quantitation, and interactive report generator are fully functional, run the bundled benchmark test (GSE52778 Dexamethasone model) in under 60 seconds:
 ```bash
 ./test
 ```
@@ -142,64 +157,64 @@ inputs/
    - Gzip-compressed FASTQ (strongly recommended): `.fq.gz`, `.fastq.gz`
    - Uncompressed FASTQ: `.fq`, `.fastq`
 2. **Paired-End Suffix Conventions**:
-   Read pairs are automatically recognized and matched using any standard convention:
-   - Suffix format: `*_1.fq.gz` / `*_2.fq.gz` or `*_1.fastq.gz` / `*_2.fastq.gz`
+   Read pairs are automatically recognized and paired using standard suffixes:
+   - Standard format: `*_1.fq.gz` / `*_2.fq.gz` or `*_1.fastq.gz` / `*_2.fastq.gz`
    - Illumina format: `*_R1.fastq.gz` / `*_R2.fastq.gz` or `*_R1_001.fastq.gz` / `*_R2_001.fastq.gz`
 3. **Single-End Support**:
-   Single files without pair suffixes (e.g., `sampleA.fq.gz`) are automatically processed as single-end reads, and downstream STAR/rMATS flags automatically adapt.
+   Single files without pair suffixes (e.g., `sampleA.fq.gz`) are automatically detected as single-end reads, and downstream STAR/rMATS execution flags adjust automatically.
 4. **Data Integrity Verification**:
-   The pipeline performs gzip block and EOF integrity validation before executing computationally heavy steps, preventing premature failures caused by corrupted downloads.
+   The pipeline performs gzip block and EOF integrity checks before launching compute-heavy steps, preventing unexpected aborts due to truncated files.
 
 ---
 
 ## 4. Reference Genome Setup (ref 다운로드)
 
-Set up your organism's reference genome (FASTA sequence, GTF annotation, and pre-indexed STAR splice-junction database) with a single interactive command:
+Set up your organism's reference genome (FASTA sequence, GTF annotations, and STAR splice-junction index) with a single interactive command:
 
 ```bash
 ./ref
 ```
 
-### Supported Organisms & Capabilities
-Running `./ref` presents an interactive menu with automated download and indexing support across major research models:
+### Supported Organisms
+Running `./ref` displays an interactive menu supporting automated download, coordinate verification, and index construction across major research models:
 - **Mammals**: Human (*Homo sapiens* GRCh38), Mouse (*Mus musculus* GRCm39), Rat, Pig, Cow, Dog, Macaque, Chimpanzee.
 - **Model Animals & Birds**: Zebrafish (*Danio rerio*), Fruit Fly (*Drosophila melanogaster*), *C. elegans*, Xenopus, Chicken.
 - **Crop Plants & Botany**: Rice (*Oryza sativa*), Arabidopsis (*Arabidopsis thaliana*), Maize (*Zea mays*), Wheat, Soybean, Tomato, Potato, Barley.
 - **Fungi & Microorganisms**: Yeast (*Saccharomyces cerevisiae*), Fission Yeast (*Schizosaccharomyces pombe*).
 
-*Note: `./ref` automatically downloads Ensembl/NCBI assemblies, validates coordinate checksums, and constructs the STAR splice-junction index using memory-safe thresholds.*
+*Note: `./ref` manages checksum verification and builds the STAR splice-junction index automatically with RAM-safe resource limits.*
 
 ---
 
 ## 5. Pipeline Execution (GenSplice)
 
-Launch the complete transcriptomics analysis pipeline with a single command:
+Launch the complete transcriptomics and alternative splicing discovery pipeline with a single command:
 
 ```bash
 ./GenSplice
 ```
 
 ### Pipeline Execution Stages
-1. **Step 1: Input Validation**: Scans `inputs/control` and `inputs/treatment`, validates file pairing, and performs gzip decompression integrity checks.
-2. **Step 2: QC & Trimming (`fastp`)**: Automatically removes adapter sequences, filters low-quality bases (Q < 20), and auto-detects average read lengths for rMATS.
-3. **Step 3: Genome Alignment (`STAR` 2-Pass)**: Executes splice-junction discovery and coordinate-sorted BAM generation with automated RAM limits.
-4. **Step 4: Expression Quantification (`PyDESeq2`)**: Generates gene-level count matrices with featureCounts, performs size factor estimation, dispersion fitting, and Wald hypothesis testing.
-5. **Step 5: Alternative Splicing Quantification (`rMATS`)**: Quantifies junction counts (JC) and junction-exon counts (JCEC) across all five canonical alternative splicing classes:
+1. **Step 1: Input Validation**: Scans input directories, validates file pairing, and verifies gzip file integrity.
+2. **Step 2: QC & Trimming (`fastp`)**: Removes adapters, filters low-quality bases, and auto-detects average read length for rMATS.
+3. **Step 3: Splice-Aware Alignment (`STAR` 2-Pass)**: Discovers novel and annotated splice junctions, outputting coordinate-sorted BAM alignments.
+4. **Step 4: Expression Quantification (`PyDESeq2`)**: Performs gene-level count quantification, size factor normalization, and Wald differential expression testing.
+5. **Step 5: Alternative Splicing Quantification (`rMATS`)**: Quantifies junction counts (JC) across all five canonical alternative splicing event types:
    - **SE**: Skipped Exon (Cassette Exon)
    - **RI**: Retained Intron
    - **MXE**: Mutually Exclusive Exons
    - **A5SS**: Alternative 5' Splice Site
    - **A3SS**: Alternative 3' Splice Site
-6. **Step 6: Dashboard Compilation**: Integrates tables via Polars, designs isoform-specific RT-qPCR primers, pre-caches NCBI/PubMed records, and compiles the standalone interactive HTML report.
+6. **Step 6: Dashboard Compilation**: Cross-evaluates splicing and expression data, auto-designs isoform-specific RT-qPCR primers, pre-caches NCBI/PubMed records, and compiles the interactive HTML report.
 
-### Resilient Checkpoint Engine
-Every step records state in `outputs/pipeline_checkpoint.json`. If a run is interrupted by hardware limits or system reboots, re-executing `./GenSplice` seamlessly resumes from the exact stage that was interrupted without recomputing expensive alignments.
+### Fault-Tolerant Checkpoint Engine
+Every step updates `outputs/pipeline_checkpoint.json`. If execution is interrupted, re-running `./GenSplice` resumes seamlessly from the exact stage that was interrupted without re-running time-consuming alignments.
 
 ---
 
 ## 6. Output Usage & Report Interpretation (결과물 사용법 및 해석)
 
-All analysis results and reports are output directly into the `outputs/` directory:
+All analysis outputs and the final dashboard are placed directly in the `outputs/` directory:
 
 ```text
 outputs/
@@ -213,28 +228,32 @@ outputs/
 ```
 
 ### Standalone Interactive Dashboard (`gensplice_report.html`)
-Open `outputs/gensplice_report.html` in any modern web browser (Chrome, Firefox, Safari, Edge). It requires **zero backend server or local Python environment** to interact with.
+Open `outputs/gensplice_report.html` in any web browser (Chrome, Firefox, Safari, Edge). It requires **zero backend server or local Python environment** to run.
 
-#### Key Dashboard Capabilities:
-1. **🎛️ Real-Time 4-Quadrant Cross-Plot with Dynamic Sliders**:
-   - Adjust $\text{Log}_2\text{FC}$ and $\Delta\text{PSI}$ cutoffs dynamically with responsive sliders.
-   - Points automatically reclassify across Q1, Q2, and Q4 in real time on the Plotly canvas.
-   - Dynamic threshold boxes highlight active quadrant boundary regions.
-   - Background Q3 points are excluded from canvas traces to ensure high performance and sub-megabyte file size (~500 KB).
-2. **🧬 Single Master Gene Selector (Synchronized Across 4 Panels)**:
-   Selecting a gene symbol from the dropdown menu in the NCBI section instantly and synchronously updates all four downstream views:
-   - **NCBI Gene Details & Literature**: Displays official gene names, genomic coordinates, functional summaries, and recent PubMed literature citations. Features automatic NIH NCBI E-utilities API live fetching for any un-cached target gene.
-   - **Event-Level Isoform Annotations**: Detailed transcript table listing coordinates, $\Delta\text{PSI}$, $\text{Log}_2\text{FC}$, CDS reading frame shifts, Nonsense-Mediated Decay (NMD) / Premature Termination Codon (PTC) predictions, and functional impairment tier ratings.
-   - **Visual Exon-Intron Structure & Sashimi Plot**: Interactive diagram illustrating upstream, alternative, and downstream exons alongside splice-junction read coverage counts for inclusion and exclusion isoforms.
-   - **Isoform-Specific RT-qPCR Primer Designer**: Auto-designs forward and reverse primers spanning splice junctions specifically targeting both the inclusion isoform and the exclusion isoform, listing melting temperatures ($T_m$), GC content (%), and amplicon sizes for laboratory bench validation.
-3. **🚀 On-Demand GO & KEGG Pathway Enrichment**:
-   - Clean dashboard design: Enrichment cards remain hidden on initial load and appear instantly upon clicking **"🚀 Generate GO / KEGG"**.
-   - Computes statistical significance ($- \log_{10}(\text{p-value})$, Adjusted P-value / FDR) for active Q1 + Q2 splicing targets via Enrichr / GSEAPy.
-   - Dedicated CSV download buttons for biological processes and KEGG pathways.
-4. **📥 Instant CSV Data Exports**:
-   - **Download Filtered Gene List (.csv)**: Exports all active genes matching current threshold slider cutoffs.
-   - **Download Filtered Isoforms (.csv)**: Exports full event-level isoform structural and impairment annotations.
-   - **Download GO / KEGG Pathway (.csv)**: Exports functional pathway tables with gene overlap ratios and statistical p-values.
+#### 1. 🎛️ Cross-Plot with Real-Time Splicing & Expression Sliders
+- Adjust $\Delta\text{PSI}$ (Splicing Cutoff) and $\text{Log}_2\text{FC}$ (Expression Cutoff) sliders in real time.
+- The plot instantly isolates:
+  - **Only Alternative Splicing Genes** (Blue dots)
+  - **Dual-Regulated Genes** (Purple dots)
+  - **Only Differential Expression Genes** (Red dots)
+- Background invariant genes are omitted from plot traces to maintain sub-second responsiveness and an ultra-compact file size (~500 KB).
+
+#### 2. 🧬 Master Gene Selector (Synchronized Across 4 Downstream Views)
+Selecting any gene from the dropdown menu in the NCBI section automatically and synchronously updates all four downstream analysis panels:
+- **NCBI Gene Details & Literature**: Displays official gene summaries, chromosomal locations, and PubMed literature citations. Features live NIH NCBI E-utilities API fetching for any gene not pre-cached.
+- **Event-Level Isoform Annotations**: Detailed transcript table listing exact coordinates, $\Delta\text{PSI}$, $\text{Log}_2\text{FC}$, CDS reading frame status, Nonsense-Mediated Decay (NMD) / Premature Termination Codon (PTC) predictions, and functional impairment tier ratings.
+- **Visual Exon-Intron Structure & Sashimi Plot**: Interactive diagram illustrating upstream, alternative, and downstream exons alongside junction read coverage counts for inclusion and exclusion isoforms.
+- **Isoform-Specific RT-qPCR Primer Designer**: Auto-designs forward and reverse primers spanning splice junctions specifically targeting both the **inclusion isoform** and the **exclusion isoform**, complete with melting temperatures ($T_m$), GC content (%), and amplicon sizes for bench validation.
+
+#### 3. 🚀 On-Demand GO & KEGG Pathway Enrichment
+- Enrichment cards remain hidden on initial load and appear instantly upon clicking **"🚀 Generate GO / KEGG"**.
+- Performs Enrichr / GSEAPy statistical analyses ($- \log_{10}(\text{p-value})$, Adjusted P-value / FDR) specifically targeting **Only Alternative Splicing Genes** and **Dual-Regulated Genes**.
+- Includes dedicated CSV export buttons for biological processes and KEGG pathways.
+
+#### 4. 📥 Instant CSV Data Exports
+- **Download Filtered Gene List (.csv)**: Exports all active genes matching current threshold slider cutoffs.
+- **Download Filtered Isoforms (.csv)**: Exports full event-level isoform structural and impairment annotations.
+- **Download GO / KEGG Pathway (.csv)**: Exports functional pathway tables with gene overlap ratios and statistical p-values.
 
 ---
 
