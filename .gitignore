@@ -17,3 +17,4 @@ inputs/control/*
 inputs/treatment/*
 !inputs/treatment/.gitkeep
 test_data/
+paper/

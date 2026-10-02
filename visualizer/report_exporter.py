@@ -1570,8 +1570,35 @@ def export_html_report(
 
             const quadDiv = document.getElementById('plotly-quad-div');
             if (quadDiv && window.Plotly) {{
-                const max_x = 3.0;
-                const max_y = 0.7;
+                // Dynamically calculate plot bounds from the dataset and current layout
+                let maxDataX = 3.0;
+                let maxDataY = 1.0;
+                if (rawGeneData && rawGeneData.length) {{
+                    rawGeneData.forEach(g => {{
+                        const fc = Math.abs(g.log2FoldChange || 0);
+                        const psi = Math.abs(g.delta_psi || 0);
+                        if (isFinite(fc) && fc > maxDataX) maxDataX = fc;
+                        if (isFinite(psi) && psi > maxDataY) maxDataY = psi;
+                    }});
+                }}
+
+                let layoutAxisX = 0;
+                let layoutAxisY = 0;
+                if (quadDiv.layout && quadDiv.layout.xaxis && Array.isArray(quadDiv.layout.xaxis.range)) {{
+                    layoutAxisX = Math.max(
+                        Math.abs(quadDiv.layout.xaxis.range[0] || 0),
+                        Math.abs(quadDiv.layout.xaxis.range[1] || 0)
+                    );
+                }}
+                if (quadDiv.layout && quadDiv.layout.yaxis && Array.isArray(quadDiv.layout.yaxis.range)) {{
+                    layoutAxisY = Math.max(
+                        Math.abs(quadDiv.layout.yaxis.range[0] || 0),
+                        Math.abs(quadDiv.layout.yaxis.range[1] || 0)
+                    );
+                }}
+
+                const max_x = Math.max(Math.ceil((maxDataX + 0.5) * 10) / 10, layoutAxisX, fcCut + 0.5, 3.5);
+                const max_y = Math.max(Math.ceil((maxDataY + 0.1) * 100) / 100, layoutAxisY, psiCut + 0.1, 1.05);
 
                 const newShapes = [
                     {{ type: 'rect', x0: -fcCut, x1: fcCut, y0: -psiCut, y1: psiCut, fillcolor: 'rgba(241, 245, 249, 0.6)', line: {{ width: 0 }}, layer: 'below' }},
@@ -1598,7 +1625,11 @@ def export_html_report(
                 ];
 
                 Plotly.react(quadDiv, updatedTraces, quadDiv.layout);
-                Plotly.relayout(quadDiv, {{ shapes: newShapes }});
+                Plotly.relayout(quadDiv, {{
+                    shapes: newShapes,
+                    'xaxis.range': [-max_x, max_x],
+                    'yaxis.range': [-max_y, max_y]
+                }});
             }}
         }}
 

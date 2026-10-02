@@ -5,6 +5,7 @@ Light Mode Theme with Shaded Translucent Threshold Regions
 - In-plot legend item names set strictly to 'Q1', 'Q2', 'Q3', 'Q4'
 """
 
+import numpy as np
 import polars as pl
 import pandas as pd
 import plotly.graph_objects as go
@@ -46,9 +47,18 @@ def build_quadrant_plot(
 
     fig = go.Figure()
 
-    # Determine plot bounds
-    max_x = max(abs(pdf["log2FoldChange"].max() if len(pdf) > 0 else 2), 2.5) + 0.5
-    max_y = max(abs(pdf["delta_psi"].max() if len(pdf) > 0 else 0.5), 0.6) + 0.1
+    # Determine plot bounds dynamically based on the dataset's absolute extremes
+    fc_series = pdf["log2FoldChange"].dropna() if ("log2FoldChange" in pdf.columns and len(pdf) > 0) else pd.Series(dtype=float)
+    psi_series = pdf["delta_psi"].dropna() if ("delta_psi" in pdf.columns and len(pdf) > 0) else pd.Series(dtype=float)
+
+    fc_finite = fc_series[np.isfinite(fc_series)] if len(fc_series) > 0 else pd.Series(dtype=float)
+    psi_finite = psi_series[np.isfinite(psi_series)] if len(psi_series) > 0 else pd.Series(dtype=float)
+
+    max_data_x = float(fc_finite.abs().max()) if len(fc_finite) > 0 else 3.0
+    max_data_y = float(psi_finite.abs().max()) if len(psi_finite) > 0 else 0.9
+
+    max_x = max(round(max_data_x + 0.5, 1), log2fc_cutoff + 0.5, 3.5)
+    max_y = max(round(max_data_y + 0.1, 2), delta_psi_cutoff + 0.1, 1.05)
 
     # 1. Translucent Background Shaded Quadrant Regions
     shapes = [
