@@ -1062,7 +1062,7 @@ def export_html_report(
                         opt.value = idx;
                         const sign = ev.delta_psi >= 0 ? '+' : '';
                         const coordShort = (ev.coordinates || '').split(':')[1] || ev.coordinates || 'N/A';
-                        opt.textContent = `Event ${idx + 1}: ${ev.event_type} (${coordShort}) [ΔPSI=${sign}${parseFloat(ev.delta_psi).toFixed(2)}]`;
+                        opt.textContent = `Event ${{idx + 1}}: ${{ev.event_type}} (${{coordShort}}) [ΔPSI=${{sign}}${{parseFloat(ev.delta_psi).toFixed(2)}}]`;
                         sashimiEventSelect.appendChild(opt);
                     }});
                     sashimiEventSelect.value = eventIndex;
@@ -1090,7 +1090,7 @@ def export_html_report(
             const titleElem = document.getElementById('sashimi-title-text');
             if (titleElem) {{
                 const sign = deltaPsi >= 0 ? '+' : '';
-                const evNumText = events.length > 1 ? ` [Event ${eventIndex + 1} of ${events.length}]` : '';
+                const evNumText = events.length > 1 ? ` [Event ${{eventIndex + 1}} of ${{events.length}}]` : '';
                 titleElem.innerHTML = `<b>${{symbol}} Exon Structure & Splicing Sashimi Plot${{evNumText}}</b> (${{eventType}} | ΔPSI = ${{sign}}${{deltaPsi.toFixed(2)}})`;
             }}
 
@@ -1698,6 +1698,8 @@ def export_html_report(
                     'xaxis.range': [-max_x, max_x],
                     'yaxis.range': [-max_y, max_y]
                 }});
+            }}
+
             if (isEnrichmentGenerated) {{
                 generateEnrichment();
             }}
