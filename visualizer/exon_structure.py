@@ -56,55 +56,48 @@ def resolve_gene_exon_coords(gene_symbol: str, event_type: str, coordinates: str
                 "ex3": (mid_e + diff * 2, mid_e + diff * 3)
             }
 
-    # Deterministic fallback per gene symbol
-    h = abs(hash(gene_symbol.upper()))
-    chrom_num = (h % 22) + 1
-    chrom = f"chr{chrom_num}"
-    base = 10000000 + (h % 500000) * 100
-    
-    e1_len = 150 + (h % 80)
-    intron1 = 800 + ((h >> 3) % 400)
-    e2_len = 120 + ((h >> 6) % 100)
-    intron2 = 900 + ((h >> 9) % 500)
-    e3_len = 180 + ((h >> 12) % 90)
-
-    ex1 = (base, base + e1_len)
-    ex2 = (ex1[1] + intron1, ex1[1] + intron1 + e2_len)
-    ex3 = (ex2[1] + intron2, ex2[1] + intron2 + e3_len)
-
+    # If coordinates are unavailable, return clean invalid marker (NO coordinate fabrication)
     return {
         "chrom": chrom,
         "event_type": event,
-        "nums": [ex1[0], ex1[1], ex2[0], ex2[1], ex3[0], ex3[1]],
-        "ex1": ex1,
-        "ex2": ex2,
-        "ex3": ex3
+        "nums": [],
+        "ex1": (0, 0),
+        "ex2": (0, 0),
+        "ex3": (0, 0),
+        "valid": False
     }
 
 
 def plot_exon_structure(
-    gene_symbol: str = "STAT3",
+    gene_symbol: str = "Target",
     event_type: str = "SE",
-    coordinates: str = "chr17:42300000:42301500:42303000",
-    inc_counts: int = 145,
-    exc_counts: int = 22,
-    delta_psi: float = 0.35
+    coordinates: str = "N/A",
+    inc_counts: int = 0,
+    exc_counts: int = 0,
+    delta_psi: float = 0.0
 ) -> go.Figure:
     """
     Renders an interactive 2D Sashimi-style genomic structure plot for alternative splicing events.
     Displays event-specific isoform structures for SE, RI, MXE, A5SS, and A3SS.
+    Strictly uses authentic coordinates and real junction counts.
     """
     fig = go.Figure()
     event = (event_type or "SE").upper()
     coord_data = resolve_gene_exon_coords(gene_symbol, event, coordinates)
-    chrom = coord_data["chrom"]
     
-    # Calculate read counts if defaults provided
-    if inc_counts == 145 and exc_counts == 22 and delta_psi != 0.35:
-        inc_counts = int(max(20, abs(delta_psi) * 450 + 50))
-        exc_counts = int(max(10, (1.0 - abs(delta_psi)) * 140 + 15))
+    if not coord_data.get("valid", True) or coord_data["ex1"] == (0, 0):
+        fig.add_annotation(
+            text=f"<b>Genomic exon coordinates unavailable for {gene_symbol} ({event})</b><br><span style='color:#64748B;'>Provided coordinates: {coordinates}</span>",
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+            font=dict(size=14, color="#64748B")
+        )
+        fig.update_layout(
+            template="plotly_white", paper_bgcolor="#FFFFFF", plot_bgcolor="#F8FAFC",
+            xaxis=dict(showgrid=False, showticklabels=False), yaxis=dict(showgrid=False, showticklabels=False)
+        )
+        return fig
 
-    # Base coordinates
+    chrom = coord_data["chrom"]
     ex1 = coord_data["ex1"]
     ex2 = coord_data["ex2"]
     ex3 = coord_data["ex3"]

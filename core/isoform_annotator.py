@@ -1,136 +1,134 @@
 """
 GenSplice-Agent Event-Level Isoform Annotation & Functional Impairment Engine
-- Calculates transcript ID, affected exon/intron coordinates, CDS reading frame shift,
-  Premature Termination Codon (PTC) creation, Nonsense-Mediated Decay (NMD) prediction,
-  protein-domain overlap, subcellular localization consequences, and
-  quantitative Loss-of-Function (LoF) Functional Impairment Probability Scores (0-100%).
+- Evaluates transcript integrity, CDS reading frame alterations, de novo PTCs,
+  canonical 50-55 nt Nonsense-Mediated Decay (NMD) rule, and quantitative LoF impairment scores.
+- Genuine genomic logic: NO hardcoded mock dictionaries or fabricated domain names.
 """
 
+import os
+import re
 import polars as pl
 import pandas as pd
 
-# Knowledge base of validated Ensembl Transcripts & Structural Domains for key target genes
-KNOWN_GENE_ISOFORM_ANNOTATIONS = {
-    "STAT3": {
-        "transcript_id": "ENST00000371894 (STAT3a) / ENST00000371895 (STAT3b)",
-        "domain": "Transactivation Domain (TAD) / SH2 Domain",
-        "in_frame_event": "Frame-Shift (Exon 23 truncation, +55 bp delta)",
-        "ptc_pos": "PTC at Codon +701 (Tail alteration)",
-        "nmd": "Stable Isoform Switch (Escapes NMD, Dominant-Negative)",
-        "localization": "Cytoplasmic Trap / Nuclear Translocation Defect",
-        "override_score": 88.0,
-        "primary_cause": "Dominant-Negative Isoform Antagonism & TAD Loss"
-    },
-    "PTEN": {
-        "transcript_id": "ENST00000371953 (PTEN-201)",
-        "domain": "Phosphatase Catalytic Core & C2 Domain",
-        "in_frame_event": "In-Frame Deletion (-48 bp, Exon 5 skipping)",
-        "ptc_pos": "No PTC Introduced (Internal Domain Loss)",
-        "nmd": "Stable Isoform Switch (Loss of Catalytic Activity)",
-        "localization": "Cytoplasmic Relocalization & Membrane Detachment",
-        "override_score": 82.0,
-        "primary_cause": "Catalytic Core Deletion & Membrane Detachment"
-    },
-    "DUSP1": {
-        "transcript_id": "ENST00000305886 (DUSP1-201)",
-        "domain": "Dual-Specificity Phosphatase Domain",
-        "in_frame_event": "Frame-Shift (+1 nt, Intron 1 Retention)",
-        "ptc_pos": "PTC at Codon +112 (Early Stop)",
-        "nmd": "NMD Sensitive (Targeted for mRNA Degradation)",
-        "localization": "Nuclear Signal Loss (Degraded Transcript)",
-        "override_score": 94.0,
-        "primary_cause": "NMD mRNA Degradation Paradox (mRNA Up, Protein Down)"
-    },
-    "VEGFA": {
-        "transcript_id": "ENST00000372077 (VEGF165) / ENST00000543666 (VEGF165b)",
-        "domain": "VEGF Homology / Receptor Binding Domain",
-        "in_frame_event": "Alternative 3' Splice Site (Exon 8a to 8b switch)",
-        "ptc_pos": "No PTC (Distal C-terminus Alteration)",
-        "nmd": "Stable Isoform Switch (Anti-angiogenic Transition)",
-        "localization": "Extracellular Secretion Preserved (Decoy Ligand)",
-        "override_score": 68.0,
-        "primary_cause": "Anti-Angiogenic Soluble Decoy Transition"
-    },
-    "BRCA1": {
-        "transcript_id": "ENST00000357654 (BRCA1-Delta11b)",
-        "domain": "BRCT Tandem Repeat Domain & NLS Core",
-        "in_frame_event": "In-Frame Deletion (-3,300 bp, Exon 11 skipping)",
-        "ptc_pos": "No PTC (In-Frame Exon 11 Skipping)",
-        "nmd": "Stable Isoform Switch (PARP Inhibitor Resistance)",
-        "localization": "Nuclear Translocation Reduced / Partial Cytoplasmic Retention",
-        "override_score": 76.0,
-        "primary_cause": "In-Frame Exon 11 Loss & Partial Nuclear Exclusion"
-    },
-    "CRISPLD2": {
-        "transcript_id": "ENST00000325841 (CRISPLD2-201)",
-        "domain": "LCCL Domain & Cell Adhesion Motif",
-        "in_frame_event": "Frame-Shift (+2 nt, Exon 4 Skipping)",
-        "ptc_pos": "PTC at Codon +184",
-        "nmd": "NMD Sensitive (Targeted for Degradation)",
-        "localization": "Extracellular Matrix Remodeling Impaired",
-        "override_score": 90.0,
-        "primary_cause": "NMD Degradation & Frame-Shift at Codon 184"
-    },
-    "SYK": {
-        "transcript_id": "ENST00000378036 (SYK-L) / ENST00000378037 (SYK-S)",
-        "domain": "Linker Region & Nuclear Localization Signal (NLS)",
-        "in_frame_event": "In-Frame Deletion (-69 bp, Exon 7 Skipping)",
-        "ptc_pos": "No PTC (In-Frame Loss of Linker)",
-        "nmd": "Stable Isoform Switch (Nuclear Excluded SYK-S)",
-        "localization": "Loss of NLS -> Cytoplasmic Confinement",
-        "override_score": 72.0,
-        "primary_cause": "NLS Loss & Cytoplasmic Trapping (SYK-S)"
-    }
-}
+_GTF_CACHE = {}
 
-def calculate_functional_impairment_score(dpsi: float, log2fc: float, cds_frame: str, nmd: str, domain: str, gene: str = None, use_mock_annotations: bool = False) -> tuple:
+def parse_gtf_cds_structure(gtf_path: str) -> dict:
+    """
+    Parses an Ensembl/GENCODE GTF file to extract CDS segments, exon boundaries,
+    and terminal exon-exon junctions per gene/transcript.
+    """
+    if not gtf_path or not os.path.exists(gtf_path):
+        return {}
+
+    if gtf_path in _GTF_CACHE:
+        return _GTF_CACHE[gtf_path]
+
+    gene_map = {}
+
+    try:
+        with open(gtf_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("#"):
+                    continue
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) < 9:
+                    continue
+
+                chrom, source, feature, start_s, end_s, score, strand, frame, attrs = parts
+                if feature not in ("exon", "CDS", "stop_codon", "transcript"):
+                    continue
+
+                try:
+                    start = int(start_s)
+                    end = int(end_s)
+                except ValueError:
+                    continue
+
+                # Extract gene_name, gene_id, transcript_id
+                m_gname = re.search(r'gene_name\s+"([^"]+)"', attrs)
+                m_gid = re.search(r'gene_id\s+"([^"]+)"', attrs)
+                m_tid = re.search(r'transcript_id\s+"([^"]+)"', attrs)
+
+                gene_name = m_gname.group(1).upper() if m_gname else (m_gid.group(1).upper() if m_gid else None)
+                gene_id = m_gid.group(1) if m_gid else None
+                tid = m_tid.group(1) if m_tid else None
+
+                if not gene_name or not tid:
+                    continue
+
+                if gene_name not in gene_map:
+                    gene_map[gene_name] = {"gene_id": gene_id, "strand": strand, "chrom": chrom, "transcripts": {}}
+
+                t_dict = gene_map[gene_name]["transcripts"]
+                if tid not in t_dict:
+                    t_dict[tid] = {"strand": strand, "exons": [], "cds": [], "stop_codons": []}
+
+                if feature == "exon":
+                    t_dict[tid]["exons"].append((start, end))
+                elif feature == "CDS":
+                    t_dict[tid]["cds"].append((start, end))
+                elif feature == "stop_codon":
+                    t_dict[tid]["stop_codons"].append((start, end))
+
+        # Sort exons and CDS by genomic position
+        for g_data in gene_map.values():
+            for t_data in g_data["transcripts"].values():
+                t_data["exons"].sort(key=lambda x: x[0])
+                t_data["cds"].sort(key=lambda x: x[0])
+                t_data["stop_codons"].sort(key=lambda x: x[0])
+
+        _GTF_CACHE[gtf_path] = gene_map
+        return gene_map
+
+    except Exception as e:
+        print(f"  [Notice] GTF parsing warning: {e}. Falling back to coordinate length heuristic.")
+        return {}
+
+
+def calculate_functional_impairment_score(dpsi: float, log2fc: float, cds_frame: str, nmd: str, domain: str = "CDS Segment") -> tuple:
     """
     Calculates a literature-grounded Loss-of-Function (LoF) Functional Impairment Probability Score (%)
     along with risk classification tier and primary dysfunction cause.
 
     Returns: (impairment_score_pct, impairment_tier, primary_dysfunction_cause)
     """
-    if use_mock_annotations and gene and gene.upper().strip() in KNOWN_GENE_ISOFORM_ANNOTATIONS:
-        kb = KNOWN_GENE_ISOFORM_ANNOTATIONS[gene.upper().strip()]
-        score = kb["override_score"]
-        cause = kb["primary_cause"]
+    score = 15.0
+    abs_dpsi = abs(dpsi)
+
+    # 1. Frame-Shift Reading Alteration (+30%)
+    if "Frame-Shift" in cds_frame:
+        score += 30.0
+
+    # 2. NMD Degradation Vulnerability (+25% for canonical >55nt rule, +15% for putative candidate)
+    if "NMD Sensitive" in nmd:
+        score += 25.0
+    elif "NMD Candidate" in nmd:
+        score += 15.0
+
+    # 3. Protein Coding Overlap (+20%)
+    if "In-Frame" in cds_frame or "Frame-Shift" in cds_frame:
+        score += 20.0
+
+    # 4. Splicing Magnitude (|ΔPSI|, up to +20%)
+    score += min(20.0, abs_dpsi * 60.0)
+
+    # 5. NMD Paradox Bonus (+15% if mRNA Up but NMD triggered)
+    if log2fc > 0.5 and ("NMD Sensitive" in nmd or "Frame-Shift" in cds_frame):
+        score += 15.0
+
+    score = min(98.0, max(15.0, round(score, 1)))
+
+    # Primary Dysfunction Cause Determination
+    if "NMD Sensitive" in nmd and log2fc > 0:
+        cause = "NMD Degradation Paradox (mRNA Up, Protein Down)"
+    elif "Frame-Shift" in cds_frame:
+        cause = "Frame-Shift Reading Alteration & Early Termination"
+    elif "In-Frame" in cds_frame and abs_dpsi > 0.2:
+        cause = "In-Frame Coding Alteration (Structural / Binding Shift)"
+    elif abs_dpsi > 0.2:
+        cause = "Major Isoform Switch"
     else:
-        # Multi-factor algorithmic calculation
-        score = 15.0
-        abs_dpsi = abs(dpsi)
-
-        # 1. Frame-Shift Weight (+30%)
-        if "Frame-Shift" in cds_frame:
-            score += 30.0
-
-        # 2. NMD Degradation Vulnerability (+25%)
-        if "NMD Sensitive" in nmd:
-            score += 25.0
-        elif "NMD Candidate" in nmd:
-            score += 15.0
-
-        # 3. Critical Domain Disruption (+20%)
-        if any(w in domain for w in ["Core", "Domain", "Catalytic", "TAD", "SH2", "Kinase", "Phosphatase", "NLS", "BRCT"]):
-            score += 20.0
-
-        # 4. Splicing Magnitude (|ΔPSI|, up to +20%)
-        score += min(20.0, abs_dpsi * 60.0)
-
-        # 5. NMD Paradox Bonus (+15% if mRNA Up but NMD triggered)
-        if log2fc > 0.5 and ("NMD Sensitive" in nmd or "Frame-Shift" in cds_frame):
-            score += 15.0
-
-        score = min(98.0, max(15.0, score))
-
-        # Primary Dysfunction Cause Determination
-        if "NMD Sensitive" in nmd and log2fc > 0:
-            cause = "NMD Degradation Paradox (mRNA Up, Protein Down)"
-        elif "Frame-Shift" in cds_frame:
-            cause = "Frame-Shift Reading Alteration & Early Termination"
-        elif abs_dpsi > 0.2:
-            cause = "Major Isoform Switch & Functional Domain Shift"
-        else:
-            cause = "Partial Isoform Variation"
+        cause = "Partial Isoform Variation"
 
     # Determine Risk Tier
     if score >= 75.0:
@@ -140,81 +138,122 @@ def calculate_functional_impairment_score(dpsi: float, log2fc: float, cds_frame:
     else:
         tier = f"🟢 Low Risk ({score:.0f}%)"
 
-    return round(score, 1), tier, cause
+    return score, tier, cause
 
-def annotate_isoform_events(df_merged, gtf_path: str = None, use_mock_annotations: bool = False) -> pd.DataFrame:
+
+def annotate_isoform_events(df_merged, gtf_path: str = None) -> pd.DataFrame:
     """
-    Annotates alternative splicing events with transcript IDs, CDS frame status,
-    PTC position, NMD prediction, protein domain overlaps, localization consequences,
-    and quantitative Functional Impairment Probability Scores (%).
-
-    Returns a pandas DataFrame containing comprehensive event-level isoform annotations.
+    Annotates event-level alternative splicing alterations using genuine Ensembl/GENCODE GTF CDS
+    and coordinates. Evaluates in-frame vs frame-shift mutations, de novo PTC formation,
+    and canonical 50-55 nt NMD degradation rules.
     """
-    if isinstance(df_merged, pl.DataFrame):
-        df_pd = df_merged.to_pandas()
-    else:
-        df_pd = df_merged.copy()
+    if df_merged is None or (isinstance(df_merged, pl.DataFrame) and df_merged.height == 0):
+        return pd.DataFrame()
 
+    df_pd = df_merged.to_pandas() if isinstance(df_merged, pl.DataFrame) else df_merged.copy()
     if df_pd.empty:
-        return pd.DataFrame(columns=[
-            "geneSymbol", "gene_id", "event_type", "transcript_id", "coordinates",
-            "delta_psi", "log2FoldChange", "cds_frame", "ptc_position",
-            "nmd_prediction", "protein_domain", "localization_consequence",
-            "impairment_score_pct", "impairment_tier", "primary_dysfunction_cause"
-        ])
+        return pd.DataFrame()
+
+    gtf_annotations = parse_gtf_cds_structure(gtf_path) if gtf_path else {}
 
     annotated_rows = []
 
-    for idx, row in df_pd.iterrows():
+    for _, row in df_pd.iterrows():
         gene = str(row.get("geneSymbol", "N/A")).upper().strip()
         gene_id = str(row.get("gene_id", "N/A"))
         event_type = str(row.get("event_type", "SE")).upper()
         coords = str(row.get("coordinates", "chr:0-0"))
-        dpsi = float(row.get("delta_psi", 0.0))
-        log2fc = float(row.get("log2FoldChange", 0.0))
+        dpsi = float(row.get("delta_psi", 0.0) if row.get("delta_psi") is not None else 0.0)
+        log2fc = float(row.get("log2FoldChange", 0.0) if row.get("log2FoldChange") is not None else 0.0)
+        inc_counts = int(row.get("inc_counts", 0) if row.get("inc_counts") is not None else 0)
+        exc_counts = int(row.get("exc_counts", 0) if row.get("exc_counts") is not None else 0)
 
-        # Check if curated annotation exists in knowledge base (only if use_mock_annotations is True)
-        if use_mock_annotations and gene in KNOWN_GENE_ISOFORM_ANNOTATIONS:
-            kb = KNOWN_GENE_ISOFORM_ANNOTATIONS[gene]
-            tx_id = kb["transcript_id"]
-            domain = kb["domain"]
-            cds_frame = kb["in_frame_event"]
-            ptc_pos = kb["ptc_pos"]
-            nmd = kb["nmd"]
-            loc = kb["localization"]
-        else:
-            # Algorithmic calculation based on event coordinates and type
-            tx_id = f"ENST_{gene_id if gene_id != 'N/A' else gene}_201"
-            domain = f"{gene} Functional Core Domain"
-
-            # Parse coordinates length heuristic
-            try:
-                parts = coords.replace(":", "-").split("-")
-                num_parts = [int(p) for p in parts if p.isdigit()]
-                if len(num_parts) >= 2:
-                    exon_len = abs(num_parts[1] - num_parts[0])
-                else:
-                    exon_len = 120
-            except Exception:
-                exon_len = 120
-
-            if exon_len % 3 == 0:
-                cds_frame = f"In-Frame ({exon_len} bp, {exon_len // 3} aa deletion/inclusion)"
-                ptc_pos = "No PTC (In-Frame Event)"
-                nmd = "Stable Isoform Switch (Functional Alteration)"
-                loc = "Structural Modification / Binding Interface Shift"
+        # Parse coordinate positions
+        try:
+            parts = coords.replace(":", "-").split("-")
+            num_parts = [int(p) for p in parts if p.isdigit()]
+            if len(num_parts) >= 4:
+                exon_s, exon_e = num_parts[2], num_parts[3] if len(num_parts) >= 4 else (num_parts[0], num_parts[1])
+                exon_len = abs(exon_e - exon_s)
+            elif len(num_parts) >= 2:
+                exon_len = abs(num_parts[1] - num_parts[0])
             else:
-                cds_frame = f"Frame-Shift (+{exon_len % 3} nt, Altered Reading Frame)"
-                ptc_pos = f"PTC at Codon +{max(30, exon_len // 2)}"
-                nmd = "NMD Sensitive (Targeted for Degradation)" if abs(dpsi) > 0.15 else "NMD Candidate"
-                loc = "Loss of C-Terminal Target Signal / Nuclear Exclusion"
+                exon_len = 120
+        except Exception:
+            exon_len = 120
+
+        # Retrieve GTF gene models if available
+        g_model = gtf_annotations.get(gene) or gtf_annotations.get(gene_id.upper())
+
+        tx_id = f"Canonical Transcript ({gene})"
+        domain = "Coding Exon Segment"
+
+        if g_model and g_model.get("transcripts"):
+            transcripts = g_model["transcripts"]
+            best_tid = next(iter(transcripts.keys()))
+            tx_data = transcripts[best_tid]
+            tx_id = best_tid
+            strand = tx_data.get("strand", "+")
+
+            # Check if event coordinates intersect any CDS
+            cds_list = tx_data.get("cds", [])
+            in_cds = any(not (exon_e < c_start or exon_s > c_end) for c_start, c_end in cds_list) if (len(num_parts) >= 4 and cds_list) else bool(cds_list)
+
+            if in_cds:
+                domain = f"Coding Exon Segment ({gene})"
+                if exon_len % 3 == 0:
+                    cds_frame = f"In-Frame Event (Δ{exon_len} bp, {exon_len // 3} aa)"
+                    ptc_pos = "No De Novo PTC (In-Frame)"
+                    nmd = "Escapes NMD (In-Frame Alteration)"
+                    loc = "Altered Protein Conformation / Binding Interface"
+                else:
+                    shift_nt = exon_len % 3
+                    cds_frame = f"Frame-Shift (Δ{exon_len} bp, +{shift_nt} nt shift)"
+                    
+                    # Canonical 50-55 nt rule evaluation
+                    # Check distance from event to last exon-exon junction
+                    exons = tx_data.get("exons", [])
+                    if len(exons) >= 2:
+                        last_junction = exons[-2][1] if strand == "+" else exons[1][0]
+                        dist_to_last_junc = (last_junction - exon_e) if strand == "+" else (exon_s - last_junction)
+                        if dist_to_last_junc > 55:
+                            nmd = "NMD Sensitive (Canonical >55 nt rule upstream of last junction)"
+                            ptc_pos = f"Downstream PTC projected >55 nt from terminal junction"
+                            loc = "Transcript Targeted for Rapid mRNA Decay"
+                        else:
+                            nmd = "Escapes NMD (Located in terminal exon or <55 nt to last junction)"
+                            ptc_pos = "PTC located in terminal exon (NMD escape)"
+                            loc = "Truncated C-terminal Product / Partial Loss"
+                    else:
+                        nmd = "NMD Sensitive (Putative frameshift)"
+                        ptc_pos = "Downstream PTC in altered reading frame"
+                        loc = "Aberrant Reading Frame"
+            else:
+                cds_frame = "Non-Coding / UTR Exon Event"
+                ptc_pos = "N/A (Untranslated Region)"
+                nmd = "NMD Inactive (Non-coding/UTR)"
+                loc = "Preserved Coding Sequence"
+                domain = "Untranslated Region (UTR)"
+        else:
+            # Algorithmic calculation based strictly on length heuristic
+            tx_id = f"Event_{gene}_{event_type}"
+            domain = "Exon Coding Segment"
+            if exon_len % 3 == 0:
+                cds_frame = f"In-Frame Event ({exon_len} bp, {exon_len // 3} aa)"
+                ptc_pos = "No PTC (In-Frame)"
+                nmd = "Stable Isoform Candidate"
+                loc = "Protein Structural Variation"
+            else:
+                cds_frame = f"Frame-Shift ({exon_len} bp, +{exon_len % 3} nt shift)"
+                ptc_pos = f"Altered Reading Frame (+{exon_len % 3} nt)"
+                nmd = "NMD Sensitive (Putative frameshift)" if abs(dpsi) > 0.15 else "NMD Candidate"
+                loc = "Potential C-Terminal Reading Frame Loss"
 
         score_pct, tier, cause = calculate_functional_impairment_score(
-            dpsi=dpsi, log2fc=log2fc, cds_frame=cds_frame, nmd=nmd, domain=domain, gene=gene, use_mock_annotations=use_mock_annotations
+            dpsi=dpsi, log2fc=log2fc, cds_frame=cds_frame, nmd=nmd, domain=domain
         )
 
-
-        quadrant = row.get("quadrant", "Q1")
+        quadrant = row.get("quadrant", "Q2")
         annotated_rows.append({
             "geneSymbol": gene,
             "gene_id": gene_id,
@@ -224,6 +263,8 @@ def annotate_isoform_events(df_merged, gtf_path: str = None, use_mock_annotation
             "coordinates": coords,
             "delta_psi": dpsi,
             "log2FoldChange": log2fc,
+            "inc_counts": inc_counts,
+            "exc_counts": exc_counts,
             "impairment_score_pct": score_pct,
             "impairment_tier": tier,
             "primary_dysfunction_cause": cause,
@@ -234,8 +275,4 @@ def annotate_isoform_events(df_merged, gtf_path: str = None, use_mock_annotation
             "localization_consequence": loc
         })
 
-    # Sort by highest impairment score descending
-    df_result = pd.DataFrame(annotated_rows)
-    if not df_result.empty and "impairment_score_pct" in df_result.columns:
-        df_result = df_result.sort_values(by="impairment_score_pct", ascending=False)
-    return df_result
+    return pd.DataFrame(annotated_rows)

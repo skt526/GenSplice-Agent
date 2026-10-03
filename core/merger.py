@@ -11,11 +11,14 @@ def merge_deg_and_rmats(
     log2fc_cutoff: float = DEFAULT_LOG2FC_CUTOFF,
     delta_psi_cutoff: float = DEFAULT_DELTA_PSI_CUTOFF,
     deg_fdr_cutoff: float = DEFAULT_DEG_FDR_CUTOFF,
-    as_fdr_cutoff: float = DEFAULT_AS_FDR_CUTOFF
+    as_fdr_cutoff: float = DEFAULT_AS_FDR_CUTOFF,
+    deduplicate_genes: bool = True
 ) -> pl.DataFrame:
     """
-    Merges DEG data and primary rMATS data on normalized gene_id / geneSymbol,
+    Merges DEG data and rMATS data on normalized gene_id / geneSymbol,
     and applies the 4-quadrant statistical classification algorithm.
+    When deduplicate_genes=True, keeps the primary representative event per gene (for 4-quadrant gene plots).
+    When deduplicate_genes=False, retains ALL alternative splicing events across all genes (for event-level isoform analysis).
     """
     if (df_deg is None or df_deg.height == 0) and (df_rmats is None or df_rmats.height == 0):
         return pl.DataFrame()
@@ -94,7 +97,9 @@ def merge_deg_and_rmats(
         pl.col("as_fdr").fill_null(1.0),
         pl.col("as_pvalue").fill_null(1.0),
         pl.col("event_type").fill_null("None"),
-        pl.col("coordinates").fill_null("N/A")
+        pl.col("coordinates").fill_null("N/A"),
+        pl.col("inc_counts").fill_null(0) if "inc_counts" in merged.columns else pl.lit(0).alias("inc_counts"),
+        pl.col("exc_counts").fill_null(0) if "exc_counts" in merged.columns else pl.lit(0).alias("exc_counts")
     ])
 
     # Remove temporary helper columns
@@ -102,8 +107,8 @@ def merge_deg_and_rmats(
     if drop_cols:
         merged = merged.drop(drop_cols)
 
-    # Deduplicate by geneSymbol keeping the row with lowest FDR / highest significance
-    if "geneSymbol" in merged.columns:
+    # Conditionally deduplicate by geneSymbol keeping the row with lowest FDR / highest significance
+    if deduplicate_genes and "geneSymbol" in merged.columns:
         merged = merged.sort(["as_fdr", "deg_fdr"], descending=[False, False]).unique(subset=["geneSymbol"], keep="first")
 
     # Evaluate significance flags

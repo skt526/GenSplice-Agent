@@ -28,12 +28,19 @@ def export_html_report(
     log2fc_cutoff: float = 1.0,
     delta_psi_cutoff: float = 0.1,
     deg_fdr_cutoff: float = 0.05,
-    as_fdr_cutoff: float = 0.05
+    as_fdr_cutoff: float = 0.05,
+    df_all_events: pl.DataFrame = None,
+    fasta_path: str = None,
+    gtf_path: str = None,
+    organism: str = "Homo sapiens"
 ) -> str:
     """
     Exports a self-contained Light Mode interactive HTML report with standard horizontal GO & KEGG Plotly bar charts.
     """
     os.makedirs(os.path.dirname(output_html_path), exist_ok=True)
+
+    if df_all_events is None:
+        df_all_events = df_merged
 
     fig_quad = build_quadrant_plot(df_merged, log2fc_cutoff, delta_psi_cutoff, color_by="quadrant")
     quad_html = fig_quad.to_html(full_html=False, include_plotlyjs="cdn", div_id="plotly-quad-div")
@@ -45,6 +52,8 @@ def export_html_report(
     top_coords = "chr16:84860000:84861500:84863000"
     top_event = "SE"
     top_delta_psi = 0.35
+    top_inc_counts = 0
+    top_exc_counts = 0
 
     q2_top = df_merged.filter(pl.col("quadrant") == "Q2")
     if q2_top.height > 0:
@@ -52,7 +61,9 @@ def export_html_report(
         top_gene_symbol = row0.get("geneSymbol", "CRISPLD2")
         top_coords = row0.get("coordinates", top_coords)
         top_event = row0.get("event_type", "SE")
-        top_delta_psi = row0.get("delta_psi", 0.35)
+        top_delta_psi = float(row0.get("delta_psi", 0.35) if row0.get("delta_psi") is not None else 0.35)
+        top_inc_counts = int(row0.get("inc_counts", 0) if row0.get("inc_counts") is not None else 0)
+        top_exc_counts = int(row0.get("exc_counts", 0) if row0.get("exc_counts") is not None else 0)
     else:
         q1_top = df_merged.filter(pl.col("quadrant") == "Q1")
         if q1_top.height > 0:
@@ -60,38 +71,46 @@ def export_html_report(
             top_gene_symbol = row0.get("geneSymbol", "STAT3")
             top_coords = row0.get("coordinates", top_coords)
             top_event = row0.get("event_type", "SE")
-            top_delta_psi = row0.get("delta_psi", 0.35)
+            top_delta_psi = float(row0.get("delta_psi", 0.35) if row0.get("delta_psi") is not None else 0.35)
+            top_inc_counts = int(row0.get("inc_counts", 0) if row0.get("inc_counts") is not None else 0)
+            top_exc_counts = int(row0.get("exc_counts", 0) if row0.get("exc_counts") is not None else 0)
 
     fig_sashimi = plot_exon_structure(
         gene_symbol=top_gene_symbol,
         event_type=top_event,
         coordinates=top_coords,
+        inc_counts=top_inc_counts,
+        exc_counts=top_exc_counts,
         delta_psi=top_delta_psi
     )
     sashimi_html = fig_sashimi.to_html(full_html=False, include_plotlyjs=False, div_id="plotly-sashimi-div")
 
-    # Splicing target candidates (Q2 Splicing-Driven + Q1 Dual Responders + all AS events)
-    if "event_type" in df_merged.columns:
+    # Splicing target candidates (Q2 Splicing-Driven + Q1 Dual Responders + all AS events from df_all_events)
+    if "event_type" in df_all_events.columns:
         has_as_filter = pl.col("event_type").is_not_null() & (pl.col("event_type") != "None")
-        splicing_all = df_merged.filter(has_as_filter | pl.col("quadrant").is_in(["Q2", "Q1"]))
-        target_candidates = splicing_all if splicing_all.height > 0 else df_merged
+        splicing_all = df_all_events.filter(has_as_filter | pl.col("quadrant").is_in(["Q2", "Q1"]))
+        target_candidates = splicing_all if splicing_all.height > 0 else df_all_events
     else:
-        q2_q1_sub = df_merged.filter(pl.col("quadrant").is_in(["Q2", "Q1"]))
-        target_candidates = q2_q1_sub if q2_q1_sub.height > 0 else df_merged
+        q2_q1_sub = df_all_events.filter(pl.col("quadrant").is_in(["Q2", "Q1"]))
+        target_candidates = q2_q1_sub if q2_q1_sub.height > 0 else df_all_events
 
     # Splicing metadata map for client-side interactive Sashimi Plot re-rendering
+    # Stores representative event in sashimi_dict, and all events per gene in sashimi_events_map
     sashimi_dict = {}
+    sashimi_events_map = {}
     for r in target_candidates.iter_rows(named=True):
         sym = r.get("geneSymbol")
         if sym:
+            sym_clean = sym.strip()
+            sym_upper = sym_clean.upper()
             ev = r.get("event_type", "SE")
             coords = r.get("coordinates", "")
-            dpsi = float(r.get("delta_psi", 0.35) if r.get("delta_psi") is not None else 0.35)
-            c_info = resolve_gene_exon_coords(sym, ev, coords)
-            inc_c = int(max(20, abs(dpsi) * 450 + 50))
-            exc_c = int(max(10, (1.0 - abs(dpsi)) * 140 + 15))
+            dpsi = float(r.get("delta_psi", 0.0) if r.get("delta_psi") is not None else 0.0)
+            c_info = resolve_gene_exon_coords(sym_clean, ev, coords)
+            inc_c = int(r.get("inc_counts", 0) if r.get("inc_counts") is not None else 0)
+            exc_c = int(r.get("exc_counts", 0) if r.get("exc_counts") is not None else 0)
             entry = {
-                "gene_symbol": sym,
+                "gene_symbol": sym_clean,
                 "event_type": ev,
                 "coordinates": coords if coords and coords != "N/A" else f"{c_info['chrom']}:{c_info['ex1'][0]}-{c_info['ex1'][1]}:{c_info['ex2'][0]}-{c_info['ex2'][1]}:{c_info['ex3'][0]}-{c_info['ex3'][1]}",
                 "chrom": c_info["chrom"],
@@ -103,8 +122,13 @@ def export_html_report(
                 "ex3": list(c_info["ex3"]),
                 "nums": c_info.get("nums", [])
             }
-            sashimi_dict[sym] = entry
-            sashimi_dict[sym.upper()] = entry
+            if sym_upper not in sashimi_events_map:
+                sashimi_events_map[sym_upper] = []
+            sashimi_events_map[sym_upper].append(entry)
+
+            if sym_upper not in sashimi_dict or abs(dpsi) > abs(sashimi_dict[sym_upper].get("delta_psi", 0.0)):
+                sashimi_dict[sym_clean] = entry
+                sashimi_dict[sym_upper] = entry
 
     if top_gene_symbol not in sashimi_dict:
         c_info = resolve_gene_exon_coords(top_gene_symbol, top_event, top_coords)
@@ -114,8 +138,8 @@ def export_html_report(
             "coordinates": top_coords,
             "chrom": c_info["chrom"],
             "delta_psi": float(top_delta_psi),
-            "inc_counts": int(max(20, abs(top_delta_psi) * 450 + 50)),
-            "exc_counts": int(max(10, (1.0 - abs(top_delta_psi)) * 140 + 15)),
+            "inc_counts": top_inc_counts,
+            "exc_counts": top_exc_counts,
             "ex1": list(c_info["ex1"]),
             "ex2": list(c_info["ex2"]),
             "ex3": list(c_info["ex3"]),
@@ -123,10 +147,13 @@ def export_html_report(
         }
         sashimi_dict[top_gene_symbol] = entry
         sashimi_dict[top_gene_symbol.upper()] = entry
-    sashimi_data_json = json.dumps(sashimi_dict)
+        sashimi_events_map[top_gene_symbol.upper()] = [entry]
 
-    # Isoform-Specific RT-qPCR Primer Designer Engine (Synchronized with Sashimi Targets)
-    primer_df = generate_primer_table_for_targets(target_candidates)
+    sashimi_data_json = json.dumps(sashimi_dict)
+    sashimi_events_json = json.dumps(sashimi_events_map)
+
+    # Isoform-Specific RT-qPCR Primer Designer Engine (Synchronized with Sashimi Targets & Reference FASTA)
+    primer_df = generate_primer_table_for_targets(target_candidates, fasta_path=fasta_path)
     primer_records = primer_df.to_dicts() if primer_df.height > 0 else []
     primer_records_json = json.dumps(primer_records)
 
@@ -252,19 +279,19 @@ def export_html_report(
                             gene_pathway_map[g_clean][key].append(term)
     gene_pathway_json = json.dumps(gene_pathway_map)
 
-    # Pre-generate Event-Level Isoform Annotation Table Rows (Covering all candidate splicing targets)
-    if "event_type" in df_sorted.columns:
-        has_as_sub = df_sorted.filter(pl.col("event_type").is_not_null() & (pl.col("event_type") != "None"))
+    # Pre-generate Event-Level Isoform Annotation Table Rows (Covering all candidate splicing targets from df_all_events)
+    if "event_type" in df_all_events.columns:
+        has_as_sub = df_all_events.filter(pl.col("event_type").is_not_null() & (pl.col("event_type") != "None"))
         if has_as_sub.height == 0:
-            has_as_sub = df_sorted
+            has_as_sub = df_all_events
     else:
-        has_as_sub = df_sorted.filter(pl.col("quadrant").is_in(["Q1", "Q2"]))
+        has_as_sub = df_all_events.filter(pl.col("quadrant").is_in(["Q1", "Q2"]))
         if has_as_sub.height == 0:
-            has_as_sub = df_sorted
+            has_as_sub = df_all_events
 
-    # Annotate all candidate splicing events without truncation
+    # Annotate all candidate splicing events without truncation using real GTF CDS structure
     isoform_source_df = has_as_sub
-    isoform_df = annotate_isoform_events(isoform_source_df)
+    isoform_df = annotate_isoform_events(isoform_source_df, gtf_path=gtf_path)
 
     isoform_rows_list = []
     isoform_records_list = []
@@ -312,7 +339,7 @@ def export_html_report(
 
     ncbi_pubmed_map = {}
     for g in primary_ncbi_genes:
-        s_info = fetch_ncbi_gene_summary(g)
+        s_info = fetch_ncbi_gene_summary(g, organism=organism)
         p_info = fetch_pubmed_literature(g, top_n=3)
         ncbi_pubmed_map[g] = {
             "ncbi": s_info,
@@ -732,7 +759,11 @@ def export_html_report(
     <div class="card" id="sashimi-card">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-bottom: 12px;">
             <h2 style="color: #0F172A; margin: 0; border: none; padding: 0;">🧩 Visual Exon-Intron Structure & Sashimi Engine</h2>
-            <span style="font-size: 13px; color: #64748B; font-weight: 600;">🔗 Synchronized with NCBI Gene Selection</span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <label for="sashimi-event-select" id="sashimi-event-select-label" style="font-size: 13px; font-weight: 700; color: #475569; display: none;">Event / Isoform:</label>
+                <select id="sashimi-event-select" style="display: none; padding: 4px 10px; border-radius: 6px; border: 1px solid #CBD5E1; font-size: 13px; font-weight: 600; background: #FFFFFF; cursor: pointer;"></select>
+                <span style="font-size: 13px; color: #64748B; font-weight: 600;">🔗 Synchronized with NCBI Gene Selection</span>
+            </div>
         </div>
         <div id="sashimi-chart-container" style="margin-top: 8px; width: 100%;">
             {sashimi_html}
@@ -787,6 +818,7 @@ def export_html_report(
         const ncbiPubmedData = {ncbi_pubmed_json};
         const primerRecords = {primer_records_json};
         const sashimiGeneData = {sashimi_data_json};
+        const sashimiEventsMap = {sashimi_events_json};
         const isoformRecords = {isoform_records_json};
         const baseGoRecords = {go_records_json};
         const baseKeggRecords = {kegg_records_json};
@@ -805,6 +837,8 @@ def export_html_report(
         const downloadIsoformBtn = document.getElementById('download-isoform-csv-btn');
         const toggleIsoformBtn = document.getElementById('isoform-toggle-view-btn');
         const ncbiSelect = document.getElementById('ncbi-gene-select');
+        const sashimiEventSelect = document.getElementById('sashimi-event-select');
+        const sashimiEventSelectLabel = document.getElementById('sashimi-event-select-label');
 
         let currentFilteredGenes = [];
 
@@ -998,7 +1032,7 @@ def export_html_report(
             handleMasterGeneSelection(ncbiSelect.value);
         }}
 
-        function renderSashimiPlot(geneSymbol) {{
+        function renderSashimiPlot(geneSymbol, eventIndex = 0) {{
             const sashimiDiv = document.getElementById('plotly-sashimi-div');
             if (!sashimiDiv || !window.Plotly) return;
 
@@ -1011,31 +1045,57 @@ def export_html_report(
                 if (titleElem) {{
                     titleElem.innerHTML = `<b>No Splicing Target Selected</b>`;
                 }}
+                if (sashimiEventSelect) sashimiEventSelect.style.display = 'none';
+                if (sashimiEventSelectLabel) sashimiEventSelectLabel.style.display = 'none';
                 return;
             }}
 
             const upper = (geneSymbol || '').trim().toUpperCase();
-            let info = (sashimiGeneData && (sashimiGeneData[upper] || sashimiGeneData[geneSymbol])) || 
+            const events = (sashimiEventsMap && sashimiEventsMap[upper]) || [];
+
+            if (sashimiEventSelect && sashimiEventSelectLabel) {{
+                if (events.length > 1) {{
+                    sashimiEventSelect.innerHTML = '';
+                    events.forEach((ev, idx) => {{
+                        const opt = document.createElement('option');
+                        opt.value = idx;
+                        const sign = ev.delta_psi >= 0 ? '+' : '';
+                        const coordShort = (ev.coordinates || '').split(':')[1] || ev.coordinates || 'N/A';
+                        opt.textContent = `Event ${idx + 1}: ${ev.event_type} (${coordShort}) [ΔPSI=${sign}${parseFloat(ev.delta_psi).toFixed(2)}]`;
+                        sashimiEventSelect.appendChild(opt);
+                    }});
+                    sashimiEventSelect.value = eventIndex;
+                    sashimiEventSelect.style.display = 'inline-block';
+                    sashimiEventSelectLabel.style.display = 'inline-block';
+                }} else {{
+                    sashimiEventSelect.style.display = 'none';
+                    sashimiEventSelectLabel.style.display = 'none';
+                }}
+            }}
+
+            let info = (events.length > eventIndex ? events[eventIndex] : null) || 
+                       (sashimiGeneData && (sashimiGeneData[upper] || sashimiGeneData[geneSymbol])) || 
                        (rawGeneData && rawGeneData.find(g => (g.geneSymbol || '').toUpperCase() === upper));
 
             if (!info) {{
-                info = {{ gene_symbol: geneSymbol, event_type: "SE", coordinates: "N/A", delta_psi: 0.35 }};
+                info = {{ gene_symbol: geneSymbol, event_type: "SE", coordinates: "N/A", delta_psi: 0.0, inc_counts: 0, exc_counts: 0 }};
             }}
 
             const symbol = info.gene_symbol || geneSymbol;
             const eventType = (info.event_type || "SE").toUpperCase();
-            const deltaPsi = parseFloat(info.delta_psi !== undefined && info.delta_psi !== null ? info.delta_psi : 0.35);
+            const deltaPsi = parseFloat(info.delta_psi !== undefined && info.delta_psi !== null ? info.delta_psi : 0.0);
 
-            // Update title text below the plot (EXACTLY ONCE)
+            // Update title text below the plot
             const titleElem = document.getElementById('sashimi-title-text');
             if (titleElem) {{
                 const sign = deltaPsi >= 0 ? '+' : '';
-                titleElem.innerHTML = `<b>${{symbol}} Exon Structure & Splicing Sashimi Plot</b> (${{eventType}} | ΔPSI = ${{sign}}${{deltaPsi.toFixed(2)}})`;
+                const evNumText = events.length > 1 ? ` [Event ${eventIndex + 1} of ${events.length}]` : '';
+                titleElem.innerHTML = `<b>${{symbol}} Exon Structure & Splicing Sashimi Plot${{evNumText}}</b> (${{eventType}} | ΔPSI = ${{sign}}${{deltaPsi.toFixed(2)}})`;
             }}
 
-            // Read counts
-            const inc_counts = info.inc_counts || Math.round(Math.max(20, Math.abs(deltaPsi) * 450 + 50));
-            const exc_counts = info.exc_counts || Math.round(Math.max(10, (1.0 - Math.abs(deltaPsi)) * 140 + 15));
+            // Read counts (strictly authentic counts, zero fallback without fabricated multipliers)
+            const inc_counts = (info.inc_counts !== undefined && info.inc_counts !== null) ? info.inc_counts : 0;
+            const exc_counts = (info.exc_counts !== undefined && info.exc_counts !== null) ? info.exc_counts : 0;
 
             // Chromosome & coordinates
             let chrom = info.chrom || "chr1";
@@ -1063,19 +1123,10 @@ def export_html_report(
                     ex2 = [s, e];
                     ex3 = [e + diff * 2, e + diff * 3];
                 }} else {{
-                    let h = 0;
-                    for (let i = 0; i < upper.length; i++) h = (h * 31 + upper.charCodeAt(i)) & 0xffffff;
-                    h = Math.abs(h);
-                    chrom = `chr${{(h % 22) + 1}}`;
-                    const base = 10000000 + (h % 500000) * 100;
-                    const e1_len = 150 + (h % 80);
-                    const in1 = 800 + ((h >> 3) % 400);
-                    const e2_len = 120 + ((h >> 6) % 100);
-                    const in2 = 900 + ((h >> 9) % 500);
-                    const e3_len = 180 + ((h >> 12) % 90);
-                    ex1 = [base, base + e1_len];
-                    ex2 = [ex1[1] + in1, ex1[1] + in1 + e2_len];
-                    ex3 = [ex2[1] + in2, ex2[1] + in2 + e3_len];
+                    chrom = info.chrom || "chr1";
+                    ex1 = [1000, 1200];
+                    ex2 = [1800, 2000];
+                    ex3 = [2600, 2800];
                 }}
             }}
 
@@ -1727,65 +1778,82 @@ def export_html_report(
             currentGoData = sortedGo;
             currentKeggData = sortedKegg;
 
-            if (goDiv && window.Plotly && sortedGo.length) {{
-                const yVal = sortedGo.map(item => item.term.length > 55 ? item.term.slice(0,55) + '...' : item.term).reverse();
-                const xVal = sortedGo.map(item => parseFloat(item.logP)).reverse();
-                const hoverText = sortedGo.map(item => `<b>${{item.term}}</b><br>-log₁₀(p): ${{item.logP}}<br>p-value: ${{item.pvalue}} | FDR: ${{item.adjPvalue}}<br>Overlap: ${{item.overlap}}<br>Associated Genes: ${{item.genes}}`).reverse();
-                Plotly.react(goDiv, [{{
-                    x: xVal,
-                    y: yVal,
-                    type: 'bar',
-                    orientation: 'h',
-                    text: xVal.map(v => v.toFixed(1)),
-                    textposition: 'auto',
-                    marker: {{
-                        color: '#3B82F6',
-                        line: {{ color: '#1E40AF', width: 1 }}
-                    }},
-                    hoverinfo: 'text',
-                    hovertext: hoverText
-                }}], {{
-                    margin: {{ l: 280, r: 30, t: 30, b: 50 }},
-                    xaxis: {{ title: '<b>-log₁₀(p-value)</b>' }},
-                    yaxis: {{ automargin: true }},
-                    template: 'plotly_white',
-                    paper_bgcolor: '#FFFFFF',
-                    plot_bgcolor: '#FFFFFF',
-                    height: 380
-                }});
-                Plotly.Plots.resize(goDiv);
+            if (goDiv && window.Plotly) {{
+                if (sortedGo.length) {{
+                    const yVal = sortedGo.map(item => item.term.length > 55 ? item.term.slice(0,55) + '...' : item.term).reverse();
+                    const xVal = sortedGo.map(item => parseFloat(item.logP)).reverse();
+                    const hoverText = sortedGo.map(item => `<b>${{item.term}}</b><br>-log₁₀(p): ${{item.logP}}<br>p-value: ${{item.pvalue}} | FDR: ${{item.adjPvalue}}<br>Overlap: ${{item.overlap}}<br>Associated Genes: ${{item.genes}}`).reverse();
+                    Plotly.react(goDiv, [{{
+                        x: xVal,
+                        y: yVal,
+                        type: 'bar',
+                        orientation: 'h',
+                        text: xVal.map(v => v.toFixed(1)),
+                        textposition: 'auto',
+                        marker: {{
+                            color: '#3B82F6',
+                            line: {{ color: '#1E40AF', width: 1 }}
+                        }},
+                        hoverinfo: 'text',
+                        hovertext: hoverText
+                    }}], {{
+                        margin: {{ l: 280, r: 30, t: 30, b: 50 }},
+                        xaxis: {{ title: '<b>-log₁₀(p-value)</b>' }},
+                        yaxis: {{ automargin: true }},
+                        template: 'plotly_white',
+                        paper_bgcolor: '#FFFFFF',
+                        plot_bgcolor: '#FFFFFF',
+                        height: 380
+                    }});
+                    Plotly.Plots.resize(goDiv);
+                }} else {{
+                    Plotly.react(goDiv, [], {{
+                        title: "<b>Enrichr API query unavailable: network offline or server timeout</b>",
+                        paper_bgcolor: "#FFFFFF", plot_bgcolor: "#F8FAFC", height: 260
+                    }});
+                }}
             }}
 
-            if (keggDiv && window.Plotly && sortedKegg.length) {{
-                const yVal = sortedKegg.map(item => item.term.length > 55 ? item.term.slice(0,55) + '...' : item.term).reverse();
-                const xVal = sortedKegg.map(item => parseFloat(item.logP)).reverse();
-                const hoverText = sortedKegg.map(item => `<b>${{item.term}}</b><br>-log₁₀(p): ${{item.logP}}<br>p-value: ${{item.pvalue}} | FDR: ${{item.adjPvalue}}<br>Overlap: ${{item.overlap}}<br>Associated Genes: ${{item.genes}}`).reverse();
-                Plotly.react(keggDiv, [{{
-                    x: xVal,
-                    y: yVal,
-                    type: 'bar',
-                    orientation: 'h',
-                    text: xVal.map(v => v.toFixed(1)),
-                    textposition: 'auto',
-                    marker: {{
-                        color: '#8B5CF6',
-                        line: {{ color: '#6D28D9', width: 1 }}
-                    }},
-                    hoverinfo: 'text',
-                    hovertext: hoverText
-                }}], {{
-                    margin: {{ l: 280, r: 30, t: 30, b: 50 }},
-                    xaxis: {{ title: '<b>-log₁₀(p-value)</b>' }},
-                    yaxis: {{ automargin: true }},
-                    template: 'plotly_white',
-                    paper_bgcolor: '#FFFFFF',
-                    plot_bgcolor: '#FFFFFF',
-                    height: 380
-                }});
-                Plotly.Plots.resize(keggDiv);
+            if (keggDiv && window.Plotly) {{
+                if (sortedKegg.length) {{
+                    const yVal = sortedKegg.map(item => item.term.length > 55 ? item.term.slice(0,55) + '...' : item.term).reverse();
+                    const xVal = sortedKegg.map(item => parseFloat(item.logP)).reverse();
+                    const hoverText = sortedKegg.map(item => `<b>${{item.term}}</b><br>-log₁₀(p): ${{item.logP}}<br>p-value: ${{item.pvalue}} | FDR: ${{item.adjPvalue}}<br>Overlap: ${{item.overlap}}<br>Associated Genes: ${{item.genes}}`).reverse();
+                    Plotly.react(keggDiv, [{{
+                        x: xVal,
+                        y: yVal,
+                        type: 'bar',
+                        orientation: 'h',
+                        text: xVal.map(v => v.toFixed(1)),
+                        textposition: 'auto',
+                        marker: {{
+                            color: '#8B5CF6',
+                            line: {{ color: '#6D28D9', width: 1 }}
+                        }},
+                        hoverinfo: 'text',
+                        hovertext: hoverText
+                    }}], {{
+                        margin: {{ l: 280, r: 30, t: 30, b: 50 }},
+                        xaxis: {{ title: '<b>-log₁₀(p-value)</b>' }},
+                        yaxis: {{ automargin: true }},
+                        template: 'plotly_white',
+                        paper_bgcolor: '#FFFFFF',
+                        plot_bgcolor: '#FFFFFF',
+                        height: 380
+                    }});
+                    Plotly.Plots.resize(keggDiv);
+                }} else {{
+                    Plotly.react(keggDiv, [], {{
+                        title: "<b>Enrichr API query unavailable: network offline or server timeout</b>",
+                        paper_bgcolor: "#FFFFFF", plot_bgcolor: "#F8FAFC", height: 260
+                    }});
+                }}
             }}
 
-            const noticeText = `✔ GO & KEGG Enrichment Generated for ΔPSI ≥ ${{psiCut}} • Active Splicing Targets (Q1+Q2): ${{splicingGenes.length}}`;
+            let noticeText = `✔ GO & KEGG Enrichment Generated for ΔPSI ≥ ${{psiCut}} • Active Splicing Targets (Q1+Q2): ${{splicingGenes.length}}`;
+            if (!sortedGo.length && !sortedKegg.length) {{
+                noticeText = "⚠️ Enrichr API query unavailable: network offline or server timeout (no synthetic mock pathways displayed)";
+            }}
             const goNot = document.getElementById('go-notice');
             const keggNot = document.getElementById('kegg-notice');
             if (goNot) goNot.textContent = noticeText;
@@ -1822,29 +1890,14 @@ def export_html_report(
         function downloadFilteredCSV() {{
             if (!currentFilteredGenes.length) return;
 
-            const headers = ["geneSymbol", "gene_id", "current_quadrant", "impairment_score_pct", "impairment_tier", "primary_dysfunction_cause", "log2FoldChange", "delta_psi", "deg_fdr", "as_fdr", "event_type", "coordinates"];
+            const headers = ["geneSymbol", "gene_id", "current_quadrant", "log2FoldChange", "delta_psi", "deg_fdr", "as_fdr", "event_type", "coordinates"];
             let csvContent = headers.join(",") + "\\n";
 
             currentFilteredGenes.forEach(g => {{
-                const symbol = (g.geneSymbol || '').toUpperCase();
-                const dpsi = Math.abs(g.delta_psi || 0);
-                const fc = Math.abs(g.log2FoldChange || 0);
-                
-                let impScore = g.impairment_score_pct || (15.0 + Math.min(35.0, dpsi * 70.0) + Math.min(25.0, fc * 15.0));
-                let impTier = "🟢 Low Risk (30%)";
-                let impCause = g.primary_dysfunction_cause || (dpsi > 0.15 ? "Major Isoform Switch & Functional Domain Shift" : "Partial Isoform Variation");
-
-                if (impScore >= 75.0) {{ impTier = `🔴 High Risk (${{impScore.toFixed(0)}}%)`; }}
-                else if (impScore >= 45.0) {{ impTier = `🟠 Moderate Risk (${{impScore.toFixed(0)}}%)`; }}
-                else {{ impTier = `🟢 Low Risk (${{impScore.toFixed(0)}}%)`; }}
-
                 const row = [
                     `"${{g.geneSymbol || ''}}"`,
                     `"${{g.gene_id || ''}}"`,
                     `"${{g.current_quadrant || ''}}"`,
-                    impScore.toFixed(1),
-                    `"${{impTier}}"`,
-                    `"${{impCause}}"`,
                     (g.log2FoldChange || 0).toFixed(4),
                     (g.delta_psi || 0).toFixed(4),
                     (g.deg_fdr || 1.0).toExponential(3),
@@ -1911,6 +1964,12 @@ def export_html_report(
         if (downloadKeggBtn) downloadKeggBtn.addEventListener('click', downloadKeggCSV);
         if (ncbiSelect) {{
             ncbiSelect.addEventListener('change', (e) => handleMasterGeneSelection(e.target.value));
+        }}
+        if (sashimiEventSelect) {{
+            sashimiEventSelect.addEventListener('change', (e) => {{
+                const curGene = ncbiSelect ? ncbiSelect.value : '';
+                renderSashimiPlot(curGene, parseInt(e.target.value, 10));
+            }});
         }}
         if (downloadIsoformBtn) {{
             downloadIsoformBtn.addEventListener('click', downloadIsoformCSV);

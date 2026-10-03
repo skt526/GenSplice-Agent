@@ -128,7 +128,38 @@ def load_rmats_data(rmats_dir: str) -> pl.DataFrame:
                 pl.col("geneSymbol").cast(pl.Utf8).str.strip_chars('"\'')
             ])
 
-            selected_cols = ["gene_id", "geneSymbol", "event_type", "delta_psi", "as_pvalue", "as_fdr", "coordinates"]
+            # Parse real junction read counts if present in rMATS output
+            has_ijc = "IJC_SAMPLE_1" in df.columns and "SJC_SAMPLE_1" in df.columns
+            if has_ijc:
+                def _sum_counts(val_series):
+                    sums = []
+                    for s in val_series.to_list():
+                        if s is None:
+                            sums.append(0)
+                            continue
+                        try:
+                            parts = [int(float(x.strip())) for x in str(s).replace('"', '').split(',') if x.strip() and x.strip() != 'None']
+                            sums.append(sum(parts))
+                        except Exception:
+                            sums.append(0)
+                    return sums
+
+                ijc1_sum = _sum_counts(df["IJC_SAMPLE_1"])
+                sjc1_sum = _sum_counts(df["SJC_SAMPLE_1"])
+                ijc2_sum = _sum_counts(df["IJC_SAMPLE_2"]) if "IJC_SAMPLE_2" in df.columns else [0] * df.height
+                sjc2_sum = _sum_counts(df["SJC_SAMPLE_2"]) if "SJC_SAMPLE_2" in df.columns else [0] * df.height
+                
+                df = df.with_columns([
+                    pl.Series("inc_counts", [i1 + i2 for i1, i2 in zip(ijc1_sum, ijc2_sum)], dtype=pl.Int64),
+                    pl.Series("exc_counts", [s1 + s2 for s1, s2 in zip(sjc1_sum, sjc2_sum)], dtype=pl.Int64)
+                ])
+            else:
+                df = df.with_columns([
+                    pl.lit(0).alias("inc_counts"),
+                    pl.lit(0).alias("exc_counts")
+                ])
+
+            selected_cols = ["gene_id", "geneSymbol", "event_type", "delta_psi", "as_pvalue", "as_fdr", "coordinates", "inc_counts", "exc_counts"]
             if "chr" in df.columns:
                 selected_cols.append("chr")
             if "strand" in df.columns:
@@ -148,7 +179,9 @@ def load_rmats_data(rmats_dir: str) -> pl.DataFrame:
             "delta_psi": pl.Series([], dtype=pl.Float64),
             "as_pvalue": pl.Series([], dtype=pl.Float64),
             "as_fdr": pl.Series([], dtype=pl.Float64),
-            "coordinates": pl.Series([], dtype=pl.Utf8)
+            "coordinates": pl.Series([], dtype=pl.Utf8),
+            "inc_counts": pl.Series([], dtype=pl.Int64),
+            "exc_counts": pl.Series([], dtype=pl.Int64)
         })
 
     full_df = pl.concat(dfs, how="diagonal")

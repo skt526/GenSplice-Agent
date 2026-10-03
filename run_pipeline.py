@@ -554,10 +554,22 @@ def main():
         from visualizer.report_exporter import export_html_report
         
         df_deg_raw = load_deg_data(str(deg_result_csv))
-        df_rmats_raw = select_primary_splicing_events(load_rmats_data(str(rmats_dir)))
-        df_merged_report = merge_deg_and_rmats(df_deg_raw, df_rmats_raw)
+        df_rmats_all = load_rmats_data(str(rmats_dir))
+        df_rmats_primary = select_primary_splicing_events(df_rmats_all)
         
-        export_html_report(df_merged_report, str(html_report_path))
+        # 1. Representative event per gene for 4-quadrant plot & KPI cards (gene-level deduplication)
+        df_merged_report = merge_deg_and_rmats(df_deg_raw, df_rmats_primary, deduplicate_genes=True)
+        # 2. Multi-event preserved dataset for Event-Level Isoform table, Sashimi isoforms, and RT-qPCR primers
+        df_merged_all_events = merge_deg_and_rmats(df_deg_raw, df_rmats_all, deduplicate_genes=False)
+        
+        export_html_report(
+            df_merged=df_merged_report,
+            output_html_path=str(html_report_path),
+            df_all_events=df_merged_all_events,
+            fasta_path=str(fasta_path) if fasta_path.exists() else None,
+            gtf_path=str(gtf_path) if gtf_path.exists() else None,
+            organism=ref_settings.get("organism", "Homo sapiens")
+        )
         print(f"  {GREEN}✔ Standalone Interactive HTML Report generated: {html_report_path}{RESET}")
     except Exception as e:
         print(f"  {YELLOW}⚠ Notice: Could not pre-generate HTML report: {e}{RESET}")

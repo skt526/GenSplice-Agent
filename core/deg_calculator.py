@@ -10,7 +10,7 @@ try:
 except ImportError:
     PYDESEQ2_AVAILABLE = False
 
-def run_deg_analysis(feature_counts_path: str, control_bams: list, treatment_bams: list, output_csv_path: str, allow_mock: bool = False):
+def run_deg_analysis(feature_counts_path: str, control_bams: list, treatment_bams: list, output_csv_path: str, paired_samples: bool = False, allow_mock: bool = False):
     """
     Parses featureCounts matrix and performs DESeq2 (PyDESeq2) analysis:
     - Size Factor Normalization
@@ -18,37 +18,14 @@ def run_deg_analysis(feature_counts_path: str, control_bams: list, treatment_bam
     - Log2 Fold Change & Benjamini-Hochberg FDR p-value adjustment
     """
     if not os.path.exists(feature_counts_path) or os.path.getsize(feature_counts_path) == 0:
-        if not allow_mock:
-            raise FileNotFoundError(f"Error: featureCounts matrix '{feature_counts_path}' is missing or empty. Real DEG analysis failed.")
-        print(f"Notice: featureCounts matrix '{feature_counts_path}' missing or empty. Generating target DEG dataset for mock mode...")
-        df_target = pd.DataFrame({
-            "gene_id": ["ENSG00000103194", "ENSG00000120129", "ENSG00000140355", "ENSG00000165025", "ENSG00000112715", "ENSG00000012048", "ENSG00000026101", "ENSG00000171862", "ENSG00000075624", "ENSG00000111640"],
-            "geneSymbol": ["CRISPLD2", "DUSP1", "GRMZM2G140355", "SYK", "VEGFA", "BRCA1", "STAT3", "PTEN", "ACTB", "GAPDH"],
-            "baseMean": [1420.5, 3850.2, 890.1, 210.4, 1850.0, 920.8, 3100.4, 1250.6, 5400.0, 6200.0],
-            "log2FoldChange": [0.15, -1.84, -0.08, 1.95, 0.12, -0.04, 2.10, -1.65, 0.02, -0.03],
-            "pvalue": [0.380, 0.0001, 0.520, 0.002, 0.290, 0.480, 0.0002, 0.0005, 0.910, 0.850],
-            "padj": [0.450, 0.002, 0.620, 0.015, 0.380, 0.590, 0.001, 0.004, 0.950, 0.880]
-        })
-        df_target.to_csv(output_csv_path, index=False)
-        return
+        raise FileNotFoundError(f"Error: featureCounts matrix '{feature_counts_path}' is missing or empty. Genuine DEG quantification is required.")
 
     # Read featureCounts output
     with open(feature_counts_path, 'r') as f:
         lines = [line for line in f if not line.startswith('#')]
 
     if not lines or len(lines) <= 1:
-        if not allow_mock:
-            raise RuntimeError(f"Error: featureCounts matrix '{feature_counts_path}' contains no valid counts data. Real DEG analysis failed.")
-        df_target = pd.DataFrame({
-            "gene_id": ["ENSG00000103194", "ENSG00000120129", "ENSG00000140355", "ENSG00000165025", "ENSG00000112715", "ENSG00000012048", "ENSG00000026101", "ENSG00000171862", "ENSG00000075624", "ENSG00000111640"],
-            "geneSymbol": ["CRISPLD2", "DUSP1", "GRMZM2G140355", "SYK", "VEGFA", "BRCA1", "STAT3", "PTEN", "ACTB", "GAPDH"],
-            "baseMean": [1420.5, 3850.2, 890.1, 210.4, 1850.0, 920.8, 3100.4, 1250.6, 5400.0, 6200.0],
-            "log2FoldChange": [0.15, -1.84, -0.08, 1.95, 0.12, -0.04, 2.10, -1.65, 0.02, -0.03],
-            "pvalue": [0.380, 0.0001, 0.520, 0.002, 0.290, 0.480, 0.0002, 0.0005, 0.910, 0.850],
-            "padj": [0.450, 0.002, 0.620, 0.015, 0.380, 0.590, 0.001, 0.004, 0.950, 0.880]
-        })
-        df_target.to_csv(output_csv_path, index=False)
-        return
+        raise RuntimeError(f"Error: featureCounts matrix '{feature_counts_path}' contains no valid counts data. Real DEG analysis failed.")
 
 
     from io import StringIO
@@ -87,8 +64,8 @@ def run_deg_analysis(feature_counts_path: str, control_bams: list, treatment_bam
     if PYDESEQ2_AVAILABLE and len(control_cols) >= 2 and len(treatment_cols) >= 2:
         try:
             print("  Running PyDESeq2 Size Factor Normalization & Dispersion Shrinkage...")
-            if len(control_cols) == len(treatment_cols):
-                print(f"  ✔ Paired sample design detected ({len(control_cols)} pairs). Blocking subject/donor baseline variance...")
+            if paired_samples and len(control_cols) == len(treatment_cols):
+                print(f"  ✔ User-configured paired sample design ({len(control_cols)} pairs). Blocking subject baseline variance...")
                 metadata["subject"] = [f"donor_{i+1}" for i in range(len(control_cols))] + [f"donor_{i+1}" for i in range(len(treatment_cols))]
                 design_factors = ["subject", "condition"]
             else:
