@@ -191,8 +191,9 @@ def export_html_report(
     all_genes = df_merged.select("geneSymbol").to_series().to_list()
 
     # Pre-generate GO & KEGG Enrichment for Q1+Q2 Splicing Targets only (Q4 completely removed)
+    kegg_lib = "KEGG_2019_Mouse" if ("mouse" in str(organism).lower() or "mus" in str(organism).lower()) else "KEGG_2021_Human"
     df_go = fetch_enrichment(splicing_genes, gene_sets=["GO_Biological_Process_2023"], top_n=10)
-    df_kegg = fetch_enrichment(splicing_genes, gene_sets=["KEGG_2021_Human"], top_n=10)
+    df_kegg = fetch_enrichment(splicing_genes, gene_sets=[kegg_lib], top_n=10)
 
     import math
     go_records = []
