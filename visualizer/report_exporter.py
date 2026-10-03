@@ -12,7 +12,6 @@ import json
 import time
 import polars as pl
 import pandas as pd
-import numpy as np
 from visualizer.quadrant_plot import build_quadrant_plot
 from visualizer.enrichment_plot import build_enrichment_chart
 from core.merger import get_quadrant_kpis
@@ -322,12 +321,6 @@ def export_html_report(
         time.sleep(0.35)  # Respect NCBI 3 req/sec rate limit
     ncbi_pubmed_json = json.dumps(ncbi_pubmed_map)
 
-    # Dynamic slider limits based on dataset extremes (no artificial hardcoded cap)
-    fc_series = df_merged["log2FoldChange"].to_pandas().dropna() if ("log2FoldChange" in df_merged.columns and df_merged.height > 0) else pd.Series(dtype=float)
-    fc_finite = fc_series[np.isfinite(fc_series)] if len(fc_series) > 0 else pd.Series(dtype=float)
-    max_data_x = float(fc_finite.abs().max()) if len(fc_finite) > 0 else 3.0
-    slider_max_fc = max(round(max_data_x + 0.5, 1), 6.0)
-
     full_html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -561,7 +554,7 @@ def export_html_report(
                         <span style="color: var(--red-deg);">Log₂FC Cutoff (DEG):</span>
                         <span id="fc-val">{log2fc_cutoff:.2f}</span>
                     </label>
-                    <input type="range" id="fc-slider" min="0.05" max="{slider_max_fc}" step="0.05" value="{log2fc_cutoff}">
+                    <input type="range" id="fc-slider" min="0.1" max="3.0" step="0.05" value="{log2fc_cutoff}">
                 </div>
 
                 <div class="slider-group slider-as">
@@ -569,7 +562,7 @@ def export_html_report(
                         <span style="color: var(--blue-as);">ΔPSI Cutoff (AS):</span>
                         <span id="psi-val">{delta_psi_cutoff:.2f}</span>
                     </label>
-                    <input type="range" id="psi-slider" min="0.01" max="1.0" step="0.01" value="{delta_psi_cutoff}">
+                    <input type="range" id="psi-slider" min="0.01" max="0.5" step="0.01" value="{delta_psi_cutoff}">
                 </div>
 
                 <button class="btn-download-csv" id="download-csv-btn">
@@ -631,8 +624,8 @@ def export_html_report(
         </div>
     </div>
 
-    <!-- GO Term Enrichment Section (Initially hidden; revealed upon clicking 'Generate GO / KEGG') -->
-    <div class="card" id="go-card-section" style="display: none;">
+    <!-- GO Term Enrichment Section -->
+    <div class="card" id="go-card-section">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border-color); padding-bottom: 12px; margin-bottom: 12px;">
             <h2 id="go-title" style="margin: 0; border: none; padding: 0;">🧬 GO Term Biological Process Enrichment (Q1 + Q2: Splicing Targets)</h2>
             <button class="btn-download-csv" id="download-go-csv-btn">
@@ -641,12 +634,16 @@ def export_html_report(
         </div>
         <div id="go-notice" style="font-size: 13px; color: #2563EB; font-weight: 600; margin-top: 8px;"></div>
         <div id="go-chart-container" style="margin-top: 16px;">
-            <div id="plotly-go-div" style="width: 100%; height: 380px;"></div>
+            <div id="go-placeholder" style="padding: 40px 20px; text-align: center; color: #64748B; background: #F8FAFC; border: 1px dashed #CBD5E1; border-radius: 8px;">
+                <p style="margin: 0; font-size: 15px; font-weight: 600;">📊 GO Biological Process Enrichment Ready</p>
+                <p style="margin: 6px 0 0; font-size: 13px; color: #94A3B8;">Click the <b>'🚀 Generate GO / KEGG'</b> button in the Threshold Controls panel above to compute and visualize enriched terms for active splicing targets.</p>
+            </div>
+            <div id="plotly-go-div" style="width: 100%; height: 380px; display: none;"></div>
         </div>
     </div>
 
-    <!-- KEGG Pathway Enrichment Section (Initially hidden; revealed upon clicking 'Generate GO / KEGG') -->
-    <div class="card" id="kegg-card-section" style="display: none;">
+    <!-- KEGG Pathway Enrichment Section -->
+    <div class="card" id="kegg-card-section">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border-color); padding-bottom: 12px; margin-bottom: 12px;">
             <h2 id="kegg-title" style="margin: 0; border: none; padding: 0;">🛤️ KEGG Pathway Enrichment (Q1 + Q2: Splicing Targets)</h2>
             <button class="btn-download-csv" id="download-kegg-csv-btn">
@@ -655,7 +652,11 @@ def export_html_report(
         </div>
         <div id="kegg-notice" style="font-size: 13px; color: #7C3AED; font-weight: 600; margin-top: 8px;"></div>
         <div id="kegg-chart-container" style="margin-top: 16px;">
-            <div id="plotly-kegg-div" style="width: 100%; height: 380px;"></div>
+            <div id="kegg-placeholder" style="padding: 40px 20px; text-align: center; color: #64748B; background: #F8FAFC; border: 1px dashed #CBD5E1; border-radius: 8px;">
+                <p style="margin: 0; font-size: 15px; font-weight: 600;">🛤️ KEGG Pathway Enrichment Ready</p>
+                <p style="margin: 6px 0 0; font-size: 13px; color: #94A3B8;">Click the <b>'🚀 Generate GO / KEGG'</b> button in the Threshold Controls panel above to compute and visualize enriched pathways for active splicing targets.</p>
+            </div>
+            <div id="plotly-kegg-div" style="width: 100%; height: 380px; display: none;"></div>
         </div>
     </div>
 
@@ -791,6 +792,7 @@ def export_html_report(
         const baseKeggRecords = {kegg_records_json};
         let currentGoData = [];
         let currentKeggData = [];
+        let isEnrichmentGenerated = false;
         
         const fcSlider = document.getElementById('fc-slider');
         const psiSlider = document.getElementById('psi-slider');
@@ -1542,6 +1544,7 @@ def export_html_report(
             const quadPoints = {{
                 Q1: {{ x: [], y: [], text: [] }},
                 Q2: {{ x: [], y: [], text: [] }},
+                Q3: {{ x: [], y: [], text: [] }},
                 Q4: {{ x: [], y: [], text: [] }}
             }};
 
@@ -1549,8 +1552,8 @@ def export_html_report(
                 const fcVal = Math.abs(g.log2FoldChange || 0);
                 const psiVal = Math.abs(g.delta_psi || 0);
                 
-                const isDegSig = fcVal >= fcCut && (g.deg_fdr === undefined || g.deg_fdr === null || g.deg_fdr <= 0.05 || g.deg_fdr === 1.0);
-                const isAsSig = psiVal >= psiCut && (g.as_fdr === undefined || g.as_fdr === null || g.as_fdr <= 0.05 || g.as_fdr === 1.0);
+                const isDegSig = fcVal >= fcCut && g.deg_fdr !== null && g.deg_fdr !== undefined && g.deg_fdr <= 0.05;
+                const isAsSig = psiVal >= psiCut && g.as_fdr !== null && g.as_fdr !== undefined && g.as_fdr <= 0.05;
 
                 let quad = "Q3";
                 if (isDegSig && isAsSig) {{ quad = "Q1"; q1++; }}
@@ -1558,13 +1561,11 @@ def export_html_report(
                 else if (isDegSig && !isAsSig) {{ quad = "Q4"; q4++; }}
                 else {{ quad = "Q3"; q3++; }}
 
-                if (quad !== "Q3") {{
-                    const hoverText = `<b>Gene Symbol:</b> ${{g.geneSymbol}}<br><b>Gene ID:</b> ${{g.gene_id}}<br><b>Quadrant:</b> ${{quad}}<br><b>Log2FC (DEG):</b> ${{fcVal.toFixed(3)}}<br><b>ΔPSI (Splicing):</b> ${{psiVal.toFixed(3)}}<br><b>DEG FDR:</b> ${{(g.deg_fdr || 1.0).toExponential(2)}}<br><b>rMATS FDR:</b> ${{(g.as_fdr || 1.0).toExponential(2)}}<br><b>Event Type:</b> ${{g.event_type || 'None'}}`;
+                const hoverText = `<b>Gene Symbol:</b> ${{g.geneSymbol}}<br><b>Gene ID:</b> ${{g.gene_id}}<br><b>Quadrant:</b> ${{quad}}<br><b>Log2FC (DEG):</b> ${{fcVal.toFixed(3)}}<br><b>ΔPSI (Splicing):</b> ${{psiVal.toFixed(3)}}<br><b>DEG FDR:</b> ${{(g.deg_fdr || 1.0).toExponential(2)}}<br><b>rMATS FDR:</b> ${{(g.as_fdr || 1.0).toExponential(2)}}<br><b>Event Type:</b> ${{g.event_type || 'None'}}`;
 
-                    quadPoints[quad].x.push(g.log2FoldChange);
-                    quadPoints[quad].y.push(g.delta_psi);
-                    quadPoints[quad].text.push(hoverText);
-                }}
+                quadPoints[quad].x.push(g.log2FoldChange);
+                quadPoints[quad].y.push(g.delta_psi);
+                quadPoints[quad].text.push(hoverText);
 
                 const updatedGene = {{ ...g, current_quadrant: quad }};
                 currentFilteredGenes.push(updatedGene);
@@ -1615,13 +1616,6 @@ def export_html_report(
                 const max_x = Math.max(Math.ceil((maxDataX + 0.5) * 10) / 10, layoutAxisX, fcCut + 0.5, 3.5);
                 const max_y = Math.max(Math.ceil((maxDataY + 0.1) * 100) / 100, layoutAxisY, psiCut + 0.1, 1.05);
 
-                if (fcSlider && parseFloat(fcSlider.max) < max_x) {{
-                    fcSlider.max = Math.ceil(max_x);
-                }}
-                if (psiSlider && parseFloat(psiSlider.max) < 1.0) {{
-                    psiSlider.max = 1.0;
-                }}
-
                 const newShapes = [
                     {{ type: 'rect', x0: -fcCut, x1: fcCut, y0: -psiCut, y1: psiCut, fillcolor: 'rgba(241, 245, 249, 0.6)', line: {{ width: 0 }}, layer: 'below' }},
                     {{ type: 'rect', x0: -fcCut, x1: fcCut, y0: psiCut, y1: max_y, fillcolor: 'rgba(59, 130, 246, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
@@ -1642,6 +1636,7 @@ def export_html_report(
                 const updatedTraces = [
                     {{ x: quadPoints.Q1.x, y: quadPoints.Q1.y, text: quadPoints.Q1.text, mode: 'markers', name: 'Q1', marker: {{ color: '#A855F7', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text', visible: true }},
                     {{ x: quadPoints.Q2.x, y: quadPoints.Q2.y, text: quadPoints.Q2.text, mode: 'markers', name: 'Q2', marker: {{ color: '#3B82F6', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text', visible: true }},
+                    {{ x: quadPoints.Q3.x, y: quadPoints.Q3.y, text: quadPoints.Q3.text, mode: 'markers', name: 'Q3', marker: {{ color: '#94A3B8', size: 6, opacity: 0.5, line: {{ width: 0.5, color: '#FFFFFF' }} }}, hoverinfo: 'text', visible: 'legendonly' }},
                     {{ x: quadPoints.Q4.x, y: quadPoints.Q4.y, text: quadPoints.Q4.text, mode: 'markers', name: 'Q4', marker: {{ color: '#EF4444', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text', visible: true }}
                 ];
 
@@ -1651,8 +1646,7 @@ def export_html_report(
                     'xaxis.range': [-max_x, max_x],
                     'yaxis.range': [-max_y, max_y]
                 }});
-            const goCardElem = document.getElementById('go-card-section');
-            if (goCardElem && goCardElem.style.display === 'block') {{
+            if (isEnrichmentGenerated) {{
                 generateEnrichment();
             }}
         }}
@@ -1665,13 +1659,15 @@ def export_html_report(
             const activeGenes = splicingGenes;
             const activeSet = new Set(activeGenes);
 
-            const goCard = document.getElementById('go-card-section');
-            const keggCard = document.getElementById('kegg-card-section');
-            if (goCard) goCard.style.display = 'block';
-            if (keggCard) keggCard.style.display = 'block';
+            const goPlaceholder = document.getElementById('go-placeholder');
+            const keggPlaceholder = document.getElementById('kegg-placeholder');
+            if (goPlaceholder) goPlaceholder.style.display = 'none';
+            if (keggPlaceholder) keggPlaceholder.style.display = 'none';
 
             const goDiv = document.getElementById('plotly-go-div');
             const keggDiv = document.getElementById('plotly-kegg-div');
+            if (goDiv) goDiv.style.display = 'block';
+            if (keggDiv) keggDiv.style.display = 'block';
 
             if (!activeGenes.length) {{
                 currentGoData = [];
@@ -1799,17 +1795,16 @@ def export_html_report(
         function triggerEnrichmentWithAction() {{
             if (!generateBtn) return;
             generateBtn.innerHTML = '⚡ Generating GO & KEGG...';
+            isEnrichmentGenerated = true;
             
             const goCard = document.getElementById('go-card-section');
             const keggCard = document.getElementById('kegg-card-section');
             if (goCard) {{
-                goCard.style.display = 'block';
                 goCard.classList.remove('card-updating');
                 void goCard.offsetWidth;
                 goCard.classList.add('card-updating');
             }}
             if (keggCard) {{
-                keggCard.style.display = 'block';
                 keggCard.classList.remove('card-updating');
                 void keggCard.offsetWidth;
                 keggCard.classList.add('card-updating');
@@ -1874,7 +1869,10 @@ def export_html_report(
         }}
 
         function downloadGoCSV() {{
-            if (!currentGoData || !currentGoData.length) return;
+            if (!isEnrichmentGenerated || !currentGoData || !currentGoData.length) {{
+                alert("Please click '🚀 Generate GO / KEGG' first to compute enrichment data before downloading.");
+                return;
+            }}
             let csvContent = "GO Term,Overlap,P-value,Adjusted P-value,Associated Genes\\n";
             currentGoData.forEach(r => {{
                 csvContent += `"${{r.term}}","${{r.overlap}}","${{r.pvalue}}","${{r.adjPvalue}}","${{r.genes}}"\\n`;
@@ -1889,7 +1887,10 @@ def export_html_report(
         }}
 
         function downloadKeggCSV() {{
-            if (!currentKeggData || !currentKeggData.length) return;
+            if (!isEnrichmentGenerated || !currentKeggData || !currentKeggData.length) {{
+                alert("Please click '🚀 Generate GO / KEGG' first to compute enrichment data before downloading.");
+                return;
+            }}
             let csvContent = "KEGG Pathway,Overlap,P-value,Adjusted P-value,Associated Genes\\n";
             currentKeggData.forEach(r => {{
                 csvContent += `"${{r.term}}","${{r.overlap}}","${{r.pvalue}}","${{r.adjPvalue}}","${{r.genes}}"\\n`;

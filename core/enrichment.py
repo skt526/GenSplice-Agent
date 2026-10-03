@@ -41,9 +41,7 @@ def fetch_enrichment(gene_list: list[str], gene_sets: list[str], top_n: int = 10
             df_res["P-value"] = pd.to_numeric(df_res["P-value"], errors="coerce").fillna(1.0)
             df_res["Adjusted P-value"] = pd.to_numeric(df_res["Adjusted P-value"], errors="coerce").fillna(1.0)
             df_res["log_p"] = -np.log10(df_res["P-value"].replace(0, 1e-15))
-            df_res = df_res.sort_values(by="P-value", ascending=True)
-            if top_n is not None:
-                df_res = df_res.head(top_n)
+            df_res = df_res.sort_values(by="P-value", ascending=True).head(top_n)
             _ENRICHMENT_CACHE[cache_key] = df_res
             return df_res
     except ImportError:
@@ -81,12 +79,11 @@ def _generate_mock_enrichment(genes: list[str], gene_sets: list[str], top_n: int
     }
     
     rows = []
-    g_str = ";".join(genes) if genes else "N/A"
+    g_str = ";".join(genes[:5]) if genes else "N/A"
     
     for gset in gene_sets:
         templates = mock_db.get(gset, mock_db["GO_Biological_Process_2023"])
-        items = templates[:top_n] if top_n is not None else templates
-        for term, pval, adj_p in items:
+        for term, pval, adj_p in templates[:top_n]:
             rows.append({
                 "Gene_set": gset,
                 "Term": term,
@@ -100,7 +97,5 @@ def _generate_mock_enrichment(genes: list[str], gene_sets: list[str], top_n: int
             
     df = pd.DataFrame(rows)
     if not df.empty:
-        df = df.sort_values(by="P-value", ascending=True)
-        if top_n is not None:
-            df = df.head(top_n)
+        df = df.sort_values(by="P-value", ascending=True).head(top_n)
     return df

@@ -7,7 +7,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 
-def build_enrichment_chart(df_enr: pd.DataFrame, title: str, bar_color: str = "#3B82F6", top_n: int = 10) -> go.Figure:
+def build_enrichment_chart(df_enr: pd.DataFrame, title: str, bar_color: str = "#3B82F6") -> go.Figure:
     """
     Builds a horizontal Plotly bar chart for enrichment terms sorted by -log10(p-value).
     """
@@ -28,10 +28,7 @@ def build_enrichment_chart(df_enr: pd.DataFrame, title: str, bar_color: str = "#
         )
         return fig
         
-    df_sorted = df_enr.sort_values(by="P-value", ascending=True)
-    if top_n is not None:
-        df_sorted = df_sorted.head(top_n)
-    df_sorted = df_sorted.iloc[::-1]
+    df_sorted = df_enr.sort_values(by="P-value", ascending=True).head(10).iloc[::-1]
     
     df_sorted["Display_Term"] = df_sorted["Term"].apply(
         lambda t: t[:50] + "..." if len(str(t)) > 53 else str(t)
@@ -78,8 +75,7 @@ def build_enrichment_dot_plot(
     title: str,
     color_scale: str = "Blues_r",
     border_color: str = "#1D4ED8",
-    quadrant_label: str = "Q2",
-    top_n: int = 10
+    quadrant_label: str = "Q2"
 ) -> go.Figure:
     """
     Builds a dynamic Dot / Bubble plot for enrichment results with Quadrant Category on X-axis.
@@ -105,10 +101,7 @@ def build_enrichment_dot_plot(
         )
         return fig
 
-    df_sorted = df_enr.sort_values(by="P-value", ascending=True)
-    if top_n is not None:
-        df_sorted = df_sorted.head(top_n)
-    df_sorted = df_sorted.iloc[::-1].copy()
+    df_sorted = df_enr.sort_values(by="P-value", ascending=True).head(10).iloc[::-1].copy()
     
     def parse_overlap_num(val):
         try:
@@ -163,8 +156,7 @@ def build_combined_quadrant_dot_plot(
     df_q2: pd.DataFrame, 
     df_q4: pd.DataFrame, 
     title: str = "GO Term Biological Process Comparative Dot + Bubble Plot",
-    y_title: str = "Enriched Term / Pathway",
-    top_n: int = 10
+    y_title: str = "Enriched Term / Pathway"
 ) -> go.Figure:
     """
     Builds a multi-quadrant comparative Dot / Bubble Plot:
@@ -180,7 +172,7 @@ def build_combined_quadrant_dot_plot(
         (df_q4, "Q4")
     ]:
         if df is not None and not df.empty:
-            sub = df.head(top_n).copy() if top_n is not None else df.copy()
+            sub = df.head(8).copy()
             sub["Quadrant"] = q_label
             frames.append(sub)
             
