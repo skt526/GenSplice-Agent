@@ -127,7 +127,7 @@ def update_checkpoint(step_key: str, status: str = "COMPLETED", details: dict = 
         json.dump(checkpoint, f, indent=2)
     log_pipeline_status(f"Step '{step_key}' status updated to {status}.", status_log_file=status_log_file)
 
-def run_command_step(cmd_list, step_name: str, allow_mock_fallback: bool = False, log_file=None):
+def run_command_step(cmd_list, step_name: str, log_file=None):
     tool_name = cmd_list[0]
     tool_bin = find_binary(tool_name)
     
@@ -143,15 +143,9 @@ def run_command_step(cmd_list, step_name: str, allow_mock_fallback: bool = False
     executable_exists = os.path.exists(tool_bin)
 
     if not executable_exists:
-        if allow_mock_fallback:
-            print(f"  {YELLOW}⚠ Tool '{cmd_list[0]}' not in PATH. Running simulated execution...{RESET}")
-            time.sleep(0.1)
-            print(f"  {GREEN}✔ Completed {step_name} (simulated).{RESET}")
-            return True
-        else:
-            print(f"  {RED}✘ ERROR: Executable '{cmd_list[0]}' not found in PATH.{RESET}")
-            print(f"  {RED}  Please activate the conda environment using: conda activate gensplice-agent{RESET}")
-            sys.exit(1)
+        print(f"  {RED}✘ ERROR: Executable '{cmd_list[0]}' not found in PATH.{RESET}")
+        print(f"  {RED}  Please activate the conda environment using: conda activate gensplice-agent{RESET}")
+        sys.exit(1)
 
     try:
         if log_file:
@@ -163,12 +157,8 @@ def run_command_step(cmd_list, step_name: str, allow_mock_fallback: bool = False
         print(f"  {GREEN}✔ Completed {step_name} in {elapsed:.2f}s.{RESET}")
         return True
     except subprocess.CalledProcessError as e:
-        if allow_mock_fallback:
-            print(f"  {YELLOW}⚠ Notice: Executed {step_name} with fallback status.{RESET}")
-            return True
-        else:
-            print(f"  {RED}✘ ERROR: Step '{step_name}' failed with return code {e.returncode}.{RESET}")
-            sys.exit(e.returncode)
+        print(f"  {RED}✘ ERROR: Step '{step_name}' failed with return code {e.returncode}.{RESET}")
+        sys.exit(e.returncode)
 
 def main():
     from core.config_loader import load_config
@@ -186,7 +176,6 @@ def main():
     parser.add_argument("--skip-confirmation", "-y", action="store_true", help="Skip interactive terminal confirmation prompt")
     parser.add_argument("--dry-run", action="store_true", help="Print pipeline execution plan without running shell commands")
     parser.add_argument("--keep-outputs", action="store_true", help="Keep existing outputs directory without resetting")
-    parser.add_argument("--allow-mock", action="store_true", help="Allow simulated mock execution if tools are missing")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -329,7 +318,7 @@ def main():
         else:
             # Validate input FASTQ file integrity before running fastp
             for fpath in [r1_in, r2_in]:
-                if fpath and not args.allow_mock:
+                if fpath:
                     if not check_gzip_file_integrity(fpath):
                         print(f"  {RED}✘ ERROR: Input FASTQ file '{fpath}' is corrupted or truncated (unexpected EOF).{RESET}")
                         print(f"  {RED}  Please remove '{fpath}' and re-run to automatically download a complete file.{RESET}")
@@ -347,7 +336,7 @@ def main():
                 cmd_fastp.extend(["--in2", r2_in, "--out2", str(out_r2)])
 
             print(f"  Running fastp for [{group}] {s_name}...")
-            run_command_step(cmd_fastp, f"fastp_{s_name}", allow_mock_fallback=args.allow_mock)
+            run_command_step(cmd_fastp, f"fastp_{s_name}")
             
             if not out_r1.exists():
                 shutil.copyfile(r1_in, out_r1)
@@ -383,7 +372,7 @@ def main():
             "--sjdbGTFfile", str(gtf_path),
             "--runThreadN", str(allocated_threads)
         ]
-        run_command_step(cmd_star_idx, "STAR_genomeGenerate", allow_mock_fallback=args.allow_mock)
+        run_command_step(cmd_star_idx, "STAR_genomeGenerate")
 
     bam_files = {"control": [], "treatment": []}
     for cs in clean_samples:
@@ -414,7 +403,7 @@ def main():
                 "--runThreadN", str(allocated_threads)
             ]
             print(f"  Running STAR 2-pass alignment for [{group}] {s_name}...")
-            run_command_step(cmd_star_align, f"STAR_align_{s_name}", allow_mock_fallback=args.allow_mock)
+            run_command_step(cmd_star_align, f"STAR_align_{s_name}")
 
             if not sorted_bam.exists():
                 sorted_bam.touch()
@@ -451,11 +440,11 @@ def main():
         cmd_fc.extend(all_bams)
 
         print("  Quantifying gene counts with featureCounts...")
-        run_command_step(cmd_fc, "featureCounts", allow_mock_fallback=args.allow_mock)
+        run_command_step(cmd_fc, "featureCounts")
 
         print("  Calculating Differential Gene Expression (Size Factor Normalization & Dispersion Shrinkage)...")
         from core.deg_calculator import run_deg_analysis
-        run_deg_analysis(str(counts_matrix_file), bam_files["control"], bam_files["treatment"], str(deg_result_csv), allow_mock=args.allow_mock)
+        run_deg_analysis(str(counts_matrix_file), bam_files["control"], bam_files["treatment"], str(deg_result_csv))
 
 
     set_checkpoint("step4_deg", "COMPLETED")
@@ -506,7 +495,7 @@ def main():
             "--task", "prep"
         ]
         print(f"  Running rMATS Prep Stage (BAM parsing) with threads={allocated_threads}, readType={rmats_read_type}...")
-        run_command_step(cmd_rmats_prep, "rMATS_prep", allow_mock_fallback=args.allow_mock)
+        run_command_step(cmd_rmats_prep, "rMATS_prep")
 
         # 2. Run rMATS Post Stage with safe thread count to prevent glibc C-heap memory corruption (return code -6)
         post_threads = min(4, allocated_threads)
@@ -535,11 +524,11 @@ def main():
                 print(f"  {YELLOW}⚠ Notice: rMATS post-stage failed (return code {res.returncode}). Retrying post-stage with single thread (--nthread 1) to bypass glibc memory corruption...{RESET}")
                 cmd_rmats_post_single = cmd_rmats_post.copy()
                 cmd_rmats_post_single[cmd_rmats_post_single.index("--nthread") + 1] = "1"
-                run_command_step(cmd_rmats_post_single, "rMATS_post_single", allow_mock_fallback=args.allow_mock)
+                run_command_step(cmd_rmats_post_single, "rMATS_post_single")
             else:
                 print(f"  {GREEN}✔ Completed rMATS_analysis successfully.{RESET}")
         else:
-            run_command_step(cmd_rmats_post, "rMATS_post", allow_mock_fallback=args.allow_mock)
+            run_command_step(cmd_rmats_post, "rMATS_post")
 
     set_checkpoint("step5_rmats", "COMPLETED")
 

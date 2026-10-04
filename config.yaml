@@ -1,7 +1,5 @@
 # GenSplice-Agent Auto-generated Configuration
 system:
-  total_cpu: 0
-  assigned_threads: 0
   total_ram_gb: 16
   star_bam_sort_ram_gb: 12
   star_bam_sort_ram_bytes: 12884901888
@@ -12,8 +10,6 @@ reference:
   fasta: "./human-ref/Homo_sapiens.GRCh38.dna.primary_assembly.fa"
   gtf: "./human-ref/Homo_sapiens.GRCh38.113.gtf"
   star_index: "./human-ref/star_index"
-
-threads: 0
 
 inputs:
   base_dir: "./inputs"

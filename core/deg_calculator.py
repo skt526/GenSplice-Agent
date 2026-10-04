@@ -11,7 +11,7 @@ try:
 except ImportError:
     PYDESEQ2_AVAILABLE = False
 
-def run_deg_analysis(feature_counts_path: str, control_bams: list, treatment_bams: list, output_csv_path: str, paired_samples: bool = False, allow_mock: bool = False):
+def run_deg_analysis(feature_counts_path: str, control_bams: list, treatment_bams: list, output_csv_path: str, paired_samples: bool = False):
     """
     Parses featureCounts matrix and performs DESeq2 (PyDESeq2) analysis:
     - Size Factor Normalization

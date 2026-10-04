@@ -1,91 +1,88 @@
 # GenSplice-Agent Architecture Blueprint
 
-GenSplice-Agent is an integrated computational biology platform developed to systematically decouple and cross-evaluate quantitative transcriptional abundance changes ($\text{Log}_2\text{FC}$, DEG) against qualitative post-transcriptional alternative splicing variations ($\Delta\text{PSI}$, rMATS) within a unified coordinate system.
+GenSplice-Agent is an automated computational pipeline for profiling and visualizing alternative splicing events from raw RNA-seq sequencing data. It quantifies five major classes of alternative splicing using rMATS, provides event-level functional consequence annotations, and generates a standalone interactive HTML dashboard.
 
 ---
 
-### 1. Biological Rationale & The 4-Quadrant Framework
+### 1. Biological Context & Alternative Splicing Volcano Framework
 
-Conventional RNA-seq pipelines disproportionately focus on total transcript abundance (Differential Expression Analysis), systematically missing critical regulatory switches where total mRNA remains stable but alternative exon inclusion/skipping introduces functional domain shifts or triggers Nonsense-Mediated Decay (NMD).
+Alternative splicing is a primary mechanism diversifying the eukaryotic transcriptome. Changes in splice site selection can alter protein functional domains, shift reading frames, or trigger nonsense-mediated mRNA decay (NMD) without necessarily altering overall gene-level transcriptional abundance.
 
-GenSplice-Agent combines PyDESeq2 expression estimates with rMATS splicing indices to categorize the transcriptome into four distinct biological quadrants:
+GenSplice-Agent visualizes differential alternative splicing events using an Alternative Splicing Volcano Plot:
 
 ```text
-                  ▲ ΔPSI (Differential Splicing Inclusion Index)
+                  ▲ −log10(rMATS FDR) [Significance]
                   │
-     [Q2] Splicing-Driven Only   │   [Q1] Dual Responders
-   (Abundance Invariant, AS Switch)│ (Both Abundance and Isoform Altered)
-   ★ Hidden Master Regulators ★   │
-──────────────────┼──────────────────▶ Log2 Fold Change (Expression Abundance)
-     [Q3] Invariant Background   │   [Q4] Expression-Driven Only
-       (Homeostatic Baseline)     │  (Quantity Shift, Isoform Unchanged)
+   Exclusion      │      Inclusion
+   Favored        │      Favored
+ (ΔPSI ≤ −cutoff) │    (ΔPSI ≥ +cutoff)
                   │
+ ─────────────────┼─────────────────▶ ΔPSI (Exon Inclusion Difference)
+          Non-Significant Background
 ```
 
-- **Quadrant 1 (Q1 - Dual Responders)**: Transcripts exhibiting significant changes in both transcriptional abundance ($|\text{Log}_2\text{FC}| \ge \text{cutoff}$) and alternative splicing ($|\Delta\text{PSI}| \ge \text{cutoff}$). Splicing in Q1 often acts synergistically to amplify or modulate pathway output.
-- **Quadrant 2 (Q2 - Splicing-Driven Regulators)**: Transcripts undergoing significant alternative splicing switches without significant alterations in overall expression level. These represent key post-transcriptional regulators invisible to standard DEG screens.
-- **Quadrant 3 (Q3 - Invariant Baseline)**: Transcripts maintaining homeostatic stability across both transcriptional and splicing axes.
-- **Quadrant 4 (Q4 - Expression-Driven Only)**: Classical differential expression targets altering overall cellular abundance while preserving constitutive transcript architecture.
+- **Inclusion Favored**: Events with $\Delta\text{PSI} \ge +\text{cutoff}$ and $\text{FDR} \le \text{cutoff}$ (increased exon/intron inclusion in treatment compared to control).
+- **Exclusion Favored**: Events with $\Delta\text{PSI} \le -\text{cutoff}$ and $\text{FDR} \le \text{cutoff}$ (increased exon skipping in treatment compared to control).
+- **Non-Significant Background**: Splicing events below the user-defined $\Delta\text{PSI}$ or FDR cutoffs.
+
+The interactive dashboard allows users to adjust both $\Delta\text{PSI}$ and FDR thresholds dynamically, immediately updating event counts, target gene lists, Sashimi exon structures, and downstream primer designs.
 
 ---
 
 ### 2. Methodological & Computational Modules
 
-GenSplice-Agent incorporates four primary deterministic computational modules:
+GenSplice-Agent comprises four primary computational modules:
 
-#### 🧬 Module A: Paired-Sample DEG Quantification Engine (`core/deg_calculator.py`)
-- Executes Negative Binomial generalized linear model testing via PyDESeq2.
-- Automatically handles paired-donor experimental designs to absorb patient/replicate baseline variance, enhancing true biological signal detection.
+#### 🧬 Module A: Automated Upstream Processing & Splicing Quantification
+- **Read QC and Trimming (`fastp`)**: Performs automated adapter detection, quality filtering, and read length calculation.
+- **Genome Alignment (`STAR`)**: Executes 2-pass splice-aware alignment using Ensembl reference genomes.
+- **Alternative Splicing Quantification (`rMATS`)**: Quantifies junction and exon reads across five canonical event classes:
+  - Skipped Exon (SE)
+  - Retained Intron (RI)
+  - Alternative 5' Splice Site (A5SS)
+  - Alternative 3' Splice Site (A3SS)
+  - Mutually Exclusive Exons (MXE)
 
-#### 🔬 Module B: Event-Level Isoform Annotation & Functional Impairment Engine (`core/isoform_annotator.py`)
-- Evaluates alternative splicing events across all five canonical types: Skipped Exon (SE), Retained Intron (RI), Alternative 5' Splice Site (A5SS), Alternative 3' Splice Site (A3SS), and Mutually Exclusive Exons (MXE).
-- Assesses functional impairment risk based on:
-  - **CDS Reading Frame Alteration**: Detects non-triplet indels ($\Delta L \pmod 3 \neq 0$).
-  - **Premature Termination Codon (PTC) Formation**: Identifies stop codon introduction upstream of the terminal exon.
-  - **Nonsense-Mediated mRNA Decay (NMD)**: Flags degradation-sensitive transcripts according to canonical boundary rules.
-  - **Quantitative Loss-of-Function (LoF) Score (0–100%)**: Ranks targets into High, Moderate, and Low Functional Risk tiers.
+#### 🔬 Module B: Isoform Functional Impairment Evaluation (`core/isoform_annotator.py`)
+- Evaluates putative functional consequences of detected splicing shifts:
+  - **CDS Reading Frame Assessment**: Evaluates whether spliced segment lengths maintain coding triplet frames ($\Delta L \pmod 3 = 0$) or introduce frame shifts.
+  - **Premature Termination Codon (PTC) Detection**: Predicts candidate stop codon positions relative to the terminal exon junction.
+  - **Nonsense-Mediated mRNA Decay (NMD) Heuristic**: Flags transcripts sensitive to degradation based on the 50–55 nt rule upstream of the last exon-exon junction.
+  - **Functional Risk Stratification**: Ranks events into High, Moderate, and Low risk tiers.
 
-#### 🧪 Module C: Isoform-Specific RT-qPCR Primer Designer (`core/primer_designer.py`)
-- Designs discriminative primer pairs targeting inclusion-specific vs. exclusion-specific splice junctions.
-- Automatically computes primer melting temperatures ($T_m$), GC content percentage, amplicon sizes, and quality scores to streamline wet-lab bench validation.
+#### 🧪 Module C: Isoform-Specific RT-qPCR Primer Design (`core/primer_designer.py`)
+- Generates discriminative primer pairs targeting inclusion-specific and exclusion-specific splice junctions.
+- Reports primer sequences, melting temperatures ($T_m$), GC content, amplicon lengths, and specificity metrics to assist experimental validation.
 
-#### 📊 Module D: Self-Contained Interactive HTML Dashboard (`visualizer/report_exporter.py`)
-- Eliminates cloud hosting and recurring server dependencies by generating a single lightweight HTML dashboard (`outputs/gensplice_report.html`).
-- Features client-side recalculation engines in pure JavaScript/Plotly:
-  - Dynamic Log2FC and ΔPSI threshold sliders with real-time KPI re-tallying.
-  - Standardized horizontal bar charts for GO Biological Process and KEGG Pathway enrichment.
-  - Interactive Exon-Intron Sashimi track visualizer responsive to gene selection.
-  - Live NIH NCBI & PubMed REST API literature retrieval via CORS-enabled E-utilities.
+#### 📊 Module D: Standalone Interactive HTML Dashboard (`visualizer/report_exporter.py`)
+- Generates a self-contained HTML report (`outputs/gensplice_report.html`) without server or database dependencies.
+- Interactive features include:
+  - Alternative Splicing Volcano Plot with dynamic threshold recalculation in pure JavaScript / Plotly.
+  - Interactive Sashimi-style exon-intron structure visualizer responsive to gene selection.
+  - Synchronized NCBI Gene summary and PubMed literature query interface.
+  - Gene Ontology (GO Biological Process) and KEGG pathway enrichment visualizer.
 
 ---
 
 ### 3. Pipeline Software Stack & Compatibility
 
-| Component | Software / Library | Role |
-| :--- | :--- | :--- |
-| Read QC & Trimming | `fastp` | High-throughput quality control and automated adapter clipping |
-| Read Alignment | `STAR` | 2-pass splice-aware genomic alignment |
-| Gene Quantification | `featureCounts` (subread) | Exon-level and gene-level read summarization |
-| Splicing Detection | `rMATS` | Statistical junction count and PSI calculation |
-| Expression Testing | `PyDESeq2` | Differential gene expression modeling |
-| Columnar Processing | `Polars` | Sub-millisecond table joins and multi-criteria filtering |
-| Visualization | `Plotly.js` | Browser-side interactive cross-plotting and sashimi tracks |
-| Reference Metadata | NIH NCBI E-utilities | Direct programmatic gene summary and literature access |
+| Component | Software / Library | Version | Role |
+| :--- | :--- | :--- | :--- |
+| Read QC & Trimming | `fastp` | `>= 0.23.4` | Raw read quality filtering and trimming |
+| Read Alignment | `STAR` | `>= 2.7.11a` | Splice-aware reference genome alignment |
+| Gene Summarization | `featureCounts` (subread) | `>= 2.0.6` | Exon- and gene-level read summarization |
+| Splicing Detection | `rMATS` | `>= 4.3.0` | Junction read counting and statistical testing |
+| Table Processing | `Polars` / `Pandas` | `>= 0.20.0` | Columnar data operations and merging |
+| Visualization | `Plotly.js` | `>= 5.20.0` | Client-side interactive plotting |
+
+**Supported Organisms**:
+- **Human** (*Homo sapiens*): Ensembl GRCh38
+- **Mouse** (*Mus musculus*): Ensembl GRCm39
 
 ---
 
-### 4. Publication Strategy & Target Venues
+### 4. Technical Characteristics
 
-GenSplice-Agent is designed as a standalone, reproducible software tool suited for peer-reviewed computational biology and bioinformatics journals:
-
-- **Target Journals**:
-  - *Bioinformatics* (Application Notes)
-  - *Briefings in Bioinformatics*
-  - *BMC Bioinformatics* / *PLOS Computational Biology*
-  - *Frontiers in Genetics* / *Frontiers in Bioinformatics*
-  - *Scientific Reports*
-
-- **Key Reviewer Selling Points**:
-  1. **100% Deterministic Reproducibility**: Pure algorithmic execution without non-deterministic external dependencies.
-  2. **End-to-End Automation**: Ingests raw FASTQ files and generates bench-ready RT-qPCR primer pairs and publication-quality figures without requiring multi-language orchestration.
-  3. **Zero-Cost Deployment**: Requires no persistent web servers, databases, or third-party paid subscriptions.
+1. **Local Execution**: Runs entirely in user environments without external cloud data transmission.
+2. **Deterministic Checkpointing**: Tracks stage completion in `outputs/pipeline_checkpoint.json` to allow resumption without re-running completed steps.
+3. **Hardware Resource Management**: Automatically allocates available CPU cores and memory limits to balance throughput and stability.

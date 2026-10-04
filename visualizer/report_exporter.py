@@ -14,6 +14,7 @@ import time
 import math
 import polars as pl
 import pandas as pd
+import plotly.graph_objects as go
 from visualizer.as_volcano_plot import build_as_volcano_plot
 from visualizer.quadrant_plot import build_quadrant_plot
 from visualizer.enrichment_plot import build_enrichment_chart
@@ -67,10 +68,10 @@ def export_html_report(
     kpis = get_splicing_kpis(df_splicing_events, delta_psi_cutoff=delta_psi_cutoff, fdr_cutoff=as_fdr_cutoff)
 
     # 4. Identify initial top significant splicing target for Visual Exon-Intron Sashimi Plot
-    top_gene_symbol = "CRISPLD2"
-    top_coords = "chr16:84860000:84861500:84863000"
-    top_event = "SE"
-    top_delta_psi = 0.35
+    top_gene_symbol = ""
+    top_coords = "N/A"
+    top_event = "N/A"
+    top_delta_psi = 0.0
     top_inc_counts = 0
     top_exc_counts = 0
 
@@ -82,69 +83,51 @@ def export_html_report(
 
     if sig_events.height > 0:
         row0 = sig_events.to_dicts()[0]
-        top_gene_symbol = row0.get("geneSymbol") or "CRISPLD2"
-        top_coords = row0.get("coordinates") or top_coords
-        top_event = row0.get("event_type") or "SE"
-        top_delta_psi = float(row0.get("delta_psi", 0.35) if row0.get("delta_psi") is not None else 0.35)
-        top_inc_counts = int(row0.get("inc_counts", 0) if row0.get("inc_counts") is not None else 0)
-        top_exc_counts = int(row0.get("exc_counts", 0) if row0.get("exc_counts") is not None else 0)
-    elif df_splicing_events.height > 0:
-        row0 = df_splicing_events.sort(["as_fdr", "delta_psi"], descending=[False, True]).to_dicts()[0]
-        top_gene_symbol = row0.get("geneSymbol") or "N/A"
-        top_coords = row0.get("coordinates") or top_coords
+        top_gene_symbol = row0.get("geneSymbol") or ""
+        top_coords = row0.get("coordinates") or "N/A"
         top_event = row0.get("event_type") or "SE"
         top_delta_psi = float(row0.get("delta_psi", 0.0) if row0.get("delta_psi") is not None else 0.0)
         top_inc_counts = int(row0.get("inc_counts", 0) if row0.get("inc_counts") is not None else 0)
         top_exc_counts = int(row0.get("exc_counts", 0) if row0.get("exc_counts") is not None else 0)
 
-    fig_sashimi = plot_exon_structure(
-        gene_symbol=top_gene_symbol,
-        event_type=top_event,
-        coordinates=top_coords,
-        inc_counts=top_inc_counts,
-        exc_counts=top_exc_counts,
-        delta_psi=top_delta_psi
-    )
-    sashimi_html = fig_sashimi.to_html(full_html=False, include_plotlyjs=False, div_id="plotly-sashimi-div")
+        fig_sashimi = plot_exon_structure(
+            gene_symbol=top_gene_symbol,
+            event_type=top_event,
+            coordinates=top_coords,
+            inc_counts=top_inc_counts,
+            exc_counts=top_exc_counts,
+            delta_psi=top_delta_psi
+        )
+        sashimi_html = fig_sashimi.to_html(full_html=False, include_plotlyjs=False, div_id="plotly-sashimi-div")
+        sashimi_title_text = f"<b>{top_gene_symbol} Exon Structure & Splicing Sashimi Plot</b> ({top_event} | ΔPSI = {top_delta_psi:+.2f})"
+    else:
+        # Informative zero-state sashimi canvas when no genes meet cutoff
+        fig_sashimi = go.Figure()
+        fig_sashimi.add_annotation(
+            text=f"<b>No alternative splicing targets meet current significance cutoffs (|ΔPSI| ≥ {delta_psi_cutoff:.2f}, FDR ≤ {as_fdr_cutoff:.3f})</b><br><span style='color:#64748B;'>Adjust ΔPSI or FDR cutoff sliders in the control panel to identify candidate splicing events</span>",
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+            font=dict(size=14, color="#64748B")
+        )
+        fig_sashimi.update_layout(
+            template="plotly_white", paper_bgcolor="#FFFFFF", plot_bgcolor="#F8FAFC",
+            xaxis=dict(showgrid=False, showticklabels=False), yaxis=dict(showgrid=False, showticklabels=False),
+            height=260
+        )
+        sashimi_html = fig_sashimi.to_html(full_html=False, include_plotlyjs=False, div_id="plotly-sashimi-div")
+        sashimi_title_text = "<b>No Alternative Splicing Targets Meeting Cutoffs</b>"
 
     # 5. Extract Candidate Splicing Target Genes for downstream analyses
     candidate_symbols = set()
-
-    # Add significant splicing targets from df_splicing_events
-    if "as_fdr" in df_splicing_events.columns and "delta_psi" in df_splicing_events.columns:
-        sig_cand = df_splicing_events.filter(
-            (pl.col("delta_psi").abs() >= delta_psi_cutoff) &
-            (pl.col("as_fdr") <= as_fdr_cutoff)
+    if sig_events.height > 0 and "geneSymbol" in sig_events.columns:
+        candidate_symbols.update(
+            g.strip() for g in sig_events["geneSymbol"].drop_nulls().to_list() if g and g.strip()
         )
-        if sig_cand.height > 0:
-            candidate_symbols.update(
-                g.strip() for g in sig_cand["geneSymbol"].drop_nulls().to_list() if g and g.strip()
-            )
 
-    # If few significant targets, include candidate AS events with moderate effect
-    if len(candidate_symbols) < 5 and "geneSymbol" in df_all_events.columns:
-        as_cond = (
-            ((pl.col("as_fdr") <= 0.05) & (pl.col("event_type") != "None")) |
-            ((pl.col("delta_psi").abs() >= 0.05) & (pl.col("as_fdr") <= 0.10) & (pl.col("event_type") != "None"))
-        )
-        cand_df = df_all_events.filter(as_cond & pl.col("geneSymbol").is_not_null())
-        if cand_df.height > 0:
-            candidate_symbols.update(g.strip() for g in cand_df["geneSymbol"].to_list() if g and g.strip())
-
-    # Always ensure top_gene_symbol is preserved in candidate list
-    if top_gene_symbol and top_gene_symbol != "N/A":
-        candidate_symbols.add(top_gene_symbol.strip())
-
-    # Filter df_all_events: keep all multi-event isoforms for identified candidate splicing genes
+    # Filter df_all_events: strictly preserve candidate splicing genes or empty state (no synthetic fallbacks)
     if candidate_symbols and "geneSymbol" in df_all_events.columns:
         target_candidates = df_all_events.filter(pl.col("geneSymbol").is_in(list(candidate_symbols)))
     else:
-        if "as_fdr" in df_all_events.columns and "delta_psi" in df_all_events.columns:
-            sorted_events = df_all_events.sort(["as_fdr", "delta_psi"], descending=[False, True])
-            top_genes = sorted_events["geneSymbol"].drop_nulls().unique().head(100).to_list()
-            target_candidates = df_all_events.filter(pl.col("geneSymbol").is_in(top_genes))
-        else:
-            target_candidates = df_all_events.head(200)
+        target_candidates = df_all_events.clear()
 
     # Exclude non-splicing records (e.g. event_type is None or "None")
     if "event_type" in target_candidates.columns:
@@ -190,7 +173,7 @@ def export_html_report(
                 sashimi_dict[sym_clean] = entry
                 sashimi_dict[sym_upper] = entry
 
-    if top_gene_symbol not in sashimi_dict:
+    if top_gene_symbol and top_gene_symbol not in sashimi_dict:
         c_info = resolve_gene_exon_coords(top_gene_symbol, top_event, top_coords)
         entry = {
             "gene_symbol": top_gene_symbol,
@@ -218,12 +201,12 @@ def export_html_report(
     primer_records = primer_df.to_dicts() if primer_df.height > 0 else []
     primer_records_json = json.dumps(primer_records)
 
-    first_primer_gene = top_gene_symbol
-    first_coords = top_coords
-    first_event = top_event
+    first_primer_gene = top_gene_symbol if top_gene_symbol else "-"
+    first_coords = top_coords if top_gene_symbol else "-"
+    first_event = top_event if top_gene_symbol else "-"
 
     primer_rows_html = ""
-    if primer_df.height > 0:
+    if primer_df.height > 0 and top_gene_symbol:
         matching_rows = primer_df.filter(pl.col("gene_symbol") == first_primer_gene)
         if matching_rows.height == 0 and primer_records:
             first_primer_gene = primer_records[0]["gene_symbol"]
@@ -252,6 +235,8 @@ def export_html_report(
                 <td><span class="badge" style="background:#F0FDF4; color:#16A34A; border:1px solid #22C55E;">{r['primer_quality']}</span></td>
             </tr>
             """
+    else:
+        primer_rows_html = '<tr><td colspan="7" style="text-align:center; color:#64748B; padding:16px;">No significant alternative splicing targets meet current threshold cutoffs.</td></tr>'
 
     # 8. Splicing Target Genes for GO / KEGG Enrichment
     splicing_genes = list(candidate_symbols) if candidate_symbols else []
@@ -825,7 +810,7 @@ def export_html_report(
             {sashimi_html}
         </div>
         <div style="text-align: center; margin-top: 12px; padding-top: 10px; border-top: 1px solid #E2E8F0; font-size: 15px; font-weight: 700; color: #1E293B;">
-            📊 <span id="sashimi-title-text"><b>{top_gene_symbol} Exon Structure & Splicing Sashimi Plot</b> ({top_event} | ΔPSI = {top_delta_psi:+.2f})</span>
+            📊 <span id="sashimi-title-text">{sashimi_title_text}</span>
         </div>
     </div>
 
@@ -1672,9 +1657,11 @@ def export_html_report(
 
             if (tbody) {{
                 if (!matching.length) {{
-                    const msg = (!upper || !activeSet.has(upper))
-                        ? `${{upper || 'Selected gene'}} is outside active splicing thresholds.`
-                        : `No event annotations recorded for ${{upper}}.`;
+                    const msg = (activeSet.size === 0)
+                        ? 'No significant alternative splicing genes meet current threshold cutoffs.'
+                        : ((!upper || !activeSet.has(upper))
+                            ? `${{upper || 'Selected gene'}} is outside active splicing thresholds.`
+                            : `No event annotations recorded for ${{upper}}.`);
                     tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; color:#64748B; padding:20px; font-weight:600;">${{msg}}</td></tr>`;
                 }} else {{
                     const maxDomRows = 500;
