@@ -19,7 +19,6 @@ from visualizer.quadrant_plot import build_quadrant_plot
 from visualizer.enrichment_plot import build_enrichment_chart
 from core.merger import get_splicing_kpis, get_quadrant_kpis
 from core.enrichment import fetch_enrichment
-from core.ai_summary import fetch_ncbi_gene_summary, fetch_pubmed_literature
 from core.isoform_annotator import annotate_isoform_events
 from visualizer.exon_structure import plot_exon_structure, resolve_gene_exon_coords
 from core.primer_designer import generate_primer_table_for_targets
@@ -404,23 +403,7 @@ def export_html_report(
     isoform_table_rows_html = "\n".join(isoform_rows_list)
     isoform_records_json = json.dumps(isoform_records_list)
 
-    # 12. NCBI Gene summary & PubMed pre-caching for top candidate genes
-    primary_ncbi_genes = list(dict.fromkeys([g.strip().upper() for g in splicing_genes if g]))[:15]
-    if not primary_ncbi_genes:
-        primary_ncbi_genes = list(dict.fromkeys([g.strip().upper() for g in all_genes if g]))[:15]
-
-    ncbi_pubmed_map = {}
-    for g in primary_ncbi_genes:
-        s_info = fetch_ncbi_gene_summary(g, organism=organism)
-        p_info = fetch_pubmed_literature(g, top_n=3)
-        ncbi_pubmed_map[g] = {
-            "ncbi": s_info,
-            "pubmed": p_info
-        }
-        time.sleep(0.35)  # Respect NCBI 3 req/sec rate limit
-    ncbi_pubmed_json = json.dumps(ncbi_pubmed_map)
-
-    # 13. Generate Self-Contained HTML Document
+    # 12. Generate Self-Contained HTML Document
     full_html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -888,13 +871,15 @@ def export_html_report(
     <script>
         const rawGeneData = {raw_data_json};
         const genePathways = {gene_pathway_json};
-        const ncbiPubmedData = {ncbi_pubmed_json};
         const primerRecords = {primer_records_json};
         const sashimiGeneData = {sashimi_data_json};
         const sashimiEventsMap = {sashimi_events_json};
         const isoformRecords = {isoform_records_json};
         const baseGoRecords = {go_records_json};
         const baseKeggRecords = {kegg_records_json};
+        const currentOrganism = "{organism}";
+        const liveGeneDataCache = new Map();
+        let activeGeneQuery = "";
         let currentGoData = [];
         let currentKeggData = [];
         let isEnrichmentGenerated = false;
@@ -916,6 +901,93 @@ def export_html_report(
 
         let currentFilteredGenes = [];
 
+        async function fetchNcbiGene(upper) {{
+            try {{
+                const orgTerm = encodeURIComponent(currentOrganism || "Homo sapiens");
+                let sUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=gene&term=${{encodeURIComponent(upper)}}[Gene+Name]+AND+${{orgTerm}}[Organism]&retmode=json`;
+                let sResp = await fetch(sUrl);
+                let sData = await sResp.json();
+                let idList = sData.esearchresult?.idlist || [];
+
+                if (!idList.length) {{
+                    sUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=gene&term=${{encodeURIComponent(upper)}}[Gene+Name]&retmode=json`;
+                    sResp = await fetch(sUrl);
+                    sData = await sResp.json();
+                    idList = sData.esearchresult?.idlist || [];
+                }}
+
+                if (idList.length > 0) {{
+                    const geneId = idList[0];
+                    const sumUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=gene&id=${{geneId}}&retmode=json`;
+                    const sumResp = await fetch(sumUrl);
+                    const sumData = await sumResp.json();
+                    const ginfo = sumData.result?.[geneId] || {{}};
+                    return {{
+                        ncbi_id: geneId,
+                        official_name: ginfo.description || `${{upper}} (${{currentOrganism || 'Homo sapiens'}})`,
+                        chromosome: ginfo.maplocation || "N/A",
+                        summary: ginfo.summary || `Official NCBI Gene record for ${{upper}}.`
+                    }};
+                }}
+            }} catch (err) {{
+                console.warn("NCBI Gene live fetch warning:", err);
+            }}
+            return {{
+                ncbi_id: "N/A",
+                official_name: `${{upper}} (${{currentOrganism || 'Homo sapiens'}})`,
+                chromosome: "N/A",
+                summary: `Official NCBI Gene record for ${{upper}}. Click link above to view details directly on NCBI.`
+            }};
+        }}
+
+        async function fetchPubMedLiterature(upper) {{
+            try {{
+                const pSearchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${{encodeURIComponent(upper)}}&retmax=3&sort=pub_date&retmode=json`;
+                const pResp = await fetch(pSearchUrl);
+                const pData = await pResp.json();
+                const pmidList = pData.esearchresult?.idlist || [];
+                const totalCount = parseInt(pData.esearchresult?.count || "0", 10);
+
+                if (pmidList.length > 0) {{
+                    const pSumUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${{pmidList.join(",")}}&retmode=json`;
+                    const pSumResp = await fetch(pSumUrl);
+                    const pSumData = await pSumResp.json();
+                    const pMap = pSumData.result || {{}};
+                    const papers = [];
+
+                    pmidList.forEach(pmid => {{
+                        const p = pMap[pmid] || {{}};
+                        const authorsList = p.authors || [];
+                        let authorStr = "Unknown";
+                        if (authorsList.length === 1) {{
+                            authorStr = authorsList[0].name || "Unknown";
+                        }} else if (authorsList.length > 1) {{
+                            authorStr = `${{authorsList[0].name || "Unknown"}} et al.`;
+                        }}
+
+                        const pubDate = (p.pubdate || p.sortpubdate || "").split(" ")[0] || "Recent";
+                        const journal = p.source || "Journal";
+                        const title = p.title || `Research on ${{upper}} gene function`;
+
+                        papers.push({{
+                            pmid: pmid,
+                            title: title,
+                            authors: authorStr,
+                            journal: journal,
+                            pub_date: pubDate,
+                            url: `https://pubmed.ncbi.nlm.nih.gov/${{pmid}}/`
+                        }});
+                    }});
+
+                    return {{ papers: papers, totalCount: totalCount, error: false }};
+                }}
+                return {{ papers: [], totalCount: totalCount, error: false }};
+            }} catch (err) {{
+                console.warn("PubMed live fetch warning:", err);
+                return {{ papers: [], totalCount: 0, error: true }};
+            }}
+        }}
+
         function displayNcbiData(symbol, data) {{
             const ncbi = (data && data.ncbi) ? data.ncbi : {{}};
             const geneId = (ncbi.ncbi_id && ncbi.ncbi_id !== 'N/A') ? ncbi.ncbi_id : null;
@@ -924,48 +996,74 @@ def export_html_report(
 
             const geneTitle = document.getElementById('ncbi-gene-title');
             if (geneTitle) {{
-                geneTitle.innerHTML = `🧬 NCBI Gene Details: <code style="color:#2563EB;">${{symbol}}</code> <a href="${{ncbiLink}}" target="_blank" style="font-size:12px; margin-left:8px; color:#2563EB; text-decoration:none;">🔗 Open in NCBI ↗</a>`;
+                geneTitle.innerHTML = `🧬 NCBI Gene Details: <code style="color:#2563EB;">${{symbol}}</code> <a href="${{ncbiLink}}" target="_blank" rel="noopener noreferrer" style="font-size:12px; margin-left:8px; color:#2563EB; text-decoration:none; font-weight:700;">🔗 Open in NCBI ↗</a>`;
             }}
             const officialName = document.getElementById('ncbi-official-name');
             if (officialName) {{
-                officialName.innerHTML = `<b>Official Name:</b> ${{ncbi.official_name || (symbol + ' (Homo sapiens)')}}`;
+                officialName.innerHTML = `<b>Official Name:</b> ${{ncbi.official_name || (symbol + ' (' + (currentOrganism || 'Homo sapiens') + ')')}}`;
             }}
             const meta = document.getElementById('ncbi-meta');
             if (meta) {{
-                const idDisplay = geneId ? `<a href="${{ncbiLink}}" target="_blank" style="color:#2563EB; font-weight:700;">${{geneId}}</a>` : `<a href="${{ncbiLink}}" target="_blank" style="color:#2563EB; font-weight:700;">Search NCBI</a>`;
-                meta.innerHTML = `<b>NCBI Gene ID:</b> ${{idDisplay}} | <b>Map Location:</b> ${{ncbi.chromosome || 'Homo sapiens'}}`;
+                const idDisplay = geneId ? `<a href="${{ncbiLink}}" target="_blank" rel="noopener noreferrer" style="color:#2563EB; font-weight:700;">${{geneId}}</a>` : `<a href="${{ncbiLink}}" target="_blank" rel="noopener noreferrer" style="color:#2563EB; font-weight:700;">Search NCBI</a>`;
+                meta.innerHTML = `<b>NCBI Gene ID:</b> ${{idDisplay}} | <b>Map Location:</b> ${{ncbi.chromosome || 'N/A'}}`;
             }}
             const summaryDesc = document.getElementById('ncbi-summary-desc');
             if (summaryDesc) {{
                 summaryDesc.textContent = ncbi.summary || `Official NCBI summary for ${{symbol}}.`;
             }}
 
-            const pubmedList = (data && data.pubmed) ? data.pubmed : [];
+            const pubmedInfo = (data && data.pubmed) ? data.pubmed : {{ papers: [], totalCount: 0, error: false }};
+            const pubmedList = pubmedInfo.papers || [];
             const pubContainer = document.getElementById('pubmed-papers-container');
+            const pubTitle = document.getElementById('pubmed-list-title');
+
+            if (pubTitle) {{
+                pubTitle.innerHTML = `📖 Recent PubMed Literature <span style="font-size:12px; font-weight:600; color:#2563EB;">(Live NIH API)</span>`;
+            }}
+
             if (pubContainer) {{
                 if (pubmedList.length > 0) {{
                     let pubHtml = '';
                     pubmedList.forEach(paper => {{
                         pubHtml += `
                         <div style="background-color: #F8FAFC; border-left: 4px solid #3B82F6; border-radius: 8px; padding: 12px 14px; border: 1px solid #E2E8F0; margin-bottom: 8px;">
-                            <a href="${{paper.url}}" target="_blank" style="text-decoration: none; font-weight: 700; color: #1D4ED8; font-size: 0.95rem;">🔗 ${{paper.title}}</a><br>
-                            <div style="font-size: 0.82rem; color: #64748B; margin-top: 4px;">
-                                <b>Journal:</b> ${{paper.journal}} (${{paper.pub_date}}) | <b>PMID:</b> <a href="${{paper.url}}" target="_blank" style="color:#2563EB; font-weight:700;">${{paper.pmid}}</a>
+                            <a href="${{paper.url}}" target="_blank" rel="noopener noreferrer" style="text-decoration: none; font-weight: 700; color: #1D4ED8; font-size: 0.95rem; line-height: 1.45; display: block;">🔗 ${{paper.title}}</a>
+                            <div style="font-size: 0.82rem; color: #64748B; margin-top: 6px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+                                <span><b>Authors:</b> ${{paper.authors}}</span>
+                                <span>•</span>
+                                <span><b>Journal:</b> ${{paper.journal}} (${{paper.pub_date}})</span>
+                                <span>•</span>
+                                <span><b>PMID:</b> <a href="${{paper.url}}" target="_blank" rel="noopener noreferrer" style="color:#2563EB; font-weight:700;">${{paper.pmid}}</a></span>
                             </div>
                         </div>`;
                     }});
+
+                    const totalMsg = pubmedInfo.totalCount > 0 ? `all ${{pubmedInfo.totalCount.toLocaleString()}} PubMed papers` : `all papers`;
+                    pubHtml += `
+                    <div style="text-align: right; margin-top: 6px;">
+                        <a href="${{pubmedSearchUrl}}" target="_blank" rel="noopener noreferrer" style="font-size: 12px; font-weight: 700; color: #2563EB; text-decoration: none;">
+                            🔍 View ${{totalMsg}} for "${{symbol}}" ↗
+                        </a>
+                    </div>`;
                     pubContainer.innerHTML = pubHtml;
+                }} else if (pubmedInfo.error) {{
+                    pubContainer.innerHTML = `
+                    <div style="padding:18px; background:#FEF2F2; border-radius:8px; border:1px solid #FECDD3; text-align:center;">
+                        <p style="color:#DC2626; font-size:13px; font-weight:700; margin:0 0 6px;">⚠️ NIH PubMed connection unavailable (Network restricted or offline)</p>
+                        <p style="color:#64748B; font-size:12px; margin:0 0 10px;">Click below to open latest PubMed publications directly in a new tab:</p>
+                        <a href="${{pubmedSearchUrl}}" target="_blank" rel="noopener noreferrer" style="display:inline-block; padding:8px 16px; background:#2563EB; color:#FFF; font-weight:700; border-radius:6px; text-decoration:none; font-size:13px;">🔍 Search PubMed for "${{symbol}}" ↗</a>
+                    </div>`;
                 }} else {{
                     pubContainer.innerHTML = `
-                    <div style="padding:16px; background:#F8FAFC; border-radius:8px; border:1px dashed #CBD5E1; text-align:center;">
-                        <p style="color:#64748B; margin-bottom:8px; font-size:13px;">No pre-cached literature records found for <b>${{symbol}}</b>.</p>
-                        <a href="${{pubmedSearchUrl}}" target="_blank" style="display:inline-block; padding:8px 14px; background:#3B82F6; color:#FFF; font-weight:700; border-radius:6px; text-decoration:none; font-size:13px;">🔍 Search PubMed for "${{symbol}}" ↗</a>
+                    <div style="padding:20px; background:#F8FAFC; border-radius:8px; border:1px dashed #CBD5E1; text-align:center;">
+                        <p style="color:#64748B; margin:0 0 10px; font-size:13px;">No recent indexed PubMed papers found directly matching <b>${{symbol}}</b>.</p>
+                        <a href="${{pubmedSearchUrl}}" target="_blank" rel="noopener noreferrer" style="display:inline-block; padding:8px 14px; background:#3B82F6; color:#FFF; font-weight:700; border-radius:6px; text-decoration:none; font-size:13px;">🔍 Search PubMed directly for "${{symbol}}" ↗</a>
                     </div>`;
                 }}
             }}
         }}
 
-        async function renderNcbiGeneDetails(symbol, fetchIfMissing = true) {{
+        async function renderNcbiGeneDetails(symbol) {{
             if (!symbol) {{
                 const geneTitle = document.getElementById('ncbi-gene-title');
                 if (geneTitle) geneTitle.innerHTML = `🧬 NCBI Gene Details: <span style="color:#64748B;">No target selected</span>`;
@@ -979,101 +1077,58 @@ def export_html_report(
                 if (pubElem) pubElem.innerHTML = `<p style="color:#64748B;"><i>No target gene selected.</i></p>`;
                 return;
             }}
+
             const upper = symbol.trim().toUpperCase();
-            
-            // Check cache
-            const cached = ncbiPubmedData[upper] || ncbiPubmedData[symbol];
-            if (cached && cached.ncbi && cached.ncbi.ncbi_id && cached.ncbi.ncbi_id !== 'N/A') {{
-                displayNcbiData(upper, cached);
+            activeGeneQuery = upper;
+
+            // 1. Instant display from in-memory session cache if already fetched in this session
+            if (liveGeneDataCache.has(upper)) {{
+                displayNcbiData(upper, liveGeneDataCache.get(upper));
                 return;
             }}
 
-            // Live fetch via NCBI E-utilities (CORS enabled)
-            if (fetchIfMissing) {{
-                const titleElem = document.getElementById('ncbi-gene-title');
-                if (titleElem) titleElem.innerHTML = `🧬 NCBI Gene Details: <code style="color:#2563EB;">${{upper}}</code> <span style="font-size:12px; color:#3B82F6;">(Fetching live from NCBI...)</span>`;
-                const nameElem = document.getElementById('ncbi-official-name');
-                if (nameElem) nameElem.innerHTML = `<b>Official Name:</b> <i>Connecting to NIH NCBI E-utilities...</i>`;
-                const pubElem = document.getElementById('pubmed-papers-container');
-                if (pubElem) pubElem.innerHTML = `<p style="color:#64748B;"><i>Searching PubMed for ${{upper}} literature...</i></p>`;
-
-                try {{
-                    // 1. Search NCBI Gene
-                    const sUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=gene&term=${{encodeURIComponent(upper)}}[Gene+Name]+AND+Homo+sapiens[Organism]&retmode=json`;
-                    const sResp = await fetch(sUrl);
-                    const sData = await sResp.json();
-                    const idList = sData.esearchresult?.idlist || [];
-                    
-                    let ncbiId = "N/A";
-                    let officialName = `${{upper}} (Homo sapiens)`;
-                    let mapLoc = "N/A";
-                    let summary = `Official NCBI Gene record for ${{upper}}.`;
-
-                    if (idList.length > 0) {{
-                        ncbiId = idList[0];
-                        const sumUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=gene&id=${{ncbiId}}&retmode=json`;
-                        const sumResp = await fetch(sumUrl);
-                        const sumData = await sumResp.json();
-                        const ginfo = sumData.result?.[ncbiId] || {{}};
-                        officialName = ginfo.description || officialName;
-                        mapLoc = ginfo.maplocation || "N/A";
-                        summary = ginfo.summary || summary;
-                    }}
-
-                    // 2. Search PubMed
-                    const pSearchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${{encodeURIComponent(upper)}}&retmax=3&sort=pub_date&retmode=json`;
-                    const pResp = await fetch(pSearchUrl);
-                    const pData = await pResp.json();
-                    const pmidList = pData.esearchresult?.idlist || [];
-                    let papers = [];
-
-                    if (pmidList.length > 0) {{
-                        const pSumUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${{pmidList.join(",")}}&retmode=json`;
-                        const pSumResp = await fetch(pSumUrl);
-                        const pSumData = await pSumResp.json();
-                        const pMap = pSumData.result || {{}};
-                        pmidList.forEach(pmid => {{
-                            const p = pMap[pmid] || {{}};
-                            papers.push({{
-                                pmid: pmid,
-                                title: p.title || `Research on ${{upper}} gene function`,
-                                journal: p.source || "PubMed",
-                                pub_date: (p.pubdate || "").split(" ")[0],
-                                url: `https://pubmed.ncbi.nlm.nih.gov/${{pmid}}/`
-                            }});
-                        }});
-                    }}
-
-                    ncbiPubmedData[upper] = {{
-                        ncbi: {{
-                            gene_symbol: upper,
-                            ncbi_id: ncbiId,
-                            official_name: officialName,
-                            chromosome: mapLoc,
-                            summary: summary
-                        }},
-                        pubmed: papers
-                    }};
-
-                    displayNcbiData(upper, ncbiPubmedData[upper]);
-                    return;
-                }} catch (e) {{
-                    console.warn("NCBI live fetch failed:", e);
-                }}
+            // 2. Active loading UI state while fetching live
+            const geneTitle = document.getElementById('ncbi-gene-title');
+            if (geneTitle) {{
+                geneTitle.innerHTML = `🧬 NCBI Gene Details: <code style="color:#2563EB;">${{upper}}</code> <span style="font-size:12px; color:#3B82F6; font-weight:600;">(Fetching live from NIH NCBI...)</span>`;
+            }}
+            const officialName = document.getElementById('ncbi-official-name');
+            if (officialName) {{
+                officialName.innerHTML = `<b>Official Name:</b> <i>Connecting to NIH NCBI E-utilities API...</i>`;
+            }}
+            const meta = document.getElementById('ncbi-meta');
+            if (meta) {{
+                meta.innerHTML = `<b>NCBI Gene ID:</b> <code>Loading...</code> | <b>Map Location:</b> Loading...`;
+            }}
+            const summaryDesc = document.getElementById('ncbi-summary-desc');
+            if (summaryDesc) {{
+                summaryDesc.innerHTML = `<span style="color:#64748B; font-style:italic;">🔄 Fetching official NCBI gene records & chromosomal location in real-time...</span>`;
+            }}
+            const pubElem = document.getElementById('pubmed-papers-container');
+            if (pubElem) {{
+                pubElem.innerHTML = `
+                <div style="padding:22px; background:#F8FAFC; border-radius:8px; border:1px dashed #CBD5E1; text-align:center;">
+                    <div style="font-size:14px; font-weight:700; color:#1E40AF; margin-bottom:4px;">🔄 Querying PubMed in real-time for ${{upper}}...</div>
+                    <p style="color:#64748B; margin:0; font-size:12px;">Fetching latest peer-reviewed literature via NIH PubMed E-utilities API.</p>
+                </div>`;
             }}
 
-            // Fallback
-            const fallback = cached || {{
-                ncbi: {{
-                    gene_symbol: upper,
-                    ncbi_id: "N/A",
-                    official_name: `${{upper}} (Homo sapiens)`,
-                    chromosome: "Homo sapiens",
-                    summary: `Official NCBI record for ${{upper}}. Click link to view gene details on NCBI.`
-                }},
-                pubmed: []
+            // 3. Parallel live API query to NCBI Gene and PubMed
+            const [ncbiResult, pubmedResult] = await Promise.all([
+                fetchNcbiGene(upper),
+                fetchPubMedLiterature(upper)
+            ]);
+
+            // Prevent race condition if user selected another gene during fetch
+            if (activeGeneQuery !== upper) return;
+
+            const combinedData = {{
+                ncbi: ncbiResult,
+                pubmed: pubmedResult
             }};
-            displayNcbiData(upper, fallback);
+
+            liveGeneDataCache.set(upper, combinedData);
+            displayNcbiData(upper, combinedData);
         }}
 
         function updateNcbiDropdown(splicingGeneList) {{
