@@ -58,22 +58,28 @@ def export_html_report(
     q2_top = df_merged.filter(pl.col("quadrant") == "Q2")
     if q2_top.height > 0:
         row0 = q2_top.to_dicts()[0]
-        top_gene_symbol = row0.get("geneSymbol", "CRISPLD2")
-        top_coords = row0.get("coordinates", top_coords)
-        top_event = row0.get("event_type", "SE")
+        top_gene_symbol = row0.get("geneSymbol") or "CRISPLD2"
+        top_coords = row0.get("coordinates") or top_coords
+        top_event = row0.get("event_type") or "SE"
         top_delta_psi = float(row0.get("delta_psi", 0.35) if row0.get("delta_psi") is not None else 0.35)
         top_inc_counts = int(row0.get("inc_counts", 0) if row0.get("inc_counts") is not None else 0)
         top_exc_counts = int(row0.get("exc_counts", 0) if row0.get("exc_counts") is not None else 0)
-    else:
-        q1_top = df_merged.filter(pl.col("quadrant") == "Q1")
-        if q1_top.height > 0:
-            row0 = q1_top.to_dicts()[0]
-            top_gene_symbol = row0.get("geneSymbol", "STAT3")
-            top_coords = row0.get("coordinates", top_coords)
-            top_event = row0.get("event_type", "SE")
-            top_delta_psi = float(row0.get("delta_psi", 0.35) if row0.get("delta_psi") is not None else 0.35)
-            top_inc_counts = int(row0.get("inc_counts", 0) if row0.get("inc_counts") is not None else 0)
-            top_exc_counts = int(row0.get("exc_counts", 0) if row0.get("exc_counts") is not None else 0)
+    elif df_merged.filter(pl.col("quadrant") == "Q1").height > 0:
+        row0 = df_merged.filter(pl.col("quadrant") == "Q1").to_dicts()[0]
+        top_gene_symbol = row0.get("geneSymbol") or "STAT3"
+        top_coords = row0.get("coordinates") or top_coords
+        top_event = row0.get("event_type") or "SE"
+        top_delta_psi = float(row0.get("delta_psi", 0.35) if row0.get("delta_psi") is not None else 0.35)
+        top_inc_counts = int(row0.get("inc_counts", 0) if row0.get("inc_counts") is not None else 0)
+        top_exc_counts = int(row0.get("exc_counts", 0) if row0.get("exc_counts") is not None else 0)
+    elif df_merged.height > 0:
+        row0 = df_merged.to_dicts()[0]
+        top_gene_symbol = row0.get("geneSymbol") or "N/A"
+        top_coords = row0.get("coordinates") or top_coords
+        top_event = row0.get("event_type") or "SE"
+        top_delta_psi = float(row0.get("delta_psi", 0.0) if row0.get("delta_psi") is not None else 0.0)
+        top_inc_counts = int(row0.get("inc_counts", 0) if row0.get("inc_counts") is not None else 0)
+        top_exc_counts = int(row0.get("exc_counts", 0) if row0.get("exc_counts") is not None else 0)
 
     fig_sashimi = plot_exon_structure(
         gene_symbol=top_gene_symbol,
@@ -85,14 +91,48 @@ def export_html_report(
     )
     sashimi_html = fig_sashimi.to_html(full_html=False, include_plotlyjs=False, div_id="plotly-sashimi-div")
 
-    # Splicing target candidates (Q2 Splicing-Driven + Q1 Dual Responders + all AS events from df_all_events)
-    if "event_type" in df_all_events.columns:
-        has_as_filter = pl.col("event_type").is_not_null() & (pl.col("event_type") != "None")
-        splicing_all = df_all_events.filter(has_as_filter | pl.col("quadrant").is_in(["Q2", "Q1"]))
-        target_candidates = splicing_all if splicing_all.height > 0 else df_all_events
+    # Splicing target candidates (Q2 Splicing-Driven + Q1 Dual Responders + statistically significant/candidate AS events)
+    candidate_symbols = set()
+
+    # 1. Primary Q1/Q2 genes from representative merged dataset
+    if "quadrant" in df_merged.columns and "geneSymbol" in df_merged.columns:
+        q_genes = df_merged.filter(pl.col("quadrant").is_in(["Q1", "Q2"]))["geneSymbol"].drop_nulls().to_list()
+        candidate_symbols.update(g.strip() for g in q_genes if g and g.strip())
+
+    # 2. Genes with significant or candidate AS events in df_all_events
+    if "geneSymbol" in df_all_events.columns:
+        as_cond = (
+            (pl.col("quadrant").is_in(["Q1", "Q2"])) |
+            ((pl.col("as_fdr") <= 0.05) & (pl.col("event_type") != "None")) |
+            ((pl.col("delta_psi").abs() >= 0.05) & (pl.col("as_fdr") <= 0.10) & (pl.col("event_type") != "None"))
+        )
+        cand_df = df_all_events.filter(as_cond & pl.col("geneSymbol").is_not_null())
+        if cand_df.height > 0:
+            candidate_symbols.update(g.strip() for g in cand_df["geneSymbol"].to_list() if g and g.strip())
+
+    # Always ensure top_gene_symbol is preserved in candidate list
+    if top_gene_symbol and top_gene_symbol != "N/A":
+        candidate_symbols.add(top_gene_symbol.strip())
+
+    # Filter df_all_events: keep all multi-event isoforms for identified candidate splicing genes
+    if candidate_symbols and "geneSymbol" in df_all_events.columns:
+        target_candidates = df_all_events.filter(pl.col("geneSymbol").is_in(list(candidate_symbols)))
     else:
-        q2_q1_sub = df_all_events.filter(pl.col("quadrant").is_in(["Q2", "Q1"]))
-        target_candidates = q2_q1_sub if q2_q1_sub.height > 0 else df_all_events
+        # Fallback for synthetic/small test sets where no gene met significance
+        if "as_fdr" in df_all_events.columns and "delta_psi" in df_all_events.columns:
+            sorted_events = df_all_events.sort(["as_fdr", "delta_psi"], descending=[False, True])
+            top_genes = sorted_events["geneSymbol"].drop_nulls().unique().head(100).to_list()
+            target_candidates = df_all_events.filter(pl.col("geneSymbol").is_in(top_genes))
+        else:
+            target_candidates = df_all_events.head(200)
+
+    # Exclude non-splicing records (e.g. event_type is None or "None")
+    if "event_type" in target_candidates.columns:
+        target_candidates_as = target_candidates.filter(
+            pl.col("event_type").is_not_null() & (pl.col("event_type") != "None")
+        )
+        if target_candidates_as.height > 0:
+            target_candidates = target_candidates_as
 
     # Splicing metadata map for client-side interactive Sashimi Plot re-rendering
     # Stores representative event in sashimi_dict, and all events per gene in sashimi_events_map
@@ -280,42 +320,39 @@ def export_html_report(
                             gene_pathway_map[g_clean][key].append(term)
     gene_pathway_json = json.dumps(gene_pathway_map)
 
-    # Pre-generate Event-Level Isoform Annotation Table Rows (Covering all candidate splicing targets from df_all_events)
-    if "event_type" in df_all_events.columns:
-        has_as_sub = df_all_events.filter(pl.col("event_type").is_not_null() & (pl.col("event_type") != "None"))
-        if has_as_sub.height == 0:
-            has_as_sub = df_all_events
-    else:
-        has_as_sub = df_all_events.filter(pl.col("quadrant").is_in(["Q1", "Q2"]))
-        if has_as_sub.height == 0:
-            has_as_sub = df_all_events
-
-    # Annotate all candidate splicing events without truncation using real GTF CDS structure
-    isoform_source_df = has_as_sub
+    # Annotate candidate splicing target events using real GTF CDS structure
+    isoform_source_df = target_candidates
     isoform_df = annotate_isoform_events(isoform_source_df, gtf_path=gtf_path)
 
     isoform_rows_list = []
     isoform_records_list = []
+    top_sym_upper = top_gene_symbol.strip().upper() if top_gene_symbol else ""
+
     for _, r in isoform_df.iterrows():
-        nmd_badge_style = "background:#FEF2F2; color:#EF4444; border:1px solid #EF4444;" if "NMD Sensitive" in str(r['nmd_prediction']) else "background:#EFF6FF; color:#2563EB; border:1px solid #3B82F6;"
-        risk_badge_style = "background:#FEF2F2; color:#DC2626; border:1px solid #EF4444; font-weight:800;" if "High" in str(r['impairment_tier']) else ("background:#FFFBEB; color:#D97706; border:1px solid #F59E0B; font-weight:800;" if "Moderate" in str(r['impairment_tier']) else "background:#F0FDF4; color:#16A34A; border:1px solid #22C55E; font-weight:800;")
-        gene_sym = str(r['geneSymbol'])
-        isoform_rows_list.append(f"""
-            <tr class="isoform-data-row" data-gene="{gene_sym.upper()}">
-                <td><b>{gene_sym}</b></td>
-                <td><span class="badge" style="{risk_badge_style}">{r['impairment_tier']}</span></td>
-                <td><span style="font-size:12px; font-weight:600; color:#334155;">{r['primary_dysfunction_cause']}</span></td>
-                <td><span class="badge" style="background:#F1F5F9; color:#334155; font-weight:700;">{r['event_type']}</span></td>
-                <td><code>{r['transcript_id']}</code></td>
-                <td><span style="font-size:12px; color:#64748B;">{r['coordinates']}</span></td>
-                <td><b style="color:#2563EB;">{r['delta_psi']:.3f}</b></td>
-                <td><b style="color:{'#DC2626' if r['log2FoldChange'] > 0 else '#2563EB'};">{r['log2FoldChange']:.3f}</b></td>
-                <td>{r['cds_frame']}</td>
-                <td><span class="badge" style="{nmd_badge_style}">{r['nmd_prediction']}</span><br><span style="font-size:11px; color:#64748B;">{r['ptc_position']}</span></td>
-                <td><b>{r['protein_domain']}</b></td>
-                <td><span style="font-size:12px; color:#475569;">{r['localization_consequence']}</span></td>
-            </tr>
-        """)
+        gene_sym = str(r['geneSymbol']).strip()
+        gene_sym_upper = gene_sym.upper()
+
+        # Only pre-render initial HTML rows for the default top_gene_symbol to prevent HTML DOM bloat
+        if top_sym_upper and gene_sym_upper == top_sym_upper:
+            nmd_badge_style = "background:#FEF2F2; color:#EF4444; border:1px solid #EF4444;" if "NMD Sensitive" in str(r['nmd_prediction']) else "background:#EFF6FF; color:#2563EB; border:1px solid #3B82F6;"
+            risk_badge_style = "background:#FEF2F2; color:#DC2626; border:1px solid #EF4444; font-weight:800;" if "High" in str(r['impairment_tier']) else ("background:#FFFBEB; color:#D97706; border:1px solid #F59E0B; font-weight:800;" if "Moderate" in str(r['impairment_tier']) else "background:#F0FDF4; color:#16A34A; border:1px solid #22C55E; font-weight:800;")
+            isoform_rows_list.append(f"""
+                <tr class="isoform-data-row" data-gene="{gene_sym_upper}">
+                    <td><b>{gene_sym}</b></td>
+                    <td><span class="badge" style="{risk_badge_style}">{r['impairment_tier']}</span></td>
+                    <td><span style="font-size:12px; font-weight:600; color:#334155;">{r['primary_dysfunction_cause']}</span></td>
+                    <td><span class="badge" style="background:#F1F5F9; color:#334155; font-weight:700;">{r['event_type']}</span></td>
+                    <td><code>{r['transcript_id']}</code></td>
+                    <td><span style="font-size:12px; color:#64748B;">{r['coordinates']}</span></td>
+                    <td><b style="color:#2563EB;">{r['delta_psi']:.3f}</b></td>
+                    <td><b style="color:{'#DC2626' if r['log2FoldChange'] > 0 else '#2563EB'};">{r['log2FoldChange']:.3f}</b></td>
+                    <td>{r['cds_frame']}</td>
+                    <td><span class="badge" style="{nmd_badge_style}">{r['nmd_prediction']}</span><br><span style="font-size:11px; color:#64748B;">{r['ptc_position']}</span></td>
+                    <td><b>{r['protein_domain']}</b></td>
+                    <td><span style="font-size:12px; color:#475569;">{r['localization_consequence']}</span></td>
+                </tr>
+            """)
+
         isoform_records_list.append({
             "gene_symbol": gene_sym,
             "impairment_tier": str(r.get("impairment_tier", "")),
@@ -331,6 +368,12 @@ def export_html_report(
             "protein_domain": str(r.get("protein_domain", "")),
             "localization_consequence": str(r.get("localization_consequence", ""))
         })
+
+    if not isoform_rows_list:
+        isoform_rows_list.append(f"""
+            <tr><td colspan="12" style="text-align:center; color:#64748B; padding:20px; font-weight:600;">Active splicing target records loaded ({len(isoform_records_list)} events). Select a gene to view isoform details.</td></tr>
+        """)
+
     isoform_table_rows_html = "\n".join(isoform_rows_list)
     isoform_records_json = json.dumps(isoform_records_list)
 
@@ -1411,11 +1454,45 @@ def export_html_report(
         }}
 
         let isoformShowAll = false;
+        function renderIsoformRow(r) {{
+            const isNmd = (r.nmd_prediction || '').includes("NMD Sensitive");
+            const nmdStyle = isNmd 
+                ? "background:#FEF2F2; color:#EF4444; border:1px solid #EF4444;" 
+                : "background:#EFF6FF; color:#2563EB; border:1px solid #3B82F6;";
+            const tier = r.impairment_tier || '';
+            const riskStyle = tier.includes("High") 
+                ? "background:#FEF2F2; color:#DC2626; border:1px solid #EF4444; font-weight:800;" 
+                : (tier.includes("Moderate") 
+                    ? "background:#FFFBEB; color:#D97706; border:1px solid #F59E0B; font-weight:800;" 
+                    : "background:#F0FDF4; color:#16A34A; border:1px solid #22C55E; font-weight:800;");
+            const dpsi = (r.delta_psi !== undefined && r.delta_psi !== null) ? Number(r.delta_psi).toFixed(3) : "0.000";
+            const fc = (r.log2FoldChange !== undefined && r.log2FoldChange !== null) ? Number(r.log2FoldChange).toFixed(3) : "0.000";
+            const fcColor = (r.log2FoldChange || 0) > 0 ? "#DC2626" : "#2563EB";
+
+            return `
+                <tr class="isoform-data-row" data-gene="${{(r.gene_symbol || '').toUpperCase()}}">
+                    <td><b>${{r.gene_symbol || ''}}</b></td>
+                    <td><span class="badge" style="${{riskStyle}}">${{r.impairment_tier || 'N/A'}}</span></td>
+                    <td><span style="font-size:12px; font-weight:600; color:#334155;">${{r.primary_dysfunction_cause || 'N/A'}}</span></td>
+                    <td><span class="badge" style="background:#F1F5F9; color:#334155; font-weight:700;">${{r.event_type || 'N/A'}}</span></td>
+                    <td><code>${{r.transcript_id || 'N/A'}}</code></td>
+                    <td><span style="font-size:12px; color:#64748B;">${{r.coordinates || 'N/A'}}</span></td>
+                    <td><b style="color:#2563EB;">${{dpsi}}</b></td>
+                    <td><b style="color:${{fcColor}};">${{fc}}</b></td>
+                    <td>${{r.cds_frame || 'N/A'}}</td>
+                    <td><span class="badge" style="${{nmdStyle}}">${{r.nmd_prediction || 'N/A'}}</span><br><span style="font-size:11px; color:#64748B;">${{r.ptc_position || 'N/A'}}</span></td>
+                    <td><b>${{r.protein_domain || 'N/A'}}</b></td>
+                    <td><span style="font-size:12px; color:#475569;">${{r.localization_consequence || 'N/A'}}</span></td>
+                </tr>
+            `;
+        }}
+
         function filterIsoformTable(geneSymbol) {{
             const upper = (geneSymbol || '').trim().toUpperCase();
             const filterLabel = document.getElementById('isoform-filter-gene');
             const countLabel = document.getElementById('isoform-filter-count');
             const toggleBtn = document.getElementById('isoform-toggle-view-btn');
+            const tbody = document.getElementById('isoform-table-body');
 
             const activeSet = getActiveSplicingGeneSet();
             const activeGeneCount = activeSet.size;
@@ -1430,30 +1507,32 @@ def export_html_report(
                 }}
             }}
 
-            const rows = document.querySelectorAll('.isoform-data-row');
-            let visibleCount = 0;
+            let matching = [];
+            if (isoformShowAll) {{
+                matching = (isoformRecords || []).filter(r => activeSet.has((r.gene_symbol || '').toUpperCase()));
+            }} else {{
+                if (upper && activeSet.has(upper)) {{
+                    matching = (isoformRecords || []).filter(r => (r.gene_symbol || '').toUpperCase() === upper);
+                }}
+            }}
 
-            if (rows.length) {{
-                rows.forEach(r => {{
-                    const rGene = (r.getAttribute('data-gene') || '').trim().toUpperCase();
-                    const isGeneActive = activeSet.has(rGene);
+            const visibleCount = matching.length;
 
-                    if (isoformShowAll) {{
-                        if (isGeneActive) {{
-                            r.style.display = '';
-                            visibleCount++;
-                        }} else {{
-                            r.style.display = 'none';
-                        }}
-                    }} else {{
-                        if (rGene === upper && isGeneActive) {{
-                            r.style.display = '';
-                            visibleCount++;
-                        }} else {{
-                            r.style.display = 'none';
-                        }}
+            if (tbody) {{
+                if (!matching.length) {{
+                    const msg = (!upper || !activeSet.has(upper))
+                        ? `${{upper || 'Selected gene'}} is outside active Q1/Q2 thresholds.`
+                        : `No event annotations recorded for ${{upper}}.`;
+                    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; color:#64748B; padding:20px; font-weight:600;">${{msg}}</td></tr>`;
+                }} else {{
+                    const maxDomRows = 500;
+                    const rowsToRender = matching.slice(0, maxDomRows);
+                    let html = rowsToRender.map(renderIsoformRow).join('');
+                    if (matching.length > maxDomRows) {{
+                        html += `<tr><td colspan="12" style="text-align:center; color:#64748B; padding:12px; font-weight:600; background:#F8FAFC;">(Showing first ${{maxDomRows}} of ${{matching.length}} isoform events. Use 'Download Filtered Isoforms (.csv)' to export all records.)</td></tr>`;
                     }}
-                }});
+                    tbody.innerHTML = html;
+                }}
             }}
 
             if (countLabel) {{
