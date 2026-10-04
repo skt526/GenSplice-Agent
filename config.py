@@ -11,6 +11,12 @@ DEFAULT_DELTA_PSI_CUTOFF = 0.1
 DEFAULT_DEG_FDR_CUTOFF = 0.05
 DEFAULT_AS_FDR_CUTOFF = 0.05
 
+# Background Noise Exclusion Cutoffs (Excludes unperturbed genes/events with zero biological change)
+DEFAULT_FILTER_NOISE = True
+NOISE_DELTA_PSI_CUTOFF = 0.01  # |dPSI| <= 0.01 represents unperturbed / zero splicing shift
+NOISE_LOG2FC_CUTOFF = 0.01     # |log2FC| <= 0.01 represents unperturbed / zero expression shift
+NOISE_FDR_CUTOFF = 0.90        # FDR >= 0.90 indicates non-significant / zero-confidence background noise
+
 # Premium Light Mode Theme Colors
 THEME_BG = "#F8FAFC"
 THEME_CARD_BG = "#FFFFFF"

@@ -5,6 +5,7 @@ GenSplice-Agent rMATS Loader Module (Polars)
 import os
 import glob
 import polars as pl
+from config import NOISE_DELTA_PSI_CUTOFF, NOISE_FDR_CUTOFF, DEFAULT_FILTER_NOISE
 
 EVENT_FILES = {
     "SE": "SE.MATS.JC.txt",
@@ -14,10 +15,16 @@ EVENT_FILES = {
     "A3SS": "A3SS.MATS.JC.txt"
 }
 
-def load_rmats_data(rmats_dir: str) -> pl.DataFrame:
+def load_rmats_data(
+    rmats_dir: str,
+    filter_noise: bool = DEFAULT_FILTER_NOISE,
+    noise_delta_psi_cutoff: float = NOISE_DELTA_PSI_CUTOFF,
+    noise_fdr_cutoff: float = NOISE_FDR_CUTOFF
+) -> pl.DataFrame:
     """
     Loads rMATS output files (5 event types: SE, RI, MXE, A5SS, A3SS) from rmats_dir using Polars.
-    Returns a unified Polars DataFrame containing all splicing events.
+    Excludes unperturbed background noise splicing events (|dPSI| <= cutoff & FDR >= cutoff) when filter_noise=True.
+    Returns a unified Polars DataFrame containing all active splicing events.
     """
     if not os.path.exists(rmats_dir):
         raise FileNotFoundError(f"rMATS directory not found: {rmats_dir}")
@@ -165,7 +172,14 @@ def load_rmats_data(rmats_dir: str) -> pl.DataFrame:
             if "strand" in df.columns:
                 selected_cols.append("strand")
 
-            dfs.append(df.select(selected_cols))
+            sub_df = df.select(selected_cols)
+
+            if filter_noise:
+                # Exclude unperturbed background noise events (|dPSI| <= cutoff and FDR >= cutoff)
+                is_as_noise = (pl.col("delta_psi").abs() <= noise_delta_psi_cutoff) & (pl.col("as_fdr") >= noise_fdr_cutoff)
+                sub_df = sub_df.filter(~is_as_noise)
+
+            dfs.append(sub_df)
 
         except Exception as e:
             print(f"Warning: Failed to parse rMATS file {filepath}: {e}")
@@ -185,6 +199,15 @@ def load_rmats_data(rmats_dir: str) -> pl.DataFrame:
         })
 
     full_df = pl.concat(dfs, how="diagonal")
+
+    if filter_noise:
+        # Final safeguard against any unperturbed noise events
+        is_as_noise = (pl.col("delta_psi").abs() <= noise_delta_psi_cutoff) & (pl.col("as_fdr") >= noise_fdr_cutoff)
+        noise_cnt = full_df.filter(is_as_noise).height
+        if noise_cnt > 0:
+            full_df = full_df.filter(~is_as_noise)
+        print(f"  [rMATS Loader] Loaded {full_df.height} active splicing events (unperturbed noise events with |dPSI| <= {noise_delta_psi_cutoff} & FDR >= {noise_fdr_cutoff} excluded).")
+
     return full_df
 
 def select_primary_splicing_events(df_rmats: pl.DataFrame) -> pl.DataFrame:

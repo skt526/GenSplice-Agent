@@ -1,9 +1,6 @@
-"""
-GenSplice-Agent DEG Loader Module (Polars)
-"""
-
 import os
 import polars as pl
+from config import NOISE_LOG2FC_CUTOFF, NOISE_FDR_CUTOFF, DEFAULT_FILTER_NOISE
 
 def parse_gtf_gene_map(gtf_path: str = None) -> dict:
     """
@@ -44,9 +41,16 @@ def parse_gtf_gene_map(gtf_path: str = None) -> dict:
 
     return gene_map
 
-def load_deg_data(filepath: str, gtf_path: str = None) -> pl.DataFrame:
+def load_deg_data(
+    filepath: str,
+    gtf_path: str = None,
+    filter_noise: bool = DEFAULT_FILTER_NOISE,
+    noise_log2fc_cutoff: float = NOISE_LOG2FC_CUTOFF,
+    noise_fdr_cutoff: float = NOISE_FDR_CUTOFF
+) -> pl.DataFrame:
     """
     Loads and standardizes DEG (DESeq2/edgeR) CSV/TSV output files using Polars.
+    Excludes unperturbed background noise genes (|log2FC| <= cutoff & FDR >= cutoff) when filter_noise=True.
     Returns a standardized Polars DataFrame containing:
     ['gene_id', 'geneSymbol', 'log2FoldChange', 'deg_pvalue', 'deg_fdr']
     """
@@ -115,4 +119,14 @@ def load_deg_data(filepath: str, gtf_path: str = None) -> pl.DataFrame:
     if "deg_pvalue" not in df.columns:
         df = df.with_columns(pl.col("deg_fdr").alias("deg_pvalue"))
 
-    return df.select(["gene_id", "geneSymbol", "log2FoldChange", "deg_pvalue", "deg_fdr"])
+    res = df.select(["gene_id", "geneSymbol", "log2FoldChange", "deg_pvalue", "deg_fdr"])
+
+    if filter_noise:
+        # Exclude unperturbed noise genes with zero expression shift and non-significant FDR
+        is_noise = (pl.col("log2FoldChange").abs() <= noise_log2fc_cutoff) & (pl.col("deg_fdr") >= noise_fdr_cutoff)
+        noise_cnt = res.filter(is_noise).height
+        if noise_cnt > 0:
+            res = res.filter(~is_noise)
+            print(f"  [DEG Loader] Excluded {noise_cnt} unperturbed noise genes (|log2FC| <= {noise_log2fc_cutoff}, FDR >= {noise_fdr_cutoff}). Remaining active genes: {res.height}")
+
+    return res

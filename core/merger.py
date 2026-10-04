@@ -3,7 +3,10 @@ GenSplice-Agent 4-Quadrant Merger Engine (Polars)
 """
 
 import polars as pl
-from config import DEFAULT_LOG2FC_CUTOFF, DEFAULT_DELTA_PSI_CUTOFF, DEFAULT_DEG_FDR_CUTOFF, DEFAULT_AS_FDR_CUTOFF
+from config import (
+    DEFAULT_LOG2FC_CUTOFF, DEFAULT_DELTA_PSI_CUTOFF, DEFAULT_DEG_FDR_CUTOFF, DEFAULT_AS_FDR_CUTOFF,
+    NOISE_LOG2FC_CUTOFF, NOISE_DELTA_PSI_CUTOFF, NOISE_FDR_CUTOFF, DEFAULT_FILTER_NOISE
+)
 
 def merge_deg_and_rmats(
     df_deg: pl.DataFrame,
@@ -12,7 +15,11 @@ def merge_deg_and_rmats(
     delta_psi_cutoff: float = DEFAULT_DELTA_PSI_CUTOFF,
     deg_fdr_cutoff: float = DEFAULT_DEG_FDR_CUTOFF,
     as_fdr_cutoff: float = DEFAULT_AS_FDR_CUTOFF,
-    deduplicate_genes: bool = True
+    deduplicate_genes: bool = True,
+    filter_noise: bool = DEFAULT_FILTER_NOISE,
+    noise_log2fc_cutoff: float = NOISE_LOG2FC_CUTOFF,
+    noise_delta_psi_cutoff: float = NOISE_DELTA_PSI_CUTOFF,
+    noise_fdr_cutoff: float = NOISE_FDR_CUTOFF
 ) -> pl.DataFrame:
     """
     Merges DEG data and rMATS data on normalized gene_id / geneSymbol,
@@ -36,40 +43,61 @@ def merge_deg_and_rmats(
             "coordinates": pl.Utf8
         })
 
-    # Prepare normalized join key for df_deg
+    # Clean up gene_id and geneSymbol in both datasets
     df_deg_prepared = df_deg.with_columns([
         pl.col("gene_id").cast(pl.Utf8).str.split(".").list.first().alias("gene_id_clean"),
         pl.col("geneSymbol").cast(pl.Utf8).str.split(".").list.first().alias("symbol_clean")
-    ]).with_columns([
-        pl.coalesce([pl.col("symbol_clean"), pl.col("gene_id_clean")]).alias("join_key")
     ])
 
-    # Prepare normalized join key for df_rmats
     df_rmats_prepared = df_rmats.with_columns([
         pl.col("gene_id").cast(pl.Utf8).str.split(".").list.first().alias("gene_id_clean"),
-        pl.col("geneSymbol").cast(pl.Utf8).alias("symbol_clean_rmats")
-    ]).with_columns([
-        pl.coalesce([pl.col("gene_id_clean"), pl.col("symbol_clean_rmats")]).alias("join_key")
-    ]).drop(["gene_id_clean", "symbol_clean_rmats"])
+        pl.col("geneSymbol").cast(pl.Utf8).str.split(".").list.first().alias("symbol_clean")
+    ])
 
-    # If df_deg lacks real gene symbols (e.g. geneSymbol == gene_id), extract clean gene_id -> geneSymbol map from rMATS
+    # If df_deg lacks real gene symbols (e.g. geneSymbol == gene_id), extract clean mapping from rMATS
     rmats_symbol_map = (
-        df_rmats
-        .filter(pl.col("geneSymbol").is_not_null() & ~pl.col("geneSymbol").str.starts_with("ENSG") & ~pl.col("geneSymbol").str.starts_with("AT"))
+        df_rmats_prepared
+        .filter(pl.col("symbol_clean").is_not_null() & ~pl.col("symbol_clean").str.starts_with("ENSG") & ~pl.col("symbol_clean").str.starts_with("AT"))
         .select([
-            pl.col("gene_id").cast(pl.Utf8).str.split(".").list.first().alias("join_key"),
-            pl.col("geneSymbol").alias("mapped_symbol")
+            pl.col("gene_id_clean"),
+            pl.col("symbol_clean").alias("mapped_symbol")
         ])
-        .unique(subset=["join_key"])
+        .unique(subset=["gene_id_clean"])
     )
 
     if rmats_symbol_map.height > 0:
-        df_deg_prepared = df_deg_prepared.join(rmats_symbol_map, on="join_key", how="left")
+        df_deg_prepared = df_deg_prepared.join(rmats_symbol_map, on="gene_id_clean", how="left")
         df_deg_prepared = df_deg_prepared.with_columns(
+            pl.coalesce([pl.col("mapped_symbol"), pl.col("symbol_clean")]).alias("symbol_clean"),
             pl.coalesce([pl.col("mapped_symbol"), pl.col("geneSymbol")]).alias("geneSymbol")
         ).drop("mapped_symbol")
 
-    df_deg_prepared = df_deg_prepared.drop(["gene_id_clean", "symbol_clean"])
+    # If df_deg only has symbol and no ENSEMBL ID, map from symbol -> gene_id_clean using rMATS
+    rmats_id_map = (
+        df_rmats_prepared
+        .filter(pl.col("gene_id_clean").is_not_null() & (pl.col("gene_id_clean").str.starts_with("ENSG") | pl.col("gene_id_clean").str.starts_with("AT")))
+        .select([
+            pl.col("symbol_clean"),
+            pl.col("gene_id_clean").alias("mapped_gid")
+        ])
+        .unique(subset=["symbol_clean"])
+    )
+
+    if rmats_id_map.height > 0:
+        df_deg_prepared = df_deg_prepared.join(rmats_id_map, on="symbol_clean", how="left")
+        df_deg_prepared = df_deg_prepared.with_columns(
+            pl.coalesce([pl.col("mapped_gid"), pl.col("gene_id_clean")]).alias("gene_id_clean"),
+            pl.coalesce([pl.col("mapped_gid"), pl.col("gene_id")]).alias("gene_id")
+        ).drop("mapped_gid")
+
+    # Consistent canonical join key: prioritize clean gene_id, then clean symbol
+    df_deg_prepared = df_deg_prepared.with_columns(
+        pl.coalesce([pl.col("gene_id_clean"), pl.col("symbol_clean")]).alias("join_key")
+    ).drop(["gene_id_clean", "symbol_clean"])
+
+    df_rmats_prepared = df_rmats_prepared.with_columns(
+        pl.coalesce([pl.col("gene_id_clean"), pl.col("symbol_clean")]).alias("join_key")
+    ).drop(["gene_id_clean", "symbol_clean"])
 
     # Outer join on normalized join_key
     merged = df_deg_prepared.join(df_rmats_prepared, on="join_key", how="outer", suffix="_rmats")
@@ -106,6 +134,17 @@ def merge_deg_and_rmats(
     drop_cols = [c for c in ["join_key", "gene_id_rmats", "geneSymbol_rmats"] if c in merged.columns]
     if drop_cols:
         merged = merged.drop(drop_cols)
+
+    # Exclude completely unperturbed background noise genes (zero DEG shift AND zero AS shift with non-significant FDR)
+    if filter_noise:
+        is_unperturbed_noise = (
+            ( (pl.col("log2FoldChange").abs() <= noise_log2fc_cutoff) & (pl.col("deg_fdr") >= noise_fdr_cutoff) ) &
+            ( (pl.col("delta_psi").abs() <= noise_delta_psi_cutoff) & (pl.col("as_fdr") >= noise_fdr_cutoff) )
+        )
+        noise_cnt = merged.filter(is_unperturbed_noise).height
+        if noise_cnt > 0:
+            merged = merged.filter(~is_unperturbed_noise)
+            print(f"  [4-Quadrant Merger] Excluded {noise_cnt} completely unperturbed noise genes (zero DEG & zero AS shift). Remaining active genes: {merged.height}")
 
     # Conditionally deduplicate by geneSymbol keeping the row with lowest FDR / highest significance
     if deduplicate_genes and "geneSymbol" in merged.columns:
