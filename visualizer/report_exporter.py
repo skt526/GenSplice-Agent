@@ -164,6 +164,7 @@ def export_html_report(
             }
             if sym_upper not in sashimi_events_map:
                 sashimi_events_map[sym_upper] = []
+            entry["event_index"] = len(sashimi_events_map[sym_upper])
             sashimi_events_map[sym_upper].append(entry)
 
             if sym_upper not in sashimi_dict or abs(dpsi) > abs(sashimi_dict[sym_upper].get("delta_psi", 0.0)):
@@ -183,7 +184,8 @@ def export_html_report(
             "ex1": list(c_info["ex1"]),
             "ex2": list(c_info["ex2"]),
             "ex3": list(c_info["ex3"]),
-            "nums": c_info.get("nums", [])
+            "nums": c_info.get("nums", []),
+            "event_index": 0
         }
         sashimi_dict[top_gene_symbol] = entry
         sashimi_dict[top_gene_symbol.upper()] = entry
@@ -210,7 +212,15 @@ def export_html_report(
             first_event = primer_records[0].get("event_type", "SE")
             matching_rows = primer_df.filter(pl.col("gene_symbol") == first_primer_gene)
 
-        for r in matching_rows.iter_rows(named=True):
+        # Render only the primary event's primer pairs initially
+        if "event_index" in matching_rows.columns:
+            display_rows = matching_rows.filter(pl.col("event_index") == 0)
+            if display_rows.height == 0:
+                display_rows = matching_rows.head(2)
+        else:
+            display_rows = matching_rows.head(2)
+
+        for r in display_rows.iter_rows(named=True):
             isoform_badge = '<span class="badge" style="background:#EFF6FF; color:#2563EB; border:1px solid #3B82F6;">Inclusion Isoform</span>' if r['target_isoform'].lower() == 'inclusion' else '<span class="badge" style="background:#FDF2F8; color:#DB2777; border:1px solid #EC4899;">Exclusion Isoform</span>'
             primer_rows_html += f"""
             <tr>
@@ -801,12 +811,17 @@ def export_html_report(
 
     <!-- SECTION 3: Visual Exon-Intron Sashimi Structure Engine Card -->
     <div class="card" id="sashimi-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-bottom: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
             <h2 style="color: #0F172A; margin: 0; border: none; padding: 0;">🧩 Visual Exon-Intron Structure & Sashimi Engine</h2>
-            <div style="display: flex; align-items: center; gap: 8px;">
-                <label for="sashimi-event-select" id="sashimi-event-select-label" style="font-size: 13px; font-weight: 700; color: #475569; display: none;">Event / Isoform:</label>
-                <select id="sashimi-event-select" style="display: none; padding: 4px 10px; border-radius: 6px; border: 1px solid #CBD5E1; font-size: 13px; font-weight: 600; background: #FFFFFF; cursor: pointer;"></select>
-                <span style="font-size: 13px; color: #64748B; font-weight: 600;">🔗 Synchronized with NCBI Gene Selection</span>
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <label for="sashimi-gene-select" style="font-size: 13px; font-weight: 700; color: #334155;">Target Gene:</label>
+                    <select id="sashimi-gene-select" style="padding: 6px 12px; border-radius: 6px; border: 1px solid #CBD5E1; font-size: 13px; font-weight: 700; background: #FFFFFF; cursor: pointer;"></select>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <label for="sashimi-event-select" id="sashimi-event-select-label" style="font-size: 13px; font-weight: 700; color: #334155;">Splicing Event:</label>
+                    <select id="sashimi-event-select" style="padding: 6px 12px; border-radius: 6px; border: 1px solid #CBD5E1; font-size: 13px; font-weight: 600; background: #FFFFFF; cursor: pointer;"></select>
+                </div>
             </div>
         </div>
         <div id="sashimi-chart-container" style="margin-top: 8px; width: 100%;">
@@ -817,11 +832,11 @@ def export_html_report(
         </div>
     </div>
 
-    <!-- SECTION 4: Isoform-Specific RT-qPCR Primer Designer Matrix Card -->
+    <!-- SECTION 4: Isoform-Specific RT-qPCR Primer Designer Card -->
     <div class="card" id="primer-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-bottom: 16px;">
-            <h2 style="color: #0F172A; margin: 0; border: none; padding: 0;">🧪 Isoform-Specific RT-qPCR Primer Designer (Q2/Q1 Wet-Lab Validation)</h2>
-            <span style="font-size: 13px; color: #64748B; font-weight: 600;">🔗 Synchronized with NCBI Gene Selection</span>
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-bottom: 16px; flex-wrap: wrap; gap: 8px;">
+            <h2 style="color: #0F172A; margin: 0; border: none; padding: 0;">🧪 Isoform-Specific RT-qPCR Primer Designer</h2>
+            <span style="font-size: 13px; color: #64748B; font-weight: 600;">🔗 Synchronized with Visual Exon-Intron Selection</span>
         </div>
         
         <!-- Target Gene Location & Exon Region Banner -->
@@ -881,6 +896,7 @@ def export_html_report(
         const downloadIsoformBtn = document.getElementById('download-isoform-csv-btn');
         const toggleIsoformBtn = document.getElementById('isoform-toggle-view-btn');
         const ncbiSelect = document.getElementById('ncbi-gene-select');
+        const sashimiGeneSelect = document.getElementById('sashimi-gene-select');
         const sashimiEventSelect = document.getElementById('sashimi-event-select');
         const sashimiEventSelectLabel = document.getElementById('sashimi-event-select-label');
 
@@ -890,7 +906,7 @@ def export_html_report(
             const ncbi = (data && data.ncbi) ? data.ncbi : {{}};
             const geneId = (ncbi.ncbi_id && ncbi.ncbi_id !== 'N/A') ? ncbi.ncbi_id : null;
             const ncbiLink = geneId ? `https://www.ncbi.nlm.nih.gov/gene/${{geneId}}` : `https://www.ncbi.nlm.nih.gov/gene/?term=${{encodeURIComponent(symbol)}}`;
-            const pubmedSearchUrl = `https://pubmed.ncbi.nlm.nih.gov/?term=${{encodeURIComponent(symbol + " alternative splicing")}}`;
+            const pubmedSearchUrl = `https://pubmed.ncbi.nlm.nih.gov/?term=${{encodeURIComponent(symbol)}}`;
 
             const geneTitle = document.getElementById('ncbi-gene-title');
             if (geneTitle) {{
@@ -929,7 +945,7 @@ def export_html_report(
                     pubContainer.innerHTML = `
                     <div style="padding:16px; background:#F8FAFC; border-radius:8px; border:1px dashed #CBD5E1; text-align:center;">
                         <p style="color:#64748B; margin-bottom:8px; font-size:13px;">No pre-cached literature records found for <b>${{symbol}}</b>.</p>
-                        <a href="${{pubmedSearchUrl}}" target="_blank" style="display:inline-block; padding:8px 14px; background:#3B82F6; color:#FFF; font-weight:700; border-radius:6px; text-decoration:none; font-size:13px;">🔍 Search PubMed for "${{symbol}} splicing" ↗</a>
+                        <a href="${{pubmedSearchUrl}}" target="_blank" style="display:inline-block; padding:8px 14px; background:#3B82F6; color:#FFF; font-weight:700; border-radius:6px; text-decoration:none; font-size:13px;">🔍 Search PubMed for "${{symbol}}" ↗</a>
                     </div>`;
                 }}
             }}
@@ -991,7 +1007,7 @@ def export_html_report(
                     }}
 
                     // 2. Search PubMed
-                    const pSearchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${{encodeURIComponent(upper + " alternative splicing")}}&retmax=3&sort=pub_date&retmode=json`;
+                    const pSearchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${{encodeURIComponent(upper)}}&retmax=3&sort=pub_date&retmode=json`;
                     const pResp = await fetch(pSearchUrl);
                     const pData = await pResp.json();
                     const pmidList = pData.esearchresult?.idlist || [];
@@ -1006,7 +1022,7 @@ def export_html_report(
                             const p = pMap[pmid] || {{}};
                             papers.push({{
                                 pmid: pmid,
-                                title: p.title || `Research on ${{upper}} splicing regulation`,
+                                title: p.title || `Research on ${{upper}} gene function`,
                                 journal: p.source || "PubMed",
                                 pub_date: (p.pubdate || "").split(" ")[0],
                                 url: `https://pubmed.ncbi.nlm.nih.gov/${{pmid}}/`
@@ -1047,33 +1063,38 @@ def export_html_report(
         }}
 
         function updateNcbiDropdown(splicingGeneList) {{
-            if (!ncbiSelect) return;
+            if (!ncbiSelect && !sashimiGeneSelect) return;
             const uniqueGenes = [...new Set((splicingGeneList || []).filter(Boolean))];
             
-            const prevVal = ncbiSelect.value;
-            ncbiSelect.innerHTML = '';
+            const prevVal = ncbiSelect ? ncbiSelect.value : (sashimiGeneSelect ? sashimiGeneSelect.value : "");
+            
+            [ncbiSelect, sashimiGeneSelect].forEach(sel => {{
+                if (!sel) return;
+                sel.innerHTML = '';
+                if (!uniqueGenes.length) {{
+                    const opt = document.createElement('option');
+                    opt.value = "";
+                    opt.textContent = "No splicing targets meeting thresholds";
+                    sel.appendChild(opt);
+                }} else {{
+                    uniqueGenes.forEach(g => {{
+                        const opt = document.createElement('option');
+                        opt.value = g;
+                        opt.textContent = g;
+                        sel.appendChild(opt);
+                    }});
+                }}
+            }});
+
             if (!uniqueGenes.length) {{
-                const opt = document.createElement('option');
-                opt.value = "";
-                opt.textContent = "No splicing targets meeting thresholds";
-                ncbiSelect.appendChild(opt);
                 handleMasterGeneSelection("");
                 return;
             }}
 
-            uniqueGenes.forEach(g => {{
-                const opt = document.createElement('option');
-                opt.value = g;
-                opt.textContent = g;
-                ncbiSelect.appendChild(opt);
-            }});
-
-            if (prevVal && uniqueGenes.includes(prevVal)) {{
-                ncbiSelect.value = prevVal;
-            }} else {{
-                ncbiSelect.value = uniqueGenes[0];
-            }}
-            handleMasterGeneSelection(ncbiSelect.value);
+            const chosen = (prevVal && uniqueGenes.includes(prevVal)) ? prevVal : uniqueGenes[0];
+            if (ncbiSelect) ncbiSelect.value = chosen;
+            if (sashimiGeneSelect) sashimiGeneSelect.value = chosen;
+            handleMasterGeneSelection(chosen);
         }}
 
         function renderSashimiPlot(geneSymbol, eventIndex = 0) {{
@@ -1097,9 +1118,9 @@ def export_html_report(
             const upper = (geneSymbol || '').trim().toUpperCase();
             const events = (sashimiEventsMap && sashimiEventsMap[upper]) || [];
 
-            if (sashimiEventSelect && sashimiEventSelectLabel) {{
-                if (events.length > 1) {{
-                    sashimiEventSelect.innerHTML = '';
+            if (sashimiEventSelect) {{
+                sashimiEventSelect.innerHTML = '';
+                if (events.length > 0) {{
                     events.forEach((ev, idx) => {{
                         const opt = document.createElement('option');
                         opt.value = idx;
@@ -1108,16 +1129,25 @@ def export_html_report(
                         opt.textContent = `Event ${{idx + 1}}: ${{ev.event_type}} (${{coordShort}}) [ΔPSI=${{sign}}${{parseFloat(ev.delta_psi).toFixed(2)}}]`;
                         sashimiEventSelect.appendChild(opt);
                     }});
+                    if (events.length > 1) {{
+                        const allOpt = document.createElement('option');
+                        allOpt.value = -1;
+                        allOpt.textContent = `All Events of ${{geneSymbol}} (${{events.length}} events)`;
+                        sashimiEventSelect.appendChild(allOpt);
+                    }}
                     sashimiEventSelect.value = eventIndex;
-                    sashimiEventSelect.style.display = 'inline-block';
-                    sashimiEventSelectLabel.style.display = 'inline-block';
+                    sashimiEventSelect.disabled = false;
                 }} else {{
-                    sashimiEventSelect.style.display = 'none';
-                    sashimiEventSelectLabel.style.display = 'none';
+                    const opt = document.createElement('option');
+                    opt.value = 0;
+                    opt.textContent = `Event 1: SE (Primary)`;
+                    sashimiEventSelect.appendChild(opt);
+                    sashimiEventSelect.disabled = true;
                 }}
             }}
 
-            let info = (events.length > eventIndex ? events[eventIndex] : null) || 
+            const evIdx = parseInt(eventIndex !== undefined && eventIndex !== null ? eventIndex : 0, 10);
+            let info = (evIdx >= 0 && events.length > evIdx ? events[evIdx] : (events.length > 0 ? events[0] : null)) || 
                        (sashimiGeneData && (sashimiGeneData[upper] || sashimiGeneData[geneSymbol])) || 
                        (rawGeneData && rawGeneData.find(g => (g.geneSymbol || '').toUpperCase() === upper));
 
@@ -1133,7 +1163,9 @@ def export_html_report(
             const titleElem = document.getElementById('sashimi-title-text');
             if (titleElem) {{
                 const sign = deltaPsi >= 0 ? '+' : '';
-                const evNumText = events.length > 1 ? ` [Event ${{eventIndex + 1}} of ${{events.length}}]` : '';
+                const evNumText = evIdx === -1
+                    ? ` [All ${{events.length}} Events]` 
+                    : (events.length > 1 ? ` [Event ${{evIdx + 1}} of ${{events.length}}]` : '');
                 titleElem.innerHTML = `<b>${{symbol}} Exon Structure & Splicing Sashimi Plot${{evNumText}}</b> (${{eventType}} | ΔPSI = ${{sign}}${{deltaPsi.toFixed(2)}})`;
             }}
 
@@ -1424,11 +1456,13 @@ def export_html_report(
             Plotly.newPlot(sashimiDiv, traces, layout, {{ responsive: true, displayModeBar: false }});
         }}
 
-        function handleMasterGeneSelection(geneSymbol) {{
+        function handleMasterGeneSelection(geneSymbol, eventIndex = 0) {{
+            if (ncbiSelect && ncbiSelect.value !== geneSymbol) ncbiSelect.value = geneSymbol;
+            if (sashimiGeneSelect && sashimiGeneSelect.value !== geneSymbol) sashimiGeneSelect.value = geneSymbol;
             renderNcbiGeneDetails(geneSymbol);
             filterIsoformTable(geneSymbol);
-            renderSashimiPlot(geneSymbol);
-            renderPrimerDetails(geneSymbol);
+            renderSashimiPlot(geneSymbol, eventIndex);
+            renderPrimerDetails(geneSymbol, eventIndex);
         }}
 
         function getActiveSplicingGeneSet() {{
@@ -1470,7 +1504,7 @@ def export_html_report(
             const fcColor = (r.log2FoldChange || 0) > 0 ? "#DC2626" : "#2563EB";
 
             return `
-                <tr class="isoform-data-row" data-gene="${{(r.gene_symbol || '').toUpperCase()}}">
+                <tr class="isoform-data-row" data-gene="${{(r.gene_symbol || '').toUpperCase()}}" data-coords="${{r.coordinates || ''}}" data-event="${{r.event_type || ''}}" style="cursor: pointer;" title="Click to inspect Exon Structure & Primers">
                     <td><b>${{r.gene_symbol || ''}}</b></td>
                     <td><span class="badge" style="${{riskStyle}}">${{r.impairment_tier || 'N/A'}}</span></td>
                     <td><span style="font-size:12px; font-weight:600; color:#334155;">${{r.primary_dysfunction_cause || 'N/A'}}</span></td>
@@ -1612,7 +1646,7 @@ def export_html_report(
             document.body.removeChild(link);
         }}
 
-        function renderPrimerDetails(geneSymbol) {{
+        function renderPrimerDetails(geneSymbol, eventIndex = 0) {{
             const tbody = document.getElementById('primer-table-body');
             const bannerGene = document.getElementById('primer-banner-gene');
             const bannerCoords = document.getElementById('primer-banner-coords');
@@ -1626,17 +1660,50 @@ def export_html_report(
                 return;
             }}
 
-            const rows = primerRecords.filter(r => (r.gene_symbol || '').toUpperCase() === geneSymbol.toUpperCase());
+            const upper = (geneSymbol || '').trim().toUpperCase();
+            const events = (sashimiEventsMap && sashimiEventsMap[upper]) || [];
+            const geneRows = primerRecords.filter(r => (r.gene_symbol || '').toUpperCase() === upper);
+
+            const evIdx = parseInt(eventIndex !== undefined && eventIndex !== null ? eventIndex : 0, 10);
+            let targetEvent = (evIdx >= 0 && events.length > evIdx) ? events[evIdx] : (events.length > 0 ? events[0] : null);
+
+            let rows = [];
+            if (evIdx === -1) {{
+                // All events for this gene
+                rows = geneRows;
+                if (bannerGene) bannerGene.textContent = geneSymbol;
+                if (bannerCoords) bannerCoords.textContent = `All Coordinates (${{events.length}} events)`;
+                if (bannerEvent) bannerEvent.textContent = `All Events (${{events.length}} total)`;
+            }} else {{
+                // Specific event selected in Visual Exon-Intron section
+                if (targetEvent) {{
+                    if (bannerGene) bannerGene.textContent = geneSymbol;
+                    if (bannerCoords) bannerCoords.textContent = targetEvent.coordinates || 'N/A';
+                    const evNum = events.length > 1 ? `Event ${{evIdx + 1}} of ${{events.length}}` : `Event 1`;
+                    if (bannerEvent) bannerEvent.textContent = `${{targetEvent.event_type}} (${{evNum}})`;
+
+                    // Filter primers matching this event_index or coordinates
+                    rows = geneRows.filter(r => r.event_index === evIdx);
+                    if (!rows.length && targetEvent.coordinates) {{
+                        rows = geneRows.filter(r => r.coordinates === targetEvent.coordinates);
+                    }}
+                    if (!rows.length) {{
+                        rows = geneRows.slice(0, 2);
+                    }}
+                }} else {{
+                    const ginfo = (sashimiGeneData && (sashimiGeneData[upper] || sashimiGeneData[geneSymbol])) || {{}};
+                    if (bannerGene) bannerGene.textContent = geneSymbol;
+                    if (bannerCoords) bannerCoords.textContent = (geneRows.length && geneRows[0].coordinates) ? geneRows[0].coordinates : (ginfo.coordinates || 'N/A');
+                    if (bannerEvent) bannerEvent.textContent = (geneRows.length && geneRows[0].event_type) ? geneRows[0].event_type : (ginfo.event_type || 'SE');
+                    rows = geneRows.slice(0, 2);
+                }}
+            }}
+
             if (!tbody) return;
 
-            const ginfo = (sashimiGeneData && sashimiGeneData[geneSymbol]) || 
-                          (rawGeneData && rawGeneData.find(g => (g.geneSymbol || '').toUpperCase() === geneSymbol.toUpperCase())) || {{}};
-            if (bannerGene) bannerGene.textContent = geneSymbol;
-            if (bannerCoords) bannerCoords.textContent = (rows.length && rows[0].coordinates) ? rows[0].coordinates : (ginfo.coordinates || 'N/A');
-            if (bannerEvent) bannerEvent.textContent = (rows.length && rows[0].event_type) ? rows[0].event_type : (ginfo.event_type || 'SE');
-
             if (!rows.length) {{
-                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#64748B; padding:16px;">Specific primer pairs not pre-calculated for <b>${{geneSymbol}}</b>. Target coordinates: <code>${{ginfo.coordinates || 'N/A'}}</code></td></tr>`;
+                const targetCoordStr = targetEvent ? targetEvent.coordinates : 'N/A';
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#64748B; padding:16px;">Specific primer pairs not pre-calculated for <b>${{geneSymbol}}</b> (Target coordinates: <code>${{targetCoordStr}}</code>).</td></tr>`;
                 return;
             }}
 
@@ -2047,10 +2114,32 @@ def export_html_report(
         if (ncbiSelect) {{
             ncbiSelect.addEventListener('change', (e) => handleMasterGeneSelection(e.target.value));
         }}
+        if (sashimiGeneSelect) {{
+            sashimiGeneSelect.addEventListener('change', (e) => handleMasterGeneSelection(e.target.value));
+        }}
         if (sashimiEventSelect) {{
             sashimiEventSelect.addEventListener('change', (e) => {{
-                const curGene = ncbiSelect ? ncbiSelect.value : '';
-                renderSashimiPlot(curGene, parseInt(e.target.value, 10));
+                const curGene = sashimiGeneSelect ? sashimiGeneSelect.value : (ncbiSelect ? ncbiSelect.value : '');
+                const evIdx = parseInt(e.target.value, 10);
+                renderSashimiPlot(curGene, evIdx >= 0 ? evIdx : 0);
+                renderPrimerDetails(curGene, evIdx);
+            }});
+        }}
+        const isoformTbody = document.getElementById('isoform-table-body');
+        if (isoformTbody) {{
+            isoformTbody.addEventListener('click', (e) => {{
+                const tr = e.target.closest('tr.isoform-data-row');
+                if (tr && tr.dataset.gene) {{
+                    const g = tr.dataset.gene;
+                    const coords = tr.dataset.coords;
+                    let targetIdx = 0;
+                    const events = (sashimiEventsMap && sashimiEventsMap[g]) || [];
+                    if (coords && events.length) {{
+                        const found = events.findIndex(ev => ev.coordinates === coords);
+                        if (found >= 0) targetIdx = found;
+                    }}
+                    handleMasterGeneSelection(g, targetIdx);
+                }}
             }});
         }}
         if (downloadIsoformBtn) {{

@@ -216,16 +216,23 @@ def generate_primer_table_for_targets(target_genes_df: pl.DataFrame, fasta_path:
     df_iter = target_genes_df.iter_rows(named=True) if isinstance(target_genes_df, pl.DataFrame) else target_genes_df.to_dict('records')
 
     results = []
+    gene_event_counters = {}
     for row in df_iter:
         symbol = row.get("geneSymbol", "Unknown")
         event = row.get("event_type", "SE")
         coords = row.get("coordinates", "N/A")
         strand = row.get("strand", "+")
 
+        sym_upper = (symbol or "").strip().upper()
+        ev_idx = gene_event_counters.get(sym_upper, 0)
+        gene_event_counters[sym_upper] = ev_idx + 1
+
         # Design Inclusion Primer Pair
         inc_p = design_rtqpcr_primers(gene_symbol=symbol, event_type=event, target_isoform="Inclusion", coordinates=coords, strand=strand, fasta_path=fasta_path)
+        inc_p["event_index"] = ev_idx
         # Design Exclusion Primer Pair
         exc_p = design_rtqpcr_primers(gene_symbol=symbol, event_type=event, target_isoform="Exclusion", coordinates=coords, strand=strand, fasta_path=fasta_path)
+        exc_p["event_index"] = ev_idx
 
         results.append(inc_p)
         results.append(exc_p)

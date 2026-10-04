@@ -48,14 +48,14 @@ def fetch_ncbi_gene_summary(gene_symbol: str, organism: str = "Homo sapiens") ->
         "summary": f"Official NCBI summary for {gene_symbol}."
     }
 
-def fetch_pubmed_literature(gene_symbol: str, query_suffix: str = "alternative splicing", top_n: int = 3) -> list:
+def fetch_pubmed_literature(gene_symbol: str, query_suffix: str = "", top_n: int = 3) -> list:
     """
     Fetches PubMed literature references for target gene via live NIH E-utilities API.
     Queries live NCBI PubMed database directly; no demo data.
     """
     gene_symbol = gene_symbol.strip().upper()
     try:
-        term = f"{gene_symbol} {query_suffix}"
+        term = f"{gene_symbol} {query_suffix}".strip() if query_suffix else gene_symbol
         url_search = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term={urllib.parse.quote(term)}&retmax={top_n}&sort=pub_date&retmode=json"
         req = urllib.request.Request(url_search, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req, timeout=3.0) as resp:
