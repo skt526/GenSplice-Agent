@@ -901,33 +901,81 @@ def export_html_report(
 
         let currentFilteredGenes = [];
 
+        // NCBI E-utilities Rate Limiter & Resilience Layer (NCBI max 3 req/sec per IP)
+        let lastNcbiRequestTime = 0;
+        const MIN_NCBI_INTERVAL_MS = 380; // Strictly throttled to ~2.6 req/sec to prevent HTTP 429
+        const NCBI_TOOL_PARAMS = "tool=GenSpliceAgent&email=gensplice_report%40ncbi.nlm.nih.gov";
+
+        async function safeNcbiFetch(url, maxRetries = 2) {{
+            const separator = url.includes("?") ? "&" : "?";
+            const fullUrl = url.includes("tool=") ? url : `${{url}}${{separator}}${{NCBI_TOOL_PARAMS}}`;
+
+            for (let attempt = 0; attempt <= maxRetries; attempt++) {{
+                const now = Date.now();
+                const waitMs = Math.max(0, MIN_NCBI_INTERVAL_MS - (now - lastNcbiRequestTime));
+                if (waitMs > 0) {{
+                    await new Promise(res => setTimeout(res, waitMs));
+                }}
+                lastNcbiRequestTime = Date.now();
+
+                try {{
+                    const resp = await fetch(fullUrl);
+                    if (resp.status === 429) {{
+                        console.warn(`NCBI Rate limit (429) on attempt ${{attempt + 1}}. Backing off...`);
+                        if (attempt < maxRetries) {{
+                            await new Promise(res => setTimeout(res, 800 * (attempt + 1)));
+                            continue;
+                        }}
+                        return {{ ok: false, status: 429, data: null }};
+                    }}
+                    if (!resp.ok) {{
+                        console.warn(`NCBI fetch HTTP ${{resp.status}} on attempt ${{attempt + 1}}`);
+                        if (attempt < maxRetries) {{
+                            await new Promise(res => setTimeout(res, 500 * (attempt + 1)));
+                            continue;
+                        }}
+                        return {{ ok: false, status: resp.status, data: null }};
+                    }}
+                    const data = await resp.json();
+                    return {{ ok: true, status: resp.status, data: data }};
+                }} catch (err) {{
+                    console.warn(`NCBI fetch network/parse error on attempt ${{attempt + 1}}:`, err);
+                    if (attempt < maxRetries) {{
+                        await new Promise(res => setTimeout(res, 600 * (attempt + 1)));
+                        continue;
+                    }}
+                    return {{ ok: false, status: 0, error: err }};
+                }}
+            }}
+            return {{ ok: false, status: 0, data: null }};
+        }}
+
         async function fetchNcbiGene(upper) {{
             try {{
                 const orgTerm = encodeURIComponent(currentOrganism || "Homo sapiens");
                 let sUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=gene&term=${{encodeURIComponent(upper)}}[Gene+Name]+AND+${{orgTerm}}[Organism]&retmode=json`;
-                let sResp = await fetch(sUrl);
-                let sData = await sResp.json();
-                let idList = sData.esearchresult?.idlist || [];
+                let sRes = await safeNcbiFetch(sUrl);
+                let idList = (sRes.ok && sRes.data?.esearchresult?.idlist) ? sRes.data.esearchresult.idlist : [];
 
                 if (!idList.length) {{
                     sUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=gene&term=${{encodeURIComponent(upper)}}[Gene+Name]&retmode=json`;
-                    sResp = await fetch(sUrl);
-                    sData = await sResp.json();
-                    idList = sData.esearchresult?.idlist || [];
+                    sRes = await safeNcbiFetch(sUrl);
+                    idList = (sRes.ok && sRes.data?.esearchresult?.idlist) ? sRes.data.esearchresult.idlist : [];
                 }}
 
                 if (idList.length > 0) {{
                     const geneId = idList[0];
                     const sumUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=gene&id=${{geneId}}&retmode=json`;
-                    const sumResp = await fetch(sumUrl);
-                    const sumData = await sumResp.json();
-                    const ginfo = sumData.result?.[geneId] || {{}};
-                    return {{
-                        ncbi_id: geneId,
-                        official_name: ginfo.description || `${{upper}} (${{currentOrganism || 'Homo sapiens'}})`,
-                        chromosome: ginfo.maplocation || "N/A",
-                        summary: ginfo.summary || `Official NCBI Gene record for ${{upper}}.`
-                    }};
+                    const sumRes = await safeNcbiFetch(sumUrl);
+                    if (sumRes.ok && sumRes.data?.result?.[geneId]) {{
+                        const ginfo = sumRes.data.result[geneId];
+                        return {{
+                            ncbi_id: geneId,
+                            official_name: ginfo.description || `${{upper}} (${{currentOrganism || 'Homo sapiens'}})`,
+                            chromosome: ginfo.maplocation || "N/A",
+                            summary: ginfo.summary || `Official NCBI Gene record for ${{upper}}.`
+                        }};
+                    }}
                 }}
             }} catch (err) {{
                 console.warn("NCBI Gene live fetch warning:", err);
@@ -943,15 +991,21 @@ def export_html_report(
         async function fetchPubMedLiterature(upper) {{
             try {{
                 const pSearchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${{encodeURIComponent(upper)}}&retmax=3&sort=pub_date&retmode=json`;
-                const pResp = await fetch(pSearchUrl);
-                const pData = await pResp.json();
+                const pRes = await safeNcbiFetch(pSearchUrl);
+                if (!pRes.ok) {{
+                    return {{ papers: [], totalCount: 0, error: true, rateLimited: pRes.status === 429 }};
+                }}
+                const pData = pRes.data || {{}};
                 const pmidList = pData.esearchresult?.idlist || [];
                 const totalCount = parseInt(pData.esearchresult?.count || "0", 10);
 
                 if (pmidList.length > 0) {{
                     const pSumUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${{pmidList.join(",")}}&retmode=json`;
-                    const pSumResp = await fetch(pSumUrl);
-                    const pSumData = await pSumResp.json();
+                    const pSumRes = await safeNcbiFetch(pSumUrl);
+                    if (!pSumRes.ok) {{
+                        return {{ papers: [], totalCount: totalCount, error: true, rateLimited: pSumRes.status === 429 }};
+                    }}
+                    const pSumData = pSumRes.data || {{}};
                     const pMap = pSumData.result || {{}};
                     const papers = [];
 
@@ -1047,11 +1101,18 @@ def export_html_report(
                     </div>`;
                     pubContainer.innerHTML = pubHtml;
                 }} else if (pubmedInfo.error) {{
+                    const retryBtnHtml = `<button onclick="renderNcbiGeneDetails('${{symbol}}')" style="margin-top:10px; padding:6px 14px; background:#2563EB; color:#FFF; font-weight:700; border:none; border-radius:6px; cursor:pointer; font-size:12px; box-shadow:0 1px 2px rgba(0,0,0,0.1);">🔄 Retry NIH Query</button>`;
+                    const rateLimitMsg = pubmedInfo.rateLimited 
+                        ? "NCBI API rate limit reached (too many requests in a short period). Please wait a moment and click Retry."
+                        : "NIH PubMed connection temporarily unavailable or restricted by network/browser policies.";
                     pubContainer.innerHTML = `
-                    <div style="padding:18px; background:#FEF2F2; border-radius:8px; border:1px solid #FECDD3; text-align:center;">
-                        <p style="color:#DC2626; font-size:13px; font-weight:700; margin:0 0 6px;">⚠️ NIH PubMed connection unavailable (Network restricted or offline)</p>
-                        <p style="color:#64748B; font-size:12px; margin:0 0 10px;">Click below to open latest PubMed publications directly in a new tab:</p>
-                        <a href="${{pubmedSearchUrl}}" target="_blank" rel="noopener noreferrer" style="display:inline-block; padding:8px 16px; background:#2563EB; color:#FFF; font-weight:700; border-radius:6px; text-decoration:none; font-size:13px;">🔍 Search PubMed for "${{symbol}}" ↗</a>
+                    <div style="padding:16px; background:#FEF2F2; border-radius:8px; border:1px solid #FECDD3; text-align:center;">
+                        <p style="color:#DC2626; font-size:13px; font-weight:700; margin:0 0 6px;">⚠️ ${{rateLimitMsg}}</p>
+                        <p style="color:#64748B; font-size:12px; margin:0 0 8px;">You can retry the query or inspect PubMed publications directly in a new tab:</p>
+                        <div style="display:flex; justify-content:center; gap:10px; margin-top:8px;">
+                            ${{retryBtnHtml}}
+                            <a href="${{pubmedSearchUrl}}" target="_blank" rel="noopener noreferrer" style="display:inline-block; margin-top:10px; padding:6px 14px; background:#475569; color:#FFF; font-weight:700; border-radius:6px; text-decoration:none; font-size:12px; line-height:20px;">🔍 Open in PubMed ↗</a>
+                        </div>
                     </div>`;
                 }} else {{
                     pubContainer.innerHTML = `
@@ -1113,21 +1174,21 @@ def export_html_report(
                 </div>`;
             }}
 
-            // 3. Parallel live API query to NCBI Gene and PubMed
-            const [ncbiResult, pubmedResult] = await Promise.all([
-                fetchNcbiGene(upper),
-                fetchPubMedLiterature(upper)
-            ]);
-
-            // Prevent race condition if user selected another gene during fetch
-            if (activeGeneQuery !== upper) return;
+            // 3. Sequenced live API query to NCBI Gene and PubMed (no burst collision)
+            const ncbiResult = await fetchNcbiGene(upper);
+            if (activeGeneQuery !== upper) return; // Prevent race condition if user switched gene
+            const pubmedResult = await fetchPubMedLiterature(upper);
+            if (activeGeneQuery !== upper) return; // Prevent race condition if user switched gene
 
             const combinedData = {{
                 ncbi: ncbiResult,
                 pubmed: pubmedResult
             }};
 
-            liveGeneDataCache.set(upper, combinedData);
+            // Only cache in session memory if query completed without error!
+            if (!pubmedResult.error) {{
+                liveGeneDataCache.set(upper, combinedData);
+            }}
             displayNcbiData(upper, combinedData);
         }}
 
@@ -1163,7 +1224,9 @@ def export_html_report(
             const chosen = (prevVal && uniqueGenes.includes(prevVal)) ? prevVal : uniqueGenes[0];
             if (ncbiSelect) ncbiSelect.value = chosen;
             if (sashimiGeneSelect) sashimiGeneSelect.value = chosen;
-            handleMasterGeneSelection(chosen);
+            if (chosen !== activeGeneQuery) {{
+                handleMasterGeneSelection(chosen);
+            }}
         }}
 
         function renderSashimiPlot(geneSymbol, eventIndex = 0) {{
