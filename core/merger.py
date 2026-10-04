@@ -150,10 +150,10 @@ def merge_deg_and_rmats(
     if deduplicate_genes and "geneSymbol" in merged.columns:
         merged = merged.sort(["as_fdr", "deg_fdr"], descending=[False, False]).unique(subset=["geneSymbol"], keep="first")
 
-    # Evaluate significance flags
+    # Evaluate significance flags (Option A: 2D coordinate-based cutoff matching visual quadrant regions)
     merged = merged.with_columns([
-        ( (pl.col("log2FoldChange").abs() >= log2fc_cutoff) & (pl.col("deg_fdr") <= deg_fdr_cutoff) ).alias("is_deg_sig"),
-        ( (pl.col("delta_psi").abs() >= delta_psi_cutoff) & (pl.col("as_fdr") <= as_fdr_cutoff) ).alias("is_as_sig")
+        (pl.col("log2FoldChange").abs() >= log2fc_cutoff).alias("is_deg_sig"),
+        (pl.col("delta_psi").abs() >= delta_psi_cutoff).alias("is_as_sig")
     ])
 
     # Apply 4-Quadrant Classification

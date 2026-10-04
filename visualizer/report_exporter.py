@@ -1750,8 +1750,9 @@ def export_html_report(
                 const fcVal = Math.abs(g.log2FoldChange || 0);
                 const psiVal = Math.abs(g.delta_psi || 0);
                 
-                const isDegSig = fcVal >= fcCut && g.deg_fdr !== null && g.deg_fdr !== undefined && g.deg_fdr <= 0.05;
-                const isAsSig = psiVal >= psiCut && g.as_fdr !== null && g.as_fdr !== undefined && g.as_fdr <= 0.05;
+                // Option A: 2D coordinate-based cutoff matching visual quadrant regions exactly
+                const isDegSig = fcVal >= fcCut;
+                const isAsSig = psiVal >= psiCut;
 
                 let quad = "Q3";
                 if (isDegSig && isAsSig) {{ quad = "Q1"; q1++; }}
