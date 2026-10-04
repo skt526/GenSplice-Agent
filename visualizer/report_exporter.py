@@ -16,9 +16,8 @@ import polars as pl
 import pandas as pd
 import plotly.graph_objects as go
 from visualizer.as_volcano_plot import build_as_volcano_plot
-from visualizer.quadrant_plot import build_quadrant_plot
 from visualizer.enrichment_plot import build_enrichment_chart
-from core.merger import get_splicing_kpis, get_quadrant_kpis
+from core.merger import get_splicing_kpis
 from core.enrichment import fetch_enrichment
 from core.isoform_annotator import annotate_isoform_events
 from visualizer.exon_structure import plot_exon_structure, resolve_gene_exon_coords
