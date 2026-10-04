@@ -1,5 +1,5 @@
 """
-GenSplice-Agent 4-Quadrant Merger Engine (Polars)
+GenSplice-Agent Differential Expression & Alternative Splicing Merger Engine (Polars)
 """
 
 import polars as pl
@@ -23,8 +23,8 @@ def merge_deg_and_rmats(
 ) -> pl.DataFrame:
     """
     Merges DEG data and rMATS data on normalized gene_id / geneSymbol,
-    and applies the 4-quadrant statistical classification algorithm.
-    When deduplicate_genes=True, keeps the primary representative event per gene (for 4-quadrant gene plots).
+    and applies alternative splicing statistical classification (Inclusion, Exclusion, Non-Significant).
+    When deduplicate_genes=True, keeps the primary representative event per gene (sorted by significance).
     When deduplicate_genes=False, retains ALL alternative splicing events across all genes (for event-level isoform analysis).
     """
     if (df_deg is None or df_deg.height == 0) and (df_rmats is None or df_rmats.height == 0):
@@ -150,43 +150,18 @@ def merge_deg_and_rmats(
     if deduplicate_genes and "geneSymbol" in merged.columns:
         merged = merged.sort(["as_fdr", "deg_fdr"], descending=[False, False]).unique(subset=["geneSymbol"], keep="first")
 
-    # Evaluate significance flags (Option A: 2D coordinate-based cutoff matching visual quadrant regions)
-    merged = merged.with_columns([
-        (pl.col("log2FoldChange").abs() >= log2fc_cutoff).alias("is_deg_sig"),
-        (pl.col("delta_psi").abs() >= delta_psi_cutoff).alias("is_as_sig")
-    ])
-
-    # Apply 4-Quadrant Classification
+    # Classify Alternative Splicing Status: Inclusion Favored, Exclusion Favored, Non-Significant
+    is_as_sig = (pl.col("delta_psi").abs() >= delta_psi_cutoff) & (pl.col("as_fdr") <= as_fdr_cutoff)
     merged = merged.with_columns(
-        pl.when(pl.col("is_deg_sig") & pl.col("is_as_sig"))
-        .then(pl.lit("Q1"))
-        .when((~pl.col("is_deg_sig")) & pl.col("is_as_sig"))
-        .then(pl.lit("Q2"))
-        .when(pl.col("is_deg_sig") & (~pl.col("is_as_sig")))
-        .then(pl.lit("Q4"))
-        .otherwise(pl.lit("Q3"))
-        .alias("quadrant")
+        pl.when(is_as_sig & (pl.col("delta_psi") > 0))
+        .then(pl.lit("Inclusion"))
+        .when(is_as_sig & (pl.col("delta_psi") < 0))
+        .then(pl.lit("Exclusion"))
+        .otherwise(pl.lit("Non-Significant"))
+        .alias("splicing_status")
     )
 
     return merged
-
-def get_quadrant_kpis(df_merged: pl.DataFrame) -> dict:
-    """
-    Computes summary KPI stats for total genes and count per quadrant.
-    """
-    if df_merged.height == 0:
-        return {"total": 0, "Q1": 0, "Q2": 0, "Q3": 0, "Q4": 0}
-
-    counts = df_merged.group_by("quadrant").len().to_dict(as_series=False)
-    quad_dict = dict(zip(counts["quadrant"], counts["len"]))
-
-    return {
-        "total": df_merged.height,
-        "Q1": quad_dict.get("Q1", 0),
-        "Q2": quad_dict.get("Q2", 0),
-        "Q3": quad_dict.get("Q3", 0),
-        "Q4": quad_dict.get("Q4", 0)
-    }
 
 def get_splicing_kpis(
     df_splicing: pl.DataFrame,
@@ -199,8 +174,7 @@ def get_splicing_kpis(
     """
     if df_splicing is None or df_splicing.height == 0:
         return {
-            "total": 0, "significant": 0, "inclusion": 0, "exclusion": 0, "non_significant": 0,
-            "Q1": 0, "Q2": 0, "Q3": 0, "Q4": 0
+            "total": 0, "significant": 0, "inclusion": 0, "exclusion": 0, "non_significant": 0
         }
 
     # Filter out records without splicing if event_type is present
@@ -219,16 +193,10 @@ def get_splicing_kpis(
     sig_cnt = inc_cnt + exc_cnt
     nonsig_cnt = total - sig_cnt
 
-    quad_kpis = get_quadrant_kpis(df_splicing)
-
     return {
         "total": total,
         "significant": sig_cnt,
         "inclusion": inc_cnt,
         "exclusion": exc_cnt,
-        "non_significant": nonsig_cnt,
-        "Q1": quad_kpis.get("Q1", 0),
-        "Q2": quad_kpis.get("Q2", 0),
-        "Q3": quad_kpis.get("Q3", 0),
-        "Q4": quad_kpis.get("Q4", 0)
+        "non_significant": nonsig_cnt
     }

@@ -271,11 +271,11 @@ def annotate_isoform_events(df_merged, gtf_path: str = None) -> pd.DataFrame:
             dpsi=dpsi, log2fc=log2fc, cds_frame=cds_frame, nmd=nmd, domain=domain
         )
 
-        quadrant = row.get("quadrant", "Q2")
+        splicing_status = row.get("splicing_status", "Non-Significant")
         annotated_rows.append({
             "geneSymbol": gene,
             "gene_id": gene_id,
-            "quadrant": quadrant,
+            "splicing_status": splicing_status,
             "event_type": event_type,
             "transcript_id": tx_id,
             "coordinates": coords,
