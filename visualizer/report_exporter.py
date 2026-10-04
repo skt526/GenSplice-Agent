@@ -1,20 +1,23 @@
 """
 GenSplice-Agent Standalone HTML Exporter Module
 Light Mode interactive HTML report with:
-- Outside plot header: 'Color Classification' (with Q1-Q4 descriptions)
-- Inside plot legend title: 'On/Off' (strictly Q1, Q2, Q3, Q4)
-- GO Term & KEGG Pathway Enrichment Charts & Tables focused on Q2 (Splicing-Driven Only)
-- Client-Side Real-Time Plotly Graph & Table Re-Calculation with Dynamic Action Effects
+- Dedicated Alternative Splicing Volcano Plot & Target Selector (ΔPSI vs -log₁₀ FDR)
+- Splicing Direction Classification (Inclusion Favored, Exclusion Favored, Non-Significant Background)
+- Real-Time Dynamic Sliders (ΔPSI effect size & rMATS FDR significance)
+- Synchronized NCBI Gene Explorer, Isoform Annotation Matrix, Sashimi Plot, and Primer Designer
+- GO Term & KEGG Pathway Enrichment Charts & Tables focused on Significant Splicing Targets
 """
 
 import os
 import json
 import time
+import math
 import polars as pl
 import pandas as pd
+from visualizer.as_volcano_plot import build_as_volcano_plot
 from visualizer.quadrant_plot import build_quadrant_plot
 from visualizer.enrichment_plot import build_enrichment_chart
-from core.merger import get_quadrant_kpis
+from core.merger import get_splicing_kpis, get_quadrant_kpis
 from core.enrichment import fetch_enrichment
 from core.ai_summary import fetch_ncbi_gene_summary, fetch_pubmed_literature
 from core.isoform_annotator import annotate_isoform_events
@@ -35,19 +38,36 @@ def export_html_report(
     organism: str = "Homo sapiens"
 ) -> str:
     """
-    Exports a self-contained Light Mode interactive HTML report with standard horizontal GO & KEGG Plotly bar charts.
+    Exports a self-contained Light Mode interactive HTML report with an Alternative Splicing Volcano Plot
+    and downstream functional validation workflows.
     """
     os.makedirs(os.path.dirname(output_html_path), exist_ok=True)
 
     if df_all_events is None:
         df_all_events = df_merged
 
-    fig_quad = build_quadrant_plot(df_merged, log2fc_cutoff, delta_psi_cutoff, color_by="quadrant")
-    quad_html = fig_quad.to_html(full_html=False, include_plotlyjs="cdn", div_id="plotly-quad-div")
+    # 1. Filter for alternative splicing records
+    if "event_type" in df_merged.columns:
+        df_splicing_events = df_merged.filter(
+            pl.col("event_type").is_not_null() & (pl.col("event_type") != "None")
+        )
+        if df_splicing_events.height == 0:
+            df_splicing_events = df_merged
+    else:
+        df_splicing_events = df_merged
 
-    kpis = get_quadrant_kpis(df_merged)
+    # 2. Build Alternative Splicing Volcano Plot
+    fig_volcano = build_as_volcano_plot(
+        df_splicing=df_splicing_events,
+        delta_psi_cutoff=delta_psi_cutoff,
+        fdr_cutoff=as_fdr_cutoff
+    )
+    volcano_html = fig_volcano.to_html(full_html=False, include_plotlyjs="cdn", div_id="plotly-as-volcano-div")
 
-    # Visual Exon-Intron Structure Engine (Sashimi Plot)
+    # 3. KPI metrics for Alternative Splicing Volcano Plot
+    kpis = get_splicing_kpis(df_splicing_events, delta_psi_cutoff=delta_psi_cutoff, fdr_cutoff=as_fdr_cutoff)
+
+    # 4. Identify initial top significant splicing target for Visual Exon-Intron Sashimi Plot
     top_gene_symbol = "CRISPLD2"
     top_coords = "chr16:84860000:84861500:84863000"
     top_event = "SE"
@@ -55,25 +75,22 @@ def export_html_report(
     top_inc_counts = 0
     top_exc_counts = 0
 
-    q2_top = df_merged.filter(pl.col("quadrant") == "Q2")
-    if q2_top.height > 0:
-        row0 = q2_top.to_dicts()[0]
+    # Look for significant events first (|dPSI| >= cutoff and as_fdr <= cutoff)
+    sig_events = df_splicing_events.filter(
+        (pl.col("delta_psi").abs() >= delta_psi_cutoff) &
+        (pl.col("as_fdr") <= as_fdr_cutoff)
+    ).sort(["as_fdr", "delta_psi"], descending=[False, True])
+
+    if sig_events.height > 0:
+        row0 = sig_events.to_dicts()[0]
         top_gene_symbol = row0.get("geneSymbol") or "CRISPLD2"
         top_coords = row0.get("coordinates") or top_coords
         top_event = row0.get("event_type") or "SE"
         top_delta_psi = float(row0.get("delta_psi", 0.35) if row0.get("delta_psi") is not None else 0.35)
         top_inc_counts = int(row0.get("inc_counts", 0) if row0.get("inc_counts") is not None else 0)
         top_exc_counts = int(row0.get("exc_counts", 0) if row0.get("exc_counts") is not None else 0)
-    elif df_merged.filter(pl.col("quadrant") == "Q1").height > 0:
-        row0 = df_merged.filter(pl.col("quadrant") == "Q1").to_dicts()[0]
-        top_gene_symbol = row0.get("geneSymbol") or "STAT3"
-        top_coords = row0.get("coordinates") or top_coords
-        top_event = row0.get("event_type") or "SE"
-        top_delta_psi = float(row0.get("delta_psi", 0.35) if row0.get("delta_psi") is not None else 0.35)
-        top_inc_counts = int(row0.get("inc_counts", 0) if row0.get("inc_counts") is not None else 0)
-        top_exc_counts = int(row0.get("exc_counts", 0) if row0.get("exc_counts") is not None else 0)
-    elif df_merged.height > 0:
-        row0 = df_merged.to_dicts()[0]
+    elif df_splicing_events.height > 0:
+        row0 = df_splicing_events.sort(["as_fdr", "delta_psi"], descending=[False, True]).to_dicts()[0]
         top_gene_symbol = row0.get("geneSymbol") or "N/A"
         top_coords = row0.get("coordinates") or top_coords
         top_event = row0.get("event_type") or "SE"
@@ -91,18 +108,23 @@ def export_html_report(
     )
     sashimi_html = fig_sashimi.to_html(full_html=False, include_plotlyjs=False, div_id="plotly-sashimi-div")
 
-    # Splicing target candidates (Q2 Splicing-Driven + Q1 Dual Responders + statistically significant/candidate AS events)
+    # 5. Extract Candidate Splicing Target Genes for downstream analyses
     candidate_symbols = set()
 
-    # 1. Primary Q1/Q2 genes from representative merged dataset
-    if "quadrant" in df_merged.columns and "geneSymbol" in df_merged.columns:
-        q_genes = df_merged.filter(pl.col("quadrant").is_in(["Q1", "Q2"]))["geneSymbol"].drop_nulls().to_list()
-        candidate_symbols.update(g.strip() for g in q_genes if g and g.strip())
+    # Add significant splicing targets from df_splicing_events
+    if "as_fdr" in df_splicing_events.columns and "delta_psi" in df_splicing_events.columns:
+        sig_cand = df_splicing_events.filter(
+            (pl.col("delta_psi").abs() >= delta_psi_cutoff) &
+            (pl.col("as_fdr") <= as_fdr_cutoff)
+        )
+        if sig_cand.height > 0:
+            candidate_symbols.update(
+                g.strip() for g in sig_cand["geneSymbol"].drop_nulls().to_list() if g and g.strip()
+            )
 
-    # 2. Genes with significant or candidate AS events in df_all_events
-    if "geneSymbol" in df_all_events.columns:
+    # If few significant targets, include candidate AS events with moderate effect
+    if len(candidate_symbols) < 5 and "geneSymbol" in df_all_events.columns:
         as_cond = (
-            (pl.col("quadrant").is_in(["Q1", "Q2"])) |
             ((pl.col("as_fdr") <= 0.05) & (pl.col("event_type") != "None")) |
             ((pl.col("delta_psi").abs() >= 0.05) & (pl.col("as_fdr") <= 0.10) & (pl.col("event_type") != "None"))
         )
@@ -118,7 +140,6 @@ def export_html_report(
     if candidate_symbols and "geneSymbol" in df_all_events.columns:
         target_candidates = df_all_events.filter(pl.col("geneSymbol").is_in(list(candidate_symbols)))
     else:
-        # Fallback for synthetic/small test sets where no gene met significance
         if "as_fdr" in df_all_events.columns and "delta_psi" in df_all_events.columns:
             sorted_events = df_all_events.sort(["as_fdr", "delta_psi"], descending=[False, True])
             top_genes = sorted_events["geneSymbol"].drop_nulls().unique().head(100).to_list()
@@ -134,8 +155,7 @@ def export_html_report(
         if target_candidates_as.height > 0:
             target_candidates = target_candidates_as
 
-    # Splicing metadata map for client-side interactive Sashimi Plot re-rendering
-    # Stores representative event in sashimi_dict, and all events per gene in sashimi_events_map
+    # 6. Splicing metadata map for client-side interactive Sashimi Plot re-rendering
     sashimi_dict = {}
     sashimi_events_map = {}
     for r in target_candidates.iter_rows(named=True):
@@ -194,7 +214,7 @@ def export_html_report(
     sashimi_data_json = json.dumps(sashimi_dict)
     sashimi_events_json = json.dumps(sashimi_events_map)
 
-    # Isoform-Specific RT-qPCR Primer Designer Engine (Synchronized with Sashimi Targets & Reference FASTA)
+    # 7. RT-qPCR Primer Designer Engine (Synchronized with Targets & Reference FASTA)
     primer_df = generate_primer_table_for_targets(target_candidates, fasta_path=fasta_path)
     primer_records = primer_df.to_dicts() if primer_df.height > 0 else []
     primer_records_json = json.dumps(primer_records)
@@ -234,18 +254,17 @@ def export_html_report(
             </tr>
             """
 
-    # Splicing genes (Q1 + Q2)
-    splicing_genes = df_merged.filter(pl.col("quadrant").is_in(["Q1", "Q2"])).select("geneSymbol").to_series().to_list()
+    # 8. Splicing Target Genes for GO / KEGG Enrichment
+    splicing_genes = list(candidate_symbols) if candidate_symbols else []
     if not splicing_genes:
-        splicing_genes = df_merged.select("geneSymbol").to_series().to_list()
+        splicing_genes = df_splicing_events.select("geneSymbol").to_series().to_list()
     all_genes = df_merged.select("geneSymbol").to_series().to_list()
 
-    # Pre-generate GO & KEGG Enrichment for Q1+Q2 Splicing Targets only (Q4 completely removed)
+    # Pre-generate GO & KEGG Enrichment for Significant Splicing Targets
     kegg_lib = "KEGG_2019_Mouse" if ("mouse" in str(organism).lower() or "mus" in str(organism).lower()) else "KEGG_2021_Human"
     df_go = fetch_enrichment(splicing_genes, gene_sets=["GO_Biological_Process_2023"], top_n=10)
     df_kegg = fetch_enrichment(splicing_genes, gene_sets=[kegg_lib], top_n=10)
 
-    import math
     go_records = []
     if df_go is not None and not df_go.empty:
         for _, r in df_go.iterrows():
@@ -279,41 +298,40 @@ def export_html_report(
     go_records_json = json.dumps(go_records)
     kegg_records_json = json.dumps(kegg_records)
 
-    # Total gene count KPI preserved accurately
-    kpis["total"] = df_merged.height
+    # 9. Compact JSON dataset for client-side JS engine (lightweight ~1.5MB)
+    essential_cols = [c for c in [
+        "geneSymbol", "gene_id", "delta_psi", "as_fdr", "as_pvalue",
+        "event_type", "coordinates", "inc_counts", "exc_counts",
+        "log2FoldChange", "deg_fdr"
+    ] if c in df_splicing_events.columns]
 
-    # Select & optimize essential columns for client-side JS engine (drops HTML size from 182MB down to ~1.5MB)
-    essential_cols = [c for c in ["geneSymbol", "gene_id", "log2FoldChange", "delta_psi", "deg_fdr", "as_fdr", "quadrant", "event_type", "coordinates"] if c in df_merged.columns]
-    
-    # Priority sorting: Q2 splicing-driven -> Q1 dual responders -> Q4 DEG -> Q3 invariant
-    df_sorted = df_merged.with_columns([
-        pl.when(pl.col("quadrant") == "Q2").then(1)
-        .when(pl.col("quadrant") == "Q1").then(2)
-        .when(pl.col("quadrant") == "Q4").then(3)
-        .otherwise(4).alias("quad_priority")
-    ]).sort(["quad_priority", "as_fdr", "deg_fdr"], descending=[False, False, False])
+    # Priority sorting: Significant splicing targets first -> sorted by as_fdr -> delta_psi
+    df_sorted = df_splicing_events.with_columns([
+        ((pl.col("delta_psi").abs() >= delta_psi_cutoff) & (pl.col("as_fdr") <= as_fdr_cutoff))
+        .alias("is_sig_target")
+    ]).sort(["is_sig_target", "as_fdr", "delta_psi"], descending=[True, False, True])
 
-    # Include ALL candidate genes in client-side interactive dataset (no truncation)
     df_compact = df_sorted.select(essential_cols)
 
-
-    # Round floats to 4 decimals to eliminate unnecessary JSON string precision bloat
+    # Round floats to eliminate unnecessary JSON string precision bloat
     round_exprs = []
-    if "log2FoldChange" in df_compact.columns:
-        round_exprs.append(pl.col("log2FoldChange").round(4))
     if "delta_psi" in df_compact.columns:
         round_exprs.append(pl.col("delta_psi").round(4))
-    if "deg_fdr" in df_compact.columns:
-        round_exprs.append(pl.col("deg_fdr").round(6))
     if "as_fdr" in df_compact.columns:
         round_exprs.append(pl.col("as_fdr").round(6))
+    if "as_pvalue" in df_compact.columns:
+        round_exprs.append(pl.col("as_pvalue").round(6))
+    if "log2FoldChange" in df_compact.columns:
+        round_exprs.append(pl.col("log2FoldChange").round(4))
+    if "deg_fdr" in df_compact.columns:
+        round_exprs.append(pl.col("deg_fdr").round(6))
 
     if round_exprs:
         df_compact = df_compact.with_columns(round_exprs)
 
     raw_data_json = df_compact.to_pandas().to_json(orient="records")
 
-    # Dynamically build gene -> pathways map from actual GO and KEGG enrichment results (Q1+Q2 Splicing Targets)
+    # 10. Dynamically build gene -> pathways map from actual GO and KEGG enrichment results
     gene_pathway_map = {}
     for df_enr, key in [(df_go, "go"), (df_kegg, "kegg")]:
         if df_enr is not None and not df_enr.empty:
@@ -330,7 +348,7 @@ def export_html_report(
                             gene_pathway_map[g_clean][key].append(term)
     gene_pathway_json = json.dumps(gene_pathway_map)
 
-    # Annotate candidate splicing target events using real GTF CDS structure
+    # 11. Annotate candidate splicing target events using real GTF CDS structure
     isoform_source_df = target_candidates
     isoform_df = annotate_isoform_events(isoform_source_df, gtf_path=gtf_path)
 
@@ -342,7 +360,6 @@ def export_html_report(
         gene_sym = str(r['geneSymbol']).strip()
         gene_sym_upper = gene_sym.upper()
 
-        # Only pre-render initial HTML rows for the default top_gene_symbol to prevent HTML DOM bloat
         if top_sym_upper and gene_sym_upper == top_sym_upper:
             nmd_badge_style = "background:#FEF2F2; color:#EF4444; border:1px solid #EF4444;" if "NMD Sensitive" in str(r['nmd_prediction']) else "background:#EFF6FF; color:#2563EB; border:1px solid #3B82F6;"
             risk_badge_style = "background:#FEF2F2; color:#DC2626; border:1px solid #EF4444; font-weight:800;" if "High" in str(r['impairment_tier']) else ("background:#FFFBEB; color:#D97706; border:1px solid #F59E0B; font-weight:800;" if "Moderate" in str(r['impairment_tier']) else "background:#F0FDF4; color:#16A34A; border:1px solid #22C55E; font-weight:800;")
@@ -387,6 +404,7 @@ def export_html_report(
     isoform_table_rows_html = "\n".join(isoform_rows_list)
     isoform_records_json = json.dumps(isoform_records_list)
 
+    # 12. NCBI Gene summary & PubMed pre-caching for top candidate genes
     primary_ncbi_genes = list(dict.fromkeys([g.strip().upper() for g in splicing_genes if g]))[:15]
     if not primary_ncbi_genes:
         primary_ncbi_genes = list(dict.fromkeys([g.strip().upper() for g in all_genes if g]))[:15]
@@ -402,6 +420,7 @@ def export_html_report(
         time.sleep(0.35)  # Respect NCBI 3 req/sec rate limit
     ncbi_pubmed_json = json.dumps(ncbi_pubmed_map)
 
+    # 13. Generate Self-Contained HTML Document
     full_html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -415,9 +434,9 @@ def export_html_report(
             --border-color: #E2E8F0;
             --text-main: #0F172A;
             --text-muted: #64748B;
-            --red-deg: #EF4444;
-            --blue-as: #3B82F6;
-            --purple-both: #A855F7;
+            --blue-inc: #2563EB;
+            --red-exc: #E11D48;
+            --purple-target: #8B5CF6;
         }}
         body {{
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -469,8 +488,8 @@ def export_html_report(
         .card h2 {{ margin-top: 0; font-size: 20px; color: var(--text-main); border-bottom: 2px solid var(--border-color); padding-bottom: 12px; }}
 
         @keyframes card-glow {{
-            0% {{ box-shadow: 0 0 0 rgba(168, 85, 247, 0); transform: scale(1); }}
-            50% {{ box-shadow: 0 0 25px rgba(168, 85, 247, 0.45); transform: scale(1.008); }}
+            0% {{ box-shadow: 0 0 0 rgba(139, 92, 246, 0); transform: scale(1); }}
+            50% {{ box-shadow: 0 0 25px rgba(139, 92, 246, 0.45); transform: scale(1.008); }}
             100% {{ box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); transform: scale(1); }}
         }}
         .card-updating {{
@@ -520,8 +539,8 @@ def export_html_report(
             border-radius: 3px;
         }}
 
-        .slider-deg input[type=range] {{ accent-color: var(--red-deg); }}
-        .slider-as input[type=range] {{ accent-color: var(--blue-as); }}
+        .slider-as input[type=range] {{ accent-color: var(--blue-inc); }}
+        .slider-fdr input[type=range] {{ accent-color: #4F46E5; }}
 
         .btn-download-csv {{
             background-color: #3B82F6;
@@ -545,7 +564,7 @@ def export_html_report(
         }}
 
         .btn-generate-enrichment {{
-            background: linear-gradient(135deg, #A855F7 0%, #7C3AED 100%);
+            background: linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%);
             color: #FFFFFF;
             border: none;
             border-radius: 10px;
@@ -557,16 +576,16 @@ def export_html_report(
             align-items: center;
             justify-content: center;
             gap: 10px;
-            box-shadow: 0 4px 14px rgba(168, 85, 247, 0.4);
+            box-shadow: 0 4px 14px rgba(139, 92, 246, 0.4);
             transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
             width: 100%;
             margin-top: 10px;
             position: relative;
         }}
         .btn-generate-enrichment:hover {{
-            background: linear-gradient(135deg, #9333EA 0%, #6D28D9 100%);
+            background: linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%);
             transform: translateY(-2px) scale(1.02);
-            box-shadow: 0 6px 20px rgba(168, 85, 247, 0.6);
+            box-shadow: 0 6px 20px rgba(139, 92, 246, 0.6);
         }}
         .btn-generate-enrichment:active {{
             transform: translateY(1px) scale(0.97);
@@ -608,67 +627,62 @@ def export_html_report(
         .badge {{ display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; }}
         .badge-blue {{ background-color: rgba(59, 130, 246, 0.15); color: #3B82F6; border: 1px solid #3B82F6; }}
         .footer {{ text-align: center; color: var(--text-muted); font-size: 13px; margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border-color); }}
-        .enrichment-notice {{ font-size: 13px; color: #A855F7; font-weight: 700; margin-top: 4px; display: block; background: #F3E8FF; padding: 6px 12px; border-radius: 6px; border-left: 4px solid #A855F7; }}
     </style>
 </head>
 <body>
     <div class="header">
         <h1>🧬 GenSplice-Agent Interactive Light Report</h1>
-        <p>Color Classification Guide & On/Off Interactive Cross-Plot</p>
+        <p>Alternative Splicing Volcano Plot & Downstream Functional Validation Engine</p>
     </div>
 
-    <!-- 4-Quadrant Plot with Right-Side Controls -->
+    <!-- Alternative Splicing Volcano Plot Section -->
     <div class="card">
-        <h2>📊 4-Quadrant Transcriptomics Cross-Plot</h2>
+        <h2>🌋 Alternative Splicing Volcano Plot & Target Selector</h2>
         <div class="chart-layout-grid">
             <!-- Left: Plot Canvas -->
             <div id="plot-wrapper">
-                {quad_html}
+                {volcano_html}
             </div>
 
             <!-- Right: Interactive Controls & CSV Download Panel -->
             <div class="right-control-panel">
-                <h3>🎛️ Threshold Controls</h3>
+                <h3>🎛️ Splicing Threshold Controls</h3>
                 
-                <div class="slider-group slider-deg">
-                    <label for="fc-slider">
-                        <span style="color: var(--red-deg);">Log₂FC Cutoff (DEG):</span>
-                        <span id="fc-val">{log2fc_cutoff:.2f}</span>
-                    </label>
-                    <input type="range" id="fc-slider" min="0.1" max="3.0" step="0.05" value="{log2fc_cutoff}">
-                </div>
-
                 <div class="slider-group slider-as">
                     <label for="psi-slider">
-                        <span style="color: var(--blue-as);">ΔPSI Cutoff (AS):</span>
+                        <span style="color: var(--blue-inc);">|ΔPSI| Cutoff (Effect Size):</span>
                         <span id="psi-val">{delta_psi_cutoff:.2f}</span>
                     </label>
                     <input type="range" id="psi-slider" min="0.01" max="0.5" step="0.01" value="{delta_psi_cutoff}">
                 </div>
 
+                <div class="slider-group slider-fdr">
+                    <label for="fdr-slider">
+                        <span style="color: #4F46E5;">rMATS FDR Cutoff (Significance):</span>
+                        <span id="fdr-val">{as_fdr_cutoff:.3f}</span>
+                    </label>
+                    <input type="range" id="fdr-slider" min="0.001" max="0.1" step="0.005" value="{as_fdr_cutoff}">
+                </div>
+
                 <button class="btn-download-csv" id="download-csv-btn">
-                    📥 Download Filtered Gene List (.csv)
+                    📥 Download Filtered Splicing Targets (.csv)
                 </button>
 
                 <!-- Color Classification Section (Outside Plot) -->
                 <div>
-                    <div class="legend-title-desc">Color Classification:</div>
+                    <div class="legend-title-desc">Splicing Classification:</div>
                     <div class="legend-guide">
                         <div class="legend-item">
-                            <span class="legend-dot" style="background: var(--purple-both);"></span>
-                            <span><b>Q1:</b> Both DEG & Splicing</span>
+                            <span class="legend-dot" style="background: var(--blue-inc);"></span>
+                            <span><b>Inclusion Favored:</b> ΔPSI ≥ +θ & FDR ≤ α</span>
                         </div>
                         <div class="legend-item">
-                            <span class="legend-dot" style="background: var(--blue-as);"></span>
-                            <span><b>Q2:</b> Splicing Only</span>
+                            <span class="legend-dot" style="background: var(--red-exc);"></span>
+                            <span><b>Exclusion Favored:</b> ΔPSI ≤ -θ & FDR ≤ α</span>
                         </div>
                         <div class="legend-item">
                             <span class="legend-dot" style="background: #94A3B8;"></span>
-                            <span><b>Q3:</b> Invariant Background</span>
-                        </div>
-                        <div class="legend-item">
-                            <span class="legend-dot" style="background: var(--red-deg);"></span>
-                            <span><b>Q4:</b> DEG Only</span>
+                            <span><b>Non-Significant:</b> Invariant Background</span>
                         </div>
                     </div>
                 </div>
@@ -680,27 +694,27 @@ def export_html_report(
             </div>
         </div>
 
-        <!-- KPI Cards Positioned DIRECTLY BELOW 4-Quadrant Plot -->
+        <!-- KPI Cards Positioned DIRECTLY BELOW Volcano Plot -->
         <div class="kpi-container">
             <div class="kpi-card">
-                <div class="label">Total Analyzed</div>
+                <div class="label">Total Splicing Events</div>
                 <div class="value" id="kpi-total">{kpis['total']}</div>
             </div>
-            <div class="kpi-card" style="border-top: 4px solid var(--blue-as);">
-                <div class="label" style="color: var(--blue-as);">Q2: Splicing Target</div>
-                <div class="value" style="color: var(--blue-as);" id="kpi-q2">{kpis['Q2']}</div>
+            <div class="kpi-card" style="border-top: 4px solid var(--purple-target);">
+                <div class="label" style="color: var(--purple-target);">Significant Targets</div>
+                <div class="value" style="color: var(--purple-target);" id="kpi-sig">{kpis['significant']}</div>
             </div>
-            <div class="kpi-card" style="border-top: 4px solid var(--purple-both);">
-                <div class="label" style="color: var(--purple-both);">Q1: Dual Responders</div>
-                <div class="value" style="color: var(--purple-both);" id="kpi-q1">{kpis['Q1']}</div>
+            <div class="kpi-card" style="border-top: 4px solid var(--blue-inc);">
+                <div class="label" style="color: var(--blue-inc);">Inclusion Favored</div>
+                <div class="value" style="color: var(--blue-inc);" id="kpi-inc">{kpis['inclusion']}</div>
             </div>
-            <div class="kpi-card" style="border-top: 4px solid var(--red-deg);">
-                <div class="label" style="color: var(--red-deg);">Q4: DEG Only</div>
-                <div class="value" style="color: var(--red-deg);" id="kpi-q4">{kpis['Q4']}</div>
+            <div class="kpi-card" style="border-top: 4px solid var(--red-exc);">
+                <div class="label" style="color: var(--red-exc);">Exclusion Favored</div>
+                <div class="value" style="color: var(--red-exc);" id="kpi-exc">{kpis['exclusion']}</div>
             </div>
             <div class="kpi-card" style="border-top: 4px solid #94A3B8;">
-                <div class="label" style="color: #64748B;">Q3: Invariant</div>
-                <div class="value" style="color: #64748B;" id="kpi-q3">{kpis['Q3']}</div>
+                <div class="label" style="color: #64748B;">Non-Significant</div>
+                <div class="value" style="color: #64748B;" id="kpi-nonsig">{kpis['non_significant']}</div>
             </div>
         </div>
     </div>
@@ -708,7 +722,7 @@ def export_html_report(
     <!-- GO Term Enrichment Section -->
     <div class="card" id="go-card-section">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border-color); padding-bottom: 12px; margin-bottom: 12px;">
-            <h2 id="go-title" style="margin: 0; border: none; padding: 0;">🧬 GO Term Biological Process Enrichment (Q1 + Q2: Splicing Targets)</h2>
+            <h2 id="go-title" style="margin: 0; border: none; padding: 0;">🧬 GO Term Biological Process Enrichment (Significant Splicing Targets)</h2>
             <button class="btn-download-csv" id="download-go-csv-btn">
                 📥 Download GO Table (.csv)
             </button>
@@ -726,7 +740,7 @@ def export_html_report(
     <!-- KEGG Pathway Enrichment Section -->
     <div class="card" id="kegg-card-section">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border-color); padding-bottom: 12px; margin-bottom: 12px;">
-            <h2 id="kegg-title" style="margin: 0; border: none; padding: 0;">🛤️ KEGG Pathway Enrichment (Q1 + Q2: Splicing Targets)</h2>
+            <h2 id="kegg-title" style="margin: 0; border: none; padding: 0;">🛤️ KEGG Pathway Enrichment (Significant Splicing Targets)</h2>
             <button class="btn-download-csv" id="download-kegg-csv-btn">
                 📥 Download KEGG Table (.csv)
             </button>
@@ -746,7 +760,7 @@ def export_html_report(
         <h2 style="color: #0F172A; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-top: 0;">📚 NCBI / PubMed Automated Gene & Literature Explorer</h2>
         
         <div style="margin-top: 16px; margin-bottom: 16px;">
-            <label for="ncbi-gene-select" style="font-weight: 700; font-size: 14px; margin-right: 10px;">🔍 Select Splicing Target Gene (Q1 + Q2):</label>
+            <label for="ncbi-gene-select" style="font-weight: 700; font-size: 14px; margin-right: 10px;">🔍 Select Splicing Target Gene:</label>
             <select id="ncbi-gene-select" style="padding: 8px 14px; border-radius: 8px; border: 1px solid #CBD5E1; font-weight: 700; font-size: 14px; background: #FFFFFF; cursor: pointer;">
             </select>
         </div>
@@ -885,10 +899,10 @@ def export_html_report(
         let currentKeggData = [];
         let isEnrichmentGenerated = false;
         
-        const fcSlider = document.getElementById('fc-slider');
         const psiSlider = document.getElementById('psi-slider');
-        const fcValLabel = document.getElementById('fc-val');
+        const fdrSlider = document.getElementById('fdr-slider');
         const psiValLabel = document.getElementById('psi-val');
+        const fdrValLabel = document.getElementById('fdr-val');
         const downloadBtn = document.getElementById('download-csv-btn');
         const generateBtn = document.getElementById('generate-enrichment-btn');
         const downloadGoBtn = document.getElementById('download-go-csv-btn');
@@ -957,10 +971,10 @@ def export_html_report(
                 if (geneTitle) geneTitle.innerHTML = `🧬 NCBI Gene Details: <span style="color:#64748B;">No target selected</span>`;
                 const officialName = document.getElementById('ncbi-official-name');
                 if (officialName) officialName.innerHTML = `<b>Official Name:</b> <i>No splicing targets meet current thresholds.</i>`;
-                const chrLoc = document.getElementById('ncbi-chromosome-loc');
-                if (chrLoc) chrLoc.innerHTML = `<b>Location:</b> -`;
-                const geneSum = document.getElementById('ncbi-gene-summary');
-                if (geneSum) geneSum.textContent = `No active genes in Q1/Q2 under current threshold cutoffs. Adjust Log2FC or ΔPSI sliders to view targets.`;
+                const meta = document.getElementById('ncbi-meta');
+                if (meta) meta.innerHTML = `<b>NCBI Gene ID:</b> - | <b>Map Location:</b> -`;
+                const summaryDesc = document.getElementById('ncbi-summary-desc');
+                if (summaryDesc) summaryDesc.textContent = `No active significant splicing targets found under current threshold cutoffs. Adjust ΔPSI or FDR sliders to view targets.`;
                 const pubElem = document.getElementById('pubmed-papers-container');
                 if (pubElem) pubElem.innerHTML = `<p style="color:#64748B;"><i>No target gene selected.</i></p>`;
                 return;
@@ -1169,11 +1183,9 @@ def export_html_report(
                 titleElem.innerHTML = `<b>${{symbol}} Exon Structure & Splicing Sashimi Plot${{evNumText}}</b> (${{eventType}} | ΔPSI = ${{sign}}${{deltaPsi.toFixed(2)}})`;
             }}
 
-            // Read counts (strictly authentic counts, zero fallback without fabricated multipliers)
             const inc_counts = (info.inc_counts !== undefined && info.inc_counts !== null) ? info.inc_counts : 0;
             const exc_counts = (info.exc_counts !== undefined && info.exc_counts !== null) ? info.exc_counts : 0;
 
-            // Chromosome & coordinates
             let chrom = info.chrom || "chr1";
             let ex1 = info.ex1, ex2 = info.ex2, ex3 = info.ex3;
 
@@ -1244,16 +1256,13 @@ def export_html_report(
                 tick_inc = "Inclusion (Retained Intron)";
                 tick_exc = "Exclusion (Spliced Intron)";
 
-                // Intron backbone
                 traces.push({{ x: [ex1[0], ex2[1]], y: [2, 2], mode: "lines", line: {{ color: "#94A3B8", width: 2, dash: "dash" }}, hoverinfo: "skip", showlegend: false }});
                 traces.push({{ x: [ex1[0], ex2[1]], y: [-2, -2], mode: "lines", line: {{ color: "#94A3B8", width: 2, dash: "dash" }}, hoverinfo: "skip", showlegend: false }});
 
-                // Top: Exon 1 - Retained Intron Box - Exon 2
                 addBox(ex1[0], ex1[1], 2, 0.8, color_constitutive, "Exon 1 (Upstream)");
                 addBox(ex1[1], ex2[0], 2, 0.5, color_retained, "Retained Intron Block", `<b>Retained Intron Block</b><br>Span: ${{chrom}}:${{ex1[1].toLocaleString()}}-${{ex2[0].toLocaleString()}}<br>Status: Intron retained in mRNA`);
                 addBox(ex2[0], ex2[1], 2, 0.8, color_constitutive, "Exon 2 (Downstream)");
 
-                // Retention read annotation
                 traces.push({{
                     x: [(ex1[1] + ex2[0]) / 2], y: [2.7],
                     mode: "text", text: [`Retained Intron Reads: ${{inc_counts}}`],
@@ -1261,7 +1270,6 @@ def export_html_report(
                     name: "Intron Retention Signal"
                 }});
 
-                // Bottom: Exon 1 - Spliced Intron Arc - Exon 2
                 addBox(ex1[0], ex1[1], -2, 0.8, color_constitutive, "Exon 1 (Upstream)");
                 addBox(ex2[0], ex2[1], -2, 0.8, color_constitutive, "Exon 2 (Downstream)");
 
@@ -1285,7 +1293,6 @@ def export_html_report(
                 traces.push({{ x: [ex1[0], ex3[1]], y: [2, 2], mode: "lines", line: {{ color: "#94A3B8", width: 2, dash: "dash" }}, hoverinfo: "skip", showlegend: false }});
                 traces.push({{ x: [ex1[0], ex3[1]], y: [-2, -2], mode: "lines", line: {{ color: "#94A3B8", width: 2, dash: "dash" }}, hoverinfo: "skip", showlegend: false }});
 
-                // Top: Exon 1 -> 2A -> 3
                 addBox(ex1[0], ex1[1], 2, 0.8, color_constitutive, "Exon 1");
                 addBox(ex2a[0], ex2a[1], 2, 0.8, color_alt, "Exon 2A (Isoform 1)");
                 addBox(ex3[0], ex3[1], 2, 0.8, color_constitutive, "Exon 3");
@@ -1304,7 +1311,6 @@ def export_html_report(
                     name: "Junction 2A -> 3"
                 }});
 
-                // Bottom: Exon 1 -> 2B -> 3
                 addBox(ex1[0], ex1[1], -2, 0.8, color_constitutive, "Exon 1");
                 addBox(ex2b[0], ex2b[1], -2, 0.8, color_mxe_b, "Exon 2B (Isoform 2)");
                 addBox(ex3[0], ex3[1], -2, 0.8, color_constitutive, "Exon 3");
@@ -1334,7 +1340,6 @@ def export_html_report(
                 traces.push({{ x: [ex1[0], ex2_down[1]], y: [2, 2], mode: "lines", line: {{ color: "#94A3B8", width: 2, dash: "dash" }}, hoverinfo: "skip", showlegend: false }});
                 traces.push({{ x: [ex1[0], ex2_down[1]], y: [-2, -2], mode: "lines", line: {{ color: "#94A3B8", width: 2, dash: "dash" }}, hoverinfo: "skip", showlegend: false }});
 
-                // Top: Core Exon 1 + Alt 5' Extension
                 addBox(ex1[0], ex1[1], 2, 0.8, color_constitutive, "Core Exon 1");
                 addBox(ex1[1], ex1_long[1], 2, 0.8, color_alt, "Alt 5' Extension", "<b>Alternative 5' Extension</b><br>Distal splice donor site");
                 addBox(ex2_down[0], ex2_down[1], 2, 0.8, color_constitutive, "Exon 2 (Downstream)");
@@ -1347,7 +1352,6 @@ def export_html_report(
                     textposition: "top center", name: "Distal 5' Splice Junction"
                 }});
 
-                // Bottom: Core Exon 1 -> Exon 2
                 addBox(ex1[0], ex1[1], -2, 0.8, color_constitutive, "Core Exon 1");
                 addBox(ex2_down[0], ex2_down[1], -2, 0.8, color_constitutive, "Exon 2 (Downstream)");
 
@@ -1368,7 +1372,6 @@ def export_html_report(
                 traces.push({{ x: [ex1[0], ex3[1]], y: [2, 2], mode: "lines", line: {{ color: "#94A3B8", width: 2, dash: "dash" }}, hoverinfo: "skip", showlegend: false }});
                 traces.push({{ x: [ex1[0], ex3[1]], y: [-2, -2], mode: "lines", line: {{ color: "#94A3B8", width: 2, dash: "dash" }}, hoverinfo: "skip", showlegend: false }});
 
-                // Top: Exon 1 -> Alt 3' Extension + Core Exon 2
                 addBox(ex1[0], ex1[1], 2, 0.8, color_constitutive, "Exon 1 (Upstream)");
                 addBox(ex2_long[0], ex3[0], 2, 0.8, color_alt, "Alt 3' Extension", "<b>Alternative 3' Extension</b><br>Proximal splice acceptor site");
                 addBox(ex3[0], ex3[1], 2, 0.8, color_constitutive, "Core Exon 2");
@@ -1381,7 +1384,6 @@ def export_html_report(
                     textposition: "top center", name: "Proximal 3' Splice Junction"
                 }});
 
-                // Bottom: Exon 1 -> Core Exon 2
                 addBox(ex1[0], ex1[1], -2, 0.8, color_constitutive, "Exon 1 (Upstream)");
                 addBox(ex3[0], ex3[1], -2, 0.8, color_constitutive, "Core Exon 2");
 
@@ -1398,7 +1400,6 @@ def export_html_report(
                 traces.push({{ x: [ex1[0], ex3[1]], y: [2, 2], mode: "lines", line: {{ color: "#94A3B8", width: 2, dash: "dash" }}, hoverinfo: "skip", showlegend: false }});
                 traces.push({{ x: [ex1[0], ex3[1]], y: [-2, -2], mode: "lines", line: {{ color: "#94A3B8", width: 2, dash: "dash" }}, hoverinfo: "skip", showlegend: false }});
 
-                // Top: Exon 1 - Skipped Exon 2 - Exon 3
                 addBox(ex1[0], ex1[1], 2, 0.8, color_constitutive, "Upstream Exon 1");
                 addBox(ex2[0], ex2[1], 2, 0.8, color_alt, "Alternative Skipped Exon 2", "<b>Alternative Skipped Exon</b><br>Cassette exon included in dominant isoform");
                 addBox(ex3[0], ex3[1], 2, 0.8, color_constitutive, "Downstream Exon 3");
@@ -1417,7 +1418,6 @@ def export_html_report(
                     name: "Inclusion Junction J2"
                 }});
 
-                // Bottom: Exon 1 -> Exon 3 (Skipping Exon 2)
                 addBox(ex1[0], ex1[1], -2, 0.8, color_constitutive, "Upstream Exon 1");
                 addBox(ex3[0], ex3[1], -2, 0.8, color_constitutive, "Downstream Exon 3");
 
@@ -1468,12 +1468,12 @@ def export_html_report(
         function getActiveSplicingGeneSet() {{
             if (currentFilteredGenes && currentFilteredGenes.length > 0) {{
                 return new Set(currentFilteredGenes
-                    .filter(g => g.current_quadrant === 'Q1' || g.current_quadrant === 'Q2')
+                    .filter(g => g.current_splicing_status === 'Inclusion' || g.current_splicing_status === 'Exclusion')
                     .map(g => (g.geneSymbol || '').toUpperCase())
                     .filter(Boolean));
             }}
             return new Set((rawGeneData || [])
-                .filter(g => g.quadrant === 'Q1' || g.quadrant === 'Q2')
+                .filter(g => g.current_splicing_status === 'Inclusion' || g.current_splicing_status === 'Exclusion')
                 .map(g => (g.geneSymbol || '').toUpperCase())
                 .filter(Boolean));
         }}
@@ -1555,7 +1555,7 @@ def export_html_report(
             if (tbody) {{
                 if (!matching.length) {{
                     const msg = (!upper || !activeSet.has(upper))
-                        ? `${{upper || 'Selected gene'}} is outside active Q1/Q2 thresholds.`
+                        ? `${{upper || 'Selected gene'}} is outside active splicing thresholds.`
                         : `No event annotations recorded for ${{upper}}.`;
                     tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; color:#64748B; padding:20px; font-weight:600;">${{msg}}</td></tr>`;
                 }} else {{
@@ -1582,7 +1582,7 @@ def export_html_report(
                             ? `(${{visibleCount}} isoform event${{visibleCount > 1 ? 's' : ''}} for ${{upper}})` 
                             : `(No event annotations recorded for ${{upper}})`;
                     }} else if (upper) {{
-                        countLabel.textContent = `(${{upper}} is outside active Q1/Q2 thresholds)`;
+                        countLabel.textContent = `(${{upper}} is outside active splicing thresholds)`;
                     }} else {{
                         countLabel.textContent = `(0 active targets selected)`;
                     }}
@@ -1610,7 +1610,7 @@ def export_html_report(
             const activeRecords = isoformRecords.filter(r => activeSet.has((r.gene_symbol || '').toUpperCase()));
 
             if (!activeRecords.length) {{
-                alert("No isoform records match the current threshold criteria (Q1/Q2). Please adjust thresholds to export isoforms.");
+                alert("No isoform records match the current threshold criteria. Please adjust thresholds to export isoforms.");
                 return;
             }}
 
@@ -1635,12 +1635,12 @@ def export_html_report(
                 csvContent += row.join(",") + "\\n";
             }});
 
-            const fcCut = fcSlider ? parseFloat(fcSlider.value).toFixed(2) : '1.00';
             const psiCut = psiSlider ? parseFloat(psiSlider.value).toFixed(2) : '0.10';
+            const fdrCut = fdrSlider ? parseFloat(fdrSlider.value).toFixed(3) : '0.050';
             const blob = new Blob([csvContent], {{ type: 'text/csv;charset=utf-8;' }});
             const link = document.createElement("a");
             link.href = URL.createObjectURL(blob);
-            link.setAttribute("download", `gensplice_isoform_annotations_Q1_Q2_FC${{fcCut}}_dPSI${{psiCut}}.csv`);
+            link.setAttribute("download", `gensplice_isoform_annotations_dPSI${{psiCut}}_FDR${{fdrCut}}.csv`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -1669,20 +1669,17 @@ def export_html_report(
 
             let rows = [];
             if (evIdx === -1) {{
-                // All events for this gene
                 rows = geneRows;
                 if (bannerGene) bannerGene.textContent = geneSymbol;
                 if (bannerCoords) bannerCoords.textContent = `All Coordinates (${{events.length}} events)`;
                 if (bannerEvent) bannerEvent.textContent = `All Events (${{events.length}} total)`;
             }} else {{
-                // Specific event selected in Visual Exon-Intron section
                 if (targetEvent) {{
                     if (bannerGene) bannerGene.textContent = geneSymbol;
                     if (bannerCoords) bannerCoords.textContent = targetEvent.coordinates || 'N/A';
                     const evNum = events.length > 1 ? `Event ${{evIdx + 1}} of ${{events.length}}` : `Event 1`;
                     if (bannerEvent) bannerEvent.textContent = `${{targetEvent.event_type}} (${{evNum}})`;
 
-                    // Filter primers matching this event_index or coordinates
                     rows = geneRows.filter(r => r.event_index === evIdx);
                     if (!rows.length && targetEvent.coordinates) {{
                         rows = geneRows.filter(r => r.coordinates === targetEvent.coordinates);
@@ -1730,120 +1727,163 @@ def export_html_report(
         }}
 
         function updateThresholds() {{
-            const fcCut = parseFloat(fcSlider.value);
             const psiCut = parseFloat(psiSlider.value);
+            const fdrCut = parseFloat(fdrSlider.value);
 
-            fcValLabel.textContent = fcCut.toFixed(2);
             psiValLabel.textContent = psiCut.toFixed(2);
+            fdrValLabel.textContent = fdrCut.toFixed(3);
 
-            let q1 = 0, q2 = 0, q3 = 0, q4 = 0;
+            let incCount = 0, excCount = 0, nonSigCount = 0;
             currentFilteredGenes = [];
 
-            const quadPoints = {{
-                Q1: {{ x: [], y: [], text: [] }},
-                Q2: {{ x: [], y: [], text: [] }},
-                Q3: {{ x: [], y: [], text: [] }},
-                Q4: {{ x: [], y: [], text: [] }}
+            const volcanoPoints = {{
+                Inclusion: {{ x: [], y: [], text: [] }},
+                Exclusion: {{ x: [], y: [], text: [] }},
+                NonSig: {{ x: [], y: [], text: [] }}
             }};
 
             rawGeneData.forEach(g => {{
-                const fcVal = Math.abs(g.log2FoldChange || 0);
-                const psiVal = Math.abs(g.delta_psi || 0);
-                
-                // Option A: 2D coordinate-based cutoff matching visual quadrant regions exactly
-                const isDegSig = fcVal >= fcCut;
-                const isAsSig = psiVal >= psiCut;
+                const dpsi = g.delta_psi !== undefined && g.delta_psi !== null ? Number(g.delta_psi) : 0.0;
+                const fdr = g.as_fdr !== undefined && g.as_fdr !== null ? Number(g.as_fdr) : 1.0;
+                const logFdr = (fdr <= 0) ? 20.0 : -Math.log10(Math.max(fdr, 1e-20));
+                const isSig = (Math.abs(dpsi) >= psiCut) && (fdr <= fdrCut);
 
-                let quad = "Q3";
-                if (isDegSig && isAsSig) {{ quad = "Q1"; q1++; }}
-                else if (!isDegSig && isAsSig) {{ quad = "Q2"; q2++; }}
-                else if (isDegSig && !isAsSig) {{ quad = "Q4"; q4++; }}
-                else {{ quad = "Q3"; q3++; }}
+                let status = "Non-Significant";
+                let statusLabel = "Non-Significant Background";
 
-                const hoverText = `<b>Gene Symbol:</b> ${{g.geneSymbol}}<br><b>Gene ID:</b> ${{g.gene_id}}<br><b>Quadrant:</b> ${{quad}}<br><b>Log2FC (DEG):</b> ${{fcVal.toFixed(3)}}<br><b>ΔPSI (Splicing):</b> ${{psiVal.toFixed(3)}}<br><b>DEG FDR:</b> ${{(g.deg_fdr || 1.0).toExponential(2)}}<br><b>rMATS FDR:</b> ${{(g.as_fdr || 1.0).toExponential(2)}}<br><b>Event Type:</b> ${{g.event_type || 'None'}}`;
+                if (isSig && dpsi > 0) {{
+                    status = "Inclusion";
+                    statusLabel = `Significant Inclusion Favored (ΔPSI ≥ +${{psiCut.toFixed(2)}})`;
+                    incCount++;
+                }} else if (isSig && dpsi < 0) {{
+                    status = "Exclusion";
+                    statusLabel = `Significant Exclusion Favored (ΔPSI ≤ -${{psiCut.toFixed(2)}})`;
+                    excCount++;
+                }} else {{
+                    nonSigCount++;
+                }}
 
-                quadPoints[quad].x.push(g.log2FoldChange);
-                quadPoints[quad].y.push(g.delta_psi);
-                quadPoints[quad].text.push(hoverText);
+                const sign = dpsi >= 0 ? '+' : '';
+                const hoverText = `<b>${{g.geneSymbol || 'Unknown'}}</b> (${{g.gene_id || 'N/A'}})<br>` +
+                    `Status: <b>${{statusLabel}}</b><br>` +
+                    `Event: ${{g.event_type || 'N/A'}} | Coords: ${{g.coordinates || 'N/A'}}<br>` +
+                    `ΔPSI: ${{sign}}${{dpsi.toFixed(3)}}<br>` +
+                    `rMATS FDR: ${{fdr.toExponential(2)}} (-log₁₀ FDR: ${{logFdr.toFixed(2)}})<br>` +
+                    `rMATS p-value: ${{(g.as_pvalue || fdr).toExponential(2)}}<br>` +
+                    `Read Counts: Inc=${{g.inc_counts || 0}} | Exc=${{g.exc_counts || 0}}`;
 
-                const updatedGene = {{ ...g, current_quadrant: quad }};
+                const ptKey = (status === "Inclusion") ? "Inclusion" : ((status === "Exclusion") ? "Exclusion" : "NonSig");
+                volcanoPoints[ptKey].x.push(dpsi);
+                volcanoPoints[ptKey].y.push(logFdr);
+                volcanoPoints[ptKey].text.push(hoverText);
+
+                const updatedGene = {{ ...g, current_splicing_status: status }};
                 currentFilteredGenes.push(updatedGene);
             }});
 
             document.getElementById('kpi-total').textContent = rawGeneData.length;
-            document.getElementById('kpi-q1').textContent = q1;
-            document.getElementById('kpi-q2').textContent = q2;
-            document.getElementById('kpi-q3').textContent = q3;
-            document.getElementById('kpi-q4').textContent = q4;
+            document.getElementById('kpi-sig').textContent = incCount + excCount;
+            document.getElementById('kpi-inc').textContent = incCount;
+            document.getElementById('kpi-exc').textContent = excCount;
+            document.getElementById('kpi-nonsig').textContent = nonSigCount;
 
-            const splicingGenes = currentFilteredGenes.filter(g => g.current_quadrant === 'Q1' || g.current_quadrant === 'Q2').map(g => (g.geneSymbol || '').toUpperCase());
-            updateNcbiDropdown(splicingGenes);
+            const activeSplicingGenes = currentFilteredGenes
+                .filter(g => g.current_splicing_status === "Inclusion" || g.current_splicing_status === "Exclusion")
+                .map(g => (g.geneSymbol || '').toUpperCase());
+
+            updateNcbiDropdown(activeSplicingGenes);
 
             const currentGene = ncbiSelect ? ncbiSelect.value : '';
             filterIsoformTable(currentGene);
             updateIsoformDownloadButton();
 
-            const quadDiv = document.getElementById('plotly-quad-div');
-            if (quadDiv && window.Plotly) {{
-                // Dynamically calculate plot bounds from the dataset and current layout
-                let maxDataX = 3.0;
-                let maxDataY = 1.0;
-                if (rawGeneData && rawGeneData.length) {{
-                    rawGeneData.forEach(g => {{
-                        const fc = Math.abs(g.log2FoldChange || 0);
-                        const psi = Math.abs(g.delta_psi || 0);
-                        if (isFinite(fc) && fc > maxDataX) maxDataX = fc;
-                        if (isFinite(psi) && psi > maxDataY) maxDataY = psi;
-                    }});
-                }}
+            const volcanoDiv = document.getElementById('plotly-as-volcano-div');
+            if (volcanoDiv && window.Plotly) {{
+                let maxDataX = 0.8;
+                let maxDataY = 3.5;
+                rawGeneData.forEach(g => {{
+                    const dpsi = Math.abs(g.delta_psi || 0);
+                    const fdr = g.as_fdr !== undefined && g.as_fdr !== null ? Number(g.as_fdr) : 1.0;
+                    const logFdr = (fdr <= 0) ? 20.0 : -Math.log10(Math.max(fdr, 1e-20));
+                    if (isFinite(dpsi) && dpsi > maxDataX) maxDataX = dpsi;
+                    if (isFinite(logFdr) && logFdr > maxDataY) maxDataY = logFdr;
+                }});
 
-                let layoutAxisX = 0;
-                let layoutAxisY = 0;
-                if (quadDiv.layout && quadDiv.layout.xaxis && Array.isArray(quadDiv.layout.xaxis.range)) {{
-                    layoutAxisX = Math.max(
-                        Math.abs(quadDiv.layout.xaxis.range[0] || 0),
-                        Math.abs(quadDiv.layout.xaxis.range[1] || 0)
-                    );
-                }}
-                if (quadDiv.layout && quadDiv.layout.yaxis && Array.isArray(quadDiv.layout.yaxis.range)) {{
-                    layoutAxisY = Math.max(
-                        Math.abs(quadDiv.layout.yaxis.range[0] || 0),
-                        Math.abs(quadDiv.layout.yaxis.range[1] || 0)
-                    );
-                }}
-
-                const max_x = Math.max(Math.ceil((maxDataX + 0.5) * 10) / 10, layoutAxisX, fcCut + 0.5, 3.5);
-                const max_y = Math.max(Math.ceil((maxDataY + 0.1) * 100) / 100, layoutAxisY, psiCut + 0.1, 1.05);
+                const fdr_threshold_y = -Math.log10(Math.max(fdrCut, 1e-20));
+                const max_x = Math.max(Math.ceil((maxDataX + 0.1) * 100) / 100, psiCut + 0.1, 1.05);
+                const max_y = Math.max(Math.ceil((maxDataY + 1.0) * 10) / 10, Math.ceil((fdr_threshold_y + 1.5) * 10) / 10, 5.0);
 
                 const newShapes = [
-                    {{ type: 'rect', x0: -fcCut, x1: fcCut, y0: -psiCut, y1: psiCut, fillcolor: 'rgba(241, 245, 249, 0.6)', line: {{ width: 0 }}, layer: 'below' }},
-                    {{ type: 'rect', x0: -fcCut, x1: fcCut, y0: psiCut, y1: max_y, fillcolor: 'rgba(59, 130, 246, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
-                    {{ type: 'rect', x0: -fcCut, x1: fcCut, y0: -max_y, y1: -psiCut, fillcolor: 'rgba(59, 130, 246, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
-                    {{ type: 'rect', x0: fcCut, x1: max_x, y0: -psiCut, y1: psiCut, fillcolor: 'rgba(239, 68, 68, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
-                    {{ type: 'rect', x0: -max_x, x1: -fcCut, y0: -psiCut, y1: psiCut, fillcolor: 'rgba(239, 68, 68, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
-                    {{ type: 'rect', x0: fcCut, x1: max_x, y0: psiCut, y1: max_y, fillcolor: 'rgba(168, 85, 247, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
-                    {{ type: 'rect', x0: -max_x, x1: -fcCut, y0: psiCut, y1: max_y, fillcolor: 'rgba(168, 85, 247, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
-                    {{ type: 'rect', x0: fcCut, x1: max_x, y0: -max_y, y1: -psiCut, fillcolor: 'rgba(168, 85, 247, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
-                    {{ type: 'rect', x0: -max_x, x1: -fcCut, y0: -max_y, y1: -psiCut, fillcolor: 'rgba(168, 85, 247, 0.12)', line: {{ width: 0 }}, layer: 'below' }},
+                    {{ type: 'rect', x0: -max_x, x1: max_x, y0: 0, y1: fdr_threshold_y, fillcolor: 'rgba(241, 245, 249, 0.50)', line: {{ width: 0 }}, layer: 'below' }},
+                    {{ type: 'rect', x0: -psiCut, x1: psiCut, y0: fdr_threshold_y, y1: max_y, fillcolor: 'rgba(241, 245, 249, 0.50)', line: {{ width: 0 }}, layer: 'below' }},
+                    {{ type: 'rect', x0: psiCut, x1: max_x, y0: fdr_threshold_y, y1: max_y, fillcolor: 'rgba(37, 99, 235, 0.08)', line: {{ width: 0 }}, layer: 'below' }},
+                    {{ type: 'rect', x0: -max_x, x1: -psiCut, y0: fdr_threshold_y, y1: max_y, fillcolor: 'rgba(225, 29, 72, 0.08)', line: {{ width: 0 }}, layer: 'below' }},
 
-                    {{ type: 'line', x0: fcCut, x1: fcCut, y0: -max_y, y1: max_y, line: {{ color: '#EF4444', width: 2, dash: 'dash' }} }},
-                    {{ type: 'line', x0: -fcCut, x1: -fcCut, y0: -max_y, y1: max_y, line: {{ color: '#EF4444', width: 2, dash: 'dash' }} }},
-                    {{ type: 'line', x0: -max_x, x1: max_x, y0: psiCut, y1: psiCut, line: {{ color: '#3B82F6', width: 2, dash: 'dash' }} }},
-                    {{ type: 'line', x0: -max_x, x1: max_x, y0: -psiCut, y1: -psiCut, line: {{ color: '#3B82F6', width: 2, dash: 'dash' }} }}
+                    {{ type: 'line', x0: -max_x, x1: max_x, y0: fdr_threshold_y, y1: fdr_threshold_y, line: {{ color: '#6366F1', width: 2, dash: 'dash' }} }},
+                    {{ type: 'line', x0: psiCut, x1: psiCut, y0: 0, y1: max_y, line: {{ color: '#2563EB', width: 2, dash: 'dash' }} }},
+                    {{ type: 'line', x0: -psiCut, x1: -psiCut, y0: 0, y1: max_y, line: {{ color: '#E11D48', width: 2, dash: 'dash' }} }}
+                ];
+
+                const newAnnotations = [
+                    {{
+                        x: -max_x * 0.65, y: max_y * 0.95,
+                        xref: 'x', yref: 'y',
+                        text: '<b>Exclusion Favored</b> (ΔPSI < 0)',
+                        showarrow: false,
+                        font: {{ size: 12, color: '#BE123C', family: 'sans-serif' }},
+                        bgcolor: 'rgba(255, 255, 255, 0.8)',
+                        bordercolor: '#FECDD3',
+                        borderwidth: 1,
+                        borderpad: 4
+                    }},
+                    {{
+                        x: max_x * 0.65, y: max_y * 0.95,
+                        xref: 'x', yref: 'y',
+                        text: '<b>Inclusion Favored</b> (ΔPSI > 0)',
+                        showarrow: false,
+                        font: {{ size: 12, color: '#1D4ED8', family: 'sans-serif' }},
+                        bgcolor: 'rgba(255, 255, 255, 0.8)',
+                        bordercolor: '#BFDBFE',
+                        borderwidth: 1,
+                        borderpad: 4
+                    }},
+                    {{
+                        x: max_x * 0.96, y: fdr_threshold_y + 0.15,
+                        xref: 'x', yref: 'y',
+                        text: `FDR = ${{fdrCut.toFixed(3)}}`,
+                        showarrow: false,
+                        font: {{ size: 11, color: '#4F46E5', family: 'sans-serif' }},
+                        xanchor: 'right'
+                    }}
                 ];
 
                 const updatedTraces = [
-                    {{ x: quadPoints.Q1.x, y: quadPoints.Q1.y, text: quadPoints.Q1.text, mode: 'markers', name: 'Q1', marker: {{ color: '#A855F7', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text', visible: true }},
-                    {{ x: quadPoints.Q2.x, y: quadPoints.Q2.y, text: quadPoints.Q2.text, mode: 'markers', name: 'Q2', marker: {{ color: '#3B82F6', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text', visible: true }},
-                    {{ x: quadPoints.Q3.x, y: quadPoints.Q3.y, text: quadPoints.Q3.text, mode: 'markers', name: 'Q3', marker: {{ color: '#94A3B8', size: 6, opacity: 0.5, line: {{ width: 0.5, color: '#FFFFFF' }} }}, hoverinfo: 'text', visible: 'legendonly' }},
-                    {{ x: quadPoints.Q4.x, y: quadPoints.Q4.y, text: quadPoints.Q4.text, mode: 'markers', name: 'Q4', marker: {{ color: '#EF4444', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }}, hoverinfo: 'text', visible: true }}
+                    {{
+                        x: volcanoPoints.Inclusion.x, y: volcanoPoints.Inclusion.y, text: volcanoPoints.Inclusion.text,
+                        mode: 'markers', name: 'Inclusion Favored',
+                        marker: {{ color: '#2563EB', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }},
+                        hoverinfo: 'text', visible: true
+                    }},
+                    {{
+                        x: volcanoPoints.Exclusion.x, y: volcanoPoints.Exclusion.y, text: volcanoPoints.Exclusion.text,
+                        mode: 'markers', name: 'Exclusion Favored',
+                        marker: {{ color: '#E11D48', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }},
+                        hoverinfo: 'text', visible: true
+                    }},
+                    {{
+                        x: volcanoPoints.NonSig.x, y: volcanoPoints.NonSig.y, text: volcanoPoints.NonSig.text,
+                        mode: 'markers', name: 'Non-Significant Background',
+                        marker: {{ color: '#94A3B8', size: 6, opacity: 0.5, line: {{ width: 0.5, color: '#FFFFFF' }} }},
+                        hoverinfo: 'text', visible: true
+                    }}
                 ];
 
-                Plotly.react(quadDiv, updatedTraces, quadDiv.layout);
-                Plotly.relayout(quadDiv, {{
+                Plotly.react(volcanoDiv, updatedTraces, volcanoDiv.layout);
+                Plotly.relayout(volcanoDiv, {{
                     shapes: newShapes,
+                    annotations: newAnnotations,
                     'xaxis.range': [-max_x, max_x],
-                    'yaxis.range': [-max_y, max_y]
+                    'yaxis.range': [0, max_y]
                 }});
             }}
 
@@ -1853,11 +1893,12 @@ def export_html_report(
         }}
 
         function generateEnrichment() {{
-            const fcCut = parseFloat(fcSlider.value).toFixed(2);
             const psiCut = parseFloat(psiSlider.value).toFixed(2);
+            const fdrCut = parseFloat(fdrSlider.value).toFixed(3);
             
-            const splicingGenes = currentFilteredGenes.filter(g => g.current_quadrant === 'Q1' || g.current_quadrant === 'Q2').map(g => (g.geneSymbol || '').toUpperCase());
-            const activeGenes = splicingGenes;
+            const activeGenes = currentFilteredGenes
+                .filter(g => g.current_splicing_status === "Inclusion" || g.current_splicing_status === "Exclusion")
+                .map(g => (g.geneSymbol || '').toUpperCase());
             const activeSet = new Set(activeGenes);
 
             const goPlaceholder = document.getElementById('go-placeholder');
@@ -1875,13 +1916,13 @@ def export_html_report(
                 currentKeggData = [];
                 if (goDiv && window.Plotly) {{
                     Plotly.react(goDiv, [], {{
-                        title: "<b>No Q1/Q2 splicing target genes found under current thresholds (ΔPSI ≥ " + psiCut + ")</b>",
+                        title: "<b>No significant splicing target genes found under current thresholds (|ΔPSI| ≥ " + psiCut + ", FDR ≤ " + fdrCut + ")</b>",
                         paper_bgcolor: "#FFFFFF", plot_bgcolor: "#F8FAFC", height: 350
                     }});
                 }}
                 if (keggDiv && window.Plotly) {{
                     Plotly.react(keggDiv, [], {{
-                        title: "<b>No Q1/Q2 splicing target genes found under current thresholds (ΔPSI ≥ " + psiCut + ")</b>",
+                        title: "<b>No significant splicing target genes found under current thresholds (|ΔPSI| ≥ " + psiCut + ", FDR ≤ " + fdrCut + ")</b>",
                         paper_bgcolor: "#FFFFFF", plot_bgcolor: "#F8FAFC", height: 350
                     }});
                 }}
@@ -2000,7 +2041,7 @@ def export_html_report(
                 }}
             }}
 
-            let noticeText = `✔ GO & KEGG Enrichment Generated for ΔPSI ≥ ${{psiCut}} • Active Splicing Targets (Q1+Q2): ${{splicingGenes.length}}`;
+            let noticeText = `✔ GO & KEGG Enrichment Generated for |ΔPSI| ≥ ${{psiCut}} & FDR ≤ ${{fdrCut}} • Active Splicing Targets: ${{activeGenes.length}}`;
             if (!sortedGo.length && !sortedKegg.length) {{
                 noticeText = "⚠️ Enrichr API query unavailable: network offline or server timeout (no synthetic mock pathways displayed)";
             }}
@@ -2040,32 +2081,35 @@ def export_html_report(
         function downloadFilteredCSV() {{
             if (!currentFilteredGenes.length) return;
 
-            const headers = ["geneSymbol", "gene_id", "current_quadrant", "log2FoldChange", "delta_psi", "deg_fdr", "as_fdr", "event_type", "coordinates"];
+            const headers = ["geneSymbol", "gene_id", "splicing_status", "delta_psi", "as_fdr", "as_pvalue", "event_type", "coordinates", "inc_counts", "exc_counts", "log2FoldChange", "deg_fdr"];
             let csvContent = headers.join(",") + "\\n";
 
             currentFilteredGenes.forEach(g => {{
                 const row = [
                     `"${{g.geneSymbol || ''}}"`,
                     `"${{g.gene_id || ''}}"`,
-                    `"${{g.current_quadrant || ''}}"`,
-                    (g.log2FoldChange || 0).toFixed(4),
-                    (g.delta_psi || 0).toFixed(4),
-                    (g.deg_fdr || 1.0).toExponential(3),
-                    (g.as_fdr || 1.0).toExponential(3),
+                    `"${{g.current_splicing_status || ''}}"`,
+                    (g.delta_psi !== undefined ? Number(g.delta_psi) : 0).toFixed(4),
+                    (g.as_fdr !== undefined ? Number(g.as_fdr) : 1.0).toExponential(3),
+                    (g.as_pvalue !== undefined ? Number(g.as_pvalue) : 1.0).toExponential(3),
                     `"${{g.event_type || 'None'}}"`,
-                    `"${{g.coordinates || 'N/A'}}"`
+                    `"${{g.coordinates || 'N/A'}}"` ,
+                    g.inc_counts || 0,
+                    g.exc_counts || 0,
+                    (g.log2FoldChange !== undefined ? Number(g.log2FoldChange) : 0).toFixed(4),
+                    (g.deg_fdr !== undefined ? Number(g.deg_fdr) : 1.0).toExponential(3)
                 ];
                 csvContent += row.join(",") + "\\n";
             }});
 
-            const fcCut = fcSlider.value;
             const psiCut = psiSlider.value;
+            const fdrCut = fdrSlider.value;
             const blob = new Blob([csvContent], {{ type: 'text/csv;charset=utf-8;' }});
             const link = document.createElement("a");
             const url = URL.createObjectURL(blob);
             
             link.setAttribute("href", url);
-            link.setAttribute("download", `gensplice_genes_Log2FC${{fcCut}}_dPSI${{psiCut}}.csv`);
+            link.setAttribute("download", `gensplice_splicing_targets_dPSI${{psiCut}}_FDR${{fdrCut}}.csv`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -2083,7 +2127,7 @@ def export_html_report(
             const blob = new Blob([csvContent], {{ type: 'text/csv;charset=utf-8;' }});
             const link = document.createElement("a");
             link.href = URL.createObjectURL(blob);
-            link.setAttribute("download", `go_enrichment_splicing_Q1_Q2_FC${{fcSlider.value}}_dPSI${{psiSlider.value}}.csv`);
+            link.setAttribute("download", `go_enrichment_splicing_targets_dPSI${{psiSlider.value}}_FDR${{fdrSlider.value}}.csv`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -2101,14 +2145,14 @@ def export_html_report(
             const blob = new Blob([csvContent], {{ type: 'text/csv;charset=utf-8;' }});
             const link = document.createElement("a");
             link.href = URL.createObjectURL(blob);
-            link.setAttribute("download", `kegg_enrichment_splicing_Q1_Q2_FC${{fcSlider.value}}_dPSI${{psiSlider.value}}.csv`);
+            link.setAttribute("download", `kegg_enrichment_splicing_targets_dPSI${{psiSlider.value}}_FDR${{fdrSlider.value}}.csv`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
         }}
 
-        fcSlider.addEventListener('input', updateThresholds);
         psiSlider.addEventListener('input', updateThresholds);
+        fdrSlider.addEventListener('input', updateThresholds);
         downloadBtn.addEventListener('click', downloadFilteredCSV);
         if (downloadGoBtn) downloadGoBtn.addEventListener('click', downloadGoCSV);
         if (downloadKeggBtn) downloadKeggBtn.addEventListener('click', downloadKeggCSV);

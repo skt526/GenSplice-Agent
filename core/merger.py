@@ -187,3 +187,48 @@ def get_quadrant_kpis(df_merged: pl.DataFrame) -> dict:
         "Q3": quad_dict.get("Q3", 0),
         "Q4": quad_dict.get("Q4", 0)
     }
+
+def get_splicing_kpis(
+    df_splicing: pl.DataFrame,
+    delta_psi_cutoff: float = DEFAULT_DELTA_PSI_CUTOFF,
+    fdr_cutoff: float = DEFAULT_AS_FDR_CUTOFF
+) -> dict:
+    """
+    Computes summary KPI stats for alternative splicing events:
+    total, significant, inclusion, exclusion, non_significant.
+    """
+    if df_splicing is None or df_splicing.height == 0:
+        return {
+            "total": 0, "significant": 0, "inclusion": 0, "exclusion": 0, "non_significant": 0,
+            "Q1": 0, "Q2": 0, "Q3": 0, "Q4": 0
+        }
+
+    # Filter out records without splicing if event_type is present
+    if "event_type" in df_splicing.columns:
+        valid_df = df_splicing.filter(pl.col("event_type").is_not_null() & (pl.col("event_type") != "None"))
+        if valid_df.height > 0:
+            df_splicing = valid_df
+
+    total = df_splicing.height
+    is_sig = (df_splicing["delta_psi"].abs() >= delta_psi_cutoff) & (df_splicing["as_fdr"] <= fdr_cutoff)
+    is_inc = is_sig & (df_splicing["delta_psi"] > 0)
+    is_exc = is_sig & (df_splicing["delta_psi"] < 0)
+
+    inc_cnt = int(is_inc.sum())
+    exc_cnt = int(is_exc.sum())
+    sig_cnt = inc_cnt + exc_cnt
+    nonsig_cnt = total - sig_cnt
+
+    quad_kpis = get_quadrant_kpis(df_splicing)
+
+    return {
+        "total": total,
+        "significant": sig_cnt,
+        "inclusion": inc_cnt,
+        "exclusion": exc_cnt,
+        "non_significant": nonsig_cnt,
+        "Q1": quad_kpis.get("Q1", 0),
+        "Q2": quad_kpis.get("Q2", 0),
+        "Q3": quad_kpis.get("Q3", 0),
+        "Q4": quad_kpis.get("Q4", 0)
+    }

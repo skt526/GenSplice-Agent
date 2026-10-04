@@ -60,3 +60,16 @@ EVENT_COLORS = {
     "A3SS": "#06B6D4",  # Alt 3' Splice Site (Cyan)
     "None": "#94A3B8"   # No Splicing Event (Gray)
 }
+
+# Alternative Splicing Volcano Plot Theme Colors
+VOLCANO_COLORS = {
+    "Inclusion": "#2563EB",        # Royal Blue (Inclusion Favored, ΔPSI > 0)
+    "Exclusion": "#E11D48",        # Vibrant Crimson / Rose Red (Exclusion Favored, ΔPSI < 0)
+    "Non-Significant": "#94A3B8"   # Slate Gray (Invariant / Background)
+}
+
+VOLCANO_SHADING = {
+    "Inclusion": "rgba(37, 99, 235, 0.08)",    # Soft Translucent Blue
+    "Exclusion": "rgba(225, 29, 72, 0.08)",     # Soft Translucent Rose/Red
+    "Background": "rgba(241, 245, 249, 0.50)"  # Neutral Translucent Slate
+}
