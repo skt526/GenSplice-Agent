@@ -17,12 +17,9 @@ Install required bioinformatics tools and Python dependencies via Conda/Bioconda
 ### 2. Reference Genome Preparation
 Download and index reference genome files (FASTA, GTF, STAR index). Supported organisms are **Human** (*Homo sapiens*, GRCh38) and **Mouse** (*Mus musculus*, GRCm39):
 ```bash
-# For Human (GRCh38)
-./ref human
-
-# For Mouse (GRCm39)
-./ref mouse
+./ref
 ```
+*(Select `1` for Human or `2` for Mouse in the interactive terminal menu)*
 
 ### 3. Pipeline Execution
 Place raw FASTQ sequencing files in `inputs/control` and `inputs/treatment`, then execute the pipeline:

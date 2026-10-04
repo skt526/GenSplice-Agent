@@ -5,7 +5,7 @@ GenSplice-Agent rMATS Loader Module (Polars)
 import os
 import glob
 import polars as pl
-from config import NOISE_DELTA_PSI_CUTOFF, NOISE_FDR_CUTOFF, DEFAULT_FILTER_NOISE
+from config import NOISE_DELTA_PSI_CUTOFF, NOISE_FDR_CUTOFF, DEFAULT_FILTER_NOISE, DEFAULT_MIN_JUNCTION_READS
 
 EVENT_FILES = {
     "SE": "SE.MATS.JC.txt",
@@ -19,7 +19,8 @@ def load_rmats_data(
     rmats_dir: str,
     filter_noise: bool = DEFAULT_FILTER_NOISE,
     noise_delta_psi_cutoff: float = NOISE_DELTA_PSI_CUTOFF,
-    noise_fdr_cutoff: float = NOISE_FDR_CUTOFF
+    noise_fdr_cutoff: float = NOISE_FDR_CUTOFF,
+    min_junction_reads: int = DEFAULT_MIN_JUNCTION_READS
 ) -> pl.DataFrame:
     """
     Loads rMATS output files (5 event types: SE, RI, MXE, A5SS, A3SS) from rmats_dir using Polars.
@@ -173,6 +174,11 @@ def load_rmats_data(
                 selected_cols.append("strand")
 
             sub_df = df.select(selected_cols)
+
+            if min_junction_reads > 0:
+                # Filter low-coverage junction read events (< min_junction_reads) to eliminate false-positive artifacts
+                is_low_coverage = (pl.col("inc_counts") + pl.col("exc_counts")) < min_junction_reads
+                sub_df = sub_df.filter(~is_low_coverage)
 
             if filter_noise:
                 # Exclude unperturbed background noise events (|dPSI| <= cutoff and FDR >= cutoff)

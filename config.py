@@ -10,6 +10,7 @@ DEFAULT_LOG2FC_CUTOFF = 1.0
 DEFAULT_DELTA_PSI_CUTOFF = 0.1
 DEFAULT_DEG_FDR_CUTOFF = 0.05
 DEFAULT_AS_FDR_CUTOFF = 0.05
+DEFAULT_MIN_JUNCTION_READS = 10  # Minimum total junction reads across replicates to filter low-coverage false positives
 
 # Background Noise Exclusion Cutoffs (Excludes unperturbed genes/events with zero biological change)
 DEFAULT_FILTER_NOISE = True

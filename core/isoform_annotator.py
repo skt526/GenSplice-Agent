@@ -56,17 +56,22 @@ def parse_gtf_cds_structure(gtf_path: str) -> dict:
                 if not gene_name or not tid:
                     continue
 
+                frame_int = int(frame) if frame.isdigit() else 0
+                is_canonical = ("Ensembl_canonical" in attrs) or ("MANE_Select" in attrs)
+
                 if gene_name not in gene_map:
                     gene_map[gene_name] = {"gene_id": gene_id, "strand": strand, "chrom": chrom, "transcripts": {}}
 
                 t_dict = gene_map[gene_name]["transcripts"]
                 if tid not in t_dict:
-                    t_dict[tid] = {"strand": strand, "exons": [], "cds": [], "stop_codons": []}
+                    t_dict[tid] = {"strand": strand, "exons": [], "cds": [], "stop_codons": [], "is_canonical": is_canonical}
+                elif is_canonical:
+                    t_dict[tid]["is_canonical"] = True
 
                 if feature == "exon":
                     t_dict[tid]["exons"].append((start, end))
                 elif feature == "CDS":
-                    t_dict[tid]["cds"].append((start, end))
+                    t_dict[tid]["cds"].append((start, end, frame_int))
                 elif feature == "stop_codon":
                     t_dict[tid]["stop_codons"].append((start, end))
 
@@ -190,35 +195,48 @@ def annotate_isoform_events(df_merged, gtf_path: str = None) -> pd.DataFrame:
 
         if g_model and g_model.get("transcripts"):
             transcripts = g_model["transcripts"]
-            best_tid = next(iter(transcripts.keys()))
-            tx_data = transcripts[best_tid]
+            
+            # Select principal transcript: prioritize Ensembl canonical / MANE Select, then longest total CDS
+            def _score_tx(t_item):
+                tid, tdata = t_item
+                is_canon = 1 if tdata.get("is_canonical") else 0
+                tot_cds = sum((c[1] - c[0]) for c in tdata.get("cds", []))
+                return (is_canon, tot_cds)
+
+            best_tid, tx_data = max(transcripts.items(), key=_score_tx)
             tx_id = best_tid
             strand = tx_data.get("strand", "+")
 
-            # Check if event coordinates intersect any CDS
+            # Check exact CDS overlap with the alternative spliced segment
             cds_list = tx_data.get("cds", [])
-            in_cds = any(not (exon_e < c_start or exon_s > c_end) for c_start, c_end in cds_list) if (len(num_parts) >= 4 and cds_list) else bool(cds_list)
+            cds_overlap_bp = 0
+            for c in cds_list:
+                c_start, c_end = c[0], c[1]
+                ov_s = max(exon_s, c_start)
+                ov_e = min(exon_e, c_end)
+                if ov_s < ov_e:
+                    cds_overlap_bp += (ov_e - ov_s)
 
-            if in_cds:
+            if cds_overlap_bp > 0:
                 domain = f"Coding Exon Segment ({gene})"
-                if exon_len % 3 == 0:
-                    cds_frame = f"In-Frame Event (Δ{exon_len} bp, {exon_len // 3} aa)"
+                if cds_overlap_bp % 3 == 0:
+                    cds_frame = f"In-Frame Event (Δ{cds_overlap_bp} nt CDS, {cds_overlap_bp // 3} aa)"
                     ptc_pos = "No De Novo PTC (In-Frame)"
                     nmd = "Escapes NMD (In-Frame Alteration)"
                     loc = "Altered Protein Conformation / Binding Interface"
                 else:
-                    shift_nt = exon_len % 3
-                    cds_frame = f"Frame-Shift (Δ{exon_len} bp, +{shift_nt} nt shift)"
+                    shift_nt = cds_overlap_bp % 3
+                    cds_frame = f"Frame-Shift (Δ{cds_overlap_bp} nt CDS, +{shift_nt} nt shift)"
                     
                     # Canonical 50-55 nt rule evaluation
-                    # Check distance from event to last exon-exon junction
+                    # Check distance from event to last exon-exon junction in transcript
                     exons = tx_data.get("exons", [])
                     if len(exons) >= 2:
                         last_junction = exons[-2][1] if strand == "+" else exons[1][0]
                         dist_to_last_junc = (last_junction - exon_e) if strand == "+" else (exon_s - last_junction)
                         if dist_to_last_junc > 55:
                             nmd = "NMD Sensitive (Canonical >55 nt rule upstream of last junction)"
-                            ptc_pos = f"Downstream PTC projected >55 nt from terminal junction"
+                            ptc_pos = "Downstream PTC projected >55 nt upstream of terminal junction"
                             loc = "Transcript Targeted for Rapid mRNA Decay"
                         else:
                             nmd = "Escapes NMD (Located in terminal exon or <55 nt to last junction)"
@@ -232,7 +250,7 @@ def annotate_isoform_events(df_merged, gtf_path: str = None) -> pd.DataFrame:
                 cds_frame = "Non-Coding / UTR Exon Event"
                 ptc_pos = "N/A (Untranslated Region)"
                 nmd = "NMD Inactive (Non-coding/UTR)"
-                loc = "Preserved Coding Sequence"
+                loc = "Preserved Coding Sequence (Regulatory / UTR Variation)"
                 domain = "Untranslated Region (UTR)"
         else:
             # Algorithmic calculation based strictly on length heuristic

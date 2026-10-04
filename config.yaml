@@ -11,6 +11,11 @@ reference:
   gtf: "./human-ref/Homo_sapiens.GRCh38.113.gtf"
   star_index: "./human-ref/star_index"
 
+splicing:
+  min_junction_reads: 10
+  delta_psi_cutoff: 0.10
+  fdr_cutoff: 0.05
+
 inputs:
   base_dir: "./inputs"
   control_dir: "./inputs/control"

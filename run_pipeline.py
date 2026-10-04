@@ -542,8 +542,8 @@ def main():
         from core.merger import merge_deg_and_rmats
         from visualizer.report_exporter import export_html_report
         
-        df_deg_raw = load_deg_data(str(deg_result_csv))
-        df_rmats_all = load_rmats_data(str(rmats_dir))
+        min_junc_reads = config.get("splicing", {}).get("min_junction_reads", 10)
+        df_rmats_all = load_rmats_data(str(rmats_dir), min_junction_reads=min_junc_reads)
         df_rmats_primary = select_primary_splicing_events(df_rmats_all)
         
         # 1. Representative event per gene for 4-quadrant plot & KPI cards (gene-level deduplication)

@@ -224,14 +224,22 @@ def export_html_report(
 
         for r in display_rows.iter_rows(named=True):
             isoform_badge = '<span class="badge" style="background:#EFF6FF; color:#2563EB; border:1px solid #3B82F6;">Inclusion Isoform</span>' if r['target_isoform'].lower() == 'inclusion' else '<span class="badge" style="background:#FDF2F8; color:#DB2777; border:1px solid #EC4899;">Exclusion Isoform</span>'
+            fwd_tm = f"{r['fwd_tm_celsius']:.1f}°C" if r.get('fwd_tm_celsius') is not None else "N/A"
+            fwd_gc = f"{r['fwd_gc_pct']:.1f}%" if r.get('fwd_gc_pct') is not None else "N/A"
+            rev_tm = f"{r['rev_tm_celsius']:.1f}°C" if r.get('rev_tm_celsius') is not None else "N/A"
+            rev_gc = f"{r['rev_gc_pct']:.1f}%" if r.get('rev_gc_pct') is not None else "N/A"
+            amp_size = f"{r['amplicon_size_bp']} bp" if r.get('amplicon_size_bp') is not None else "N/A"
+            fwd_seq = f"<code style='font-weight:700; color:#1E40AF;'>{r['fwd_sequence']}</code>" if r.get('fwd_sequence') and r['fwd_sequence'] != 'N/A' else "<span style='color:#64748B;'>N/A</span>"
+            rev_seq = f"<code style='font-weight:700; color:#1E40AF;'>{r['rev_sequence']}</code>" if r.get('rev_sequence') and r['rev_sequence'] != 'N/A' else "<span style='color:#64748B;'>N/A</span>"
+
             primer_rows_html += f"""
             <tr>
                 <td><b>{r['gene_symbol']}</b></td>
                 <td>{isoform_badge}</td>
                 <td><b>{r.get('target_region', r['target_isoform'] + ' Junction')}</b><br><span style="font-size:11px; color:#64748B;">Coords: <code>{r.get('coordinates', 'N/A')}</code></span></td>
-                <td><code style="font-weight:700; color:#1E40AF;">{r['fwd_sequence']}</code><br><span style="font-size:11px; color:#64748B;">Tm: {r['fwd_tm_celsius']}°C | GC: {r['fwd_gc_pct']}%</span></td>
-                <td><code style="font-weight:700; color:#1E40AF;">{r['rev_sequence']}</code><br><span style="font-size:11px; color:#64748B;">Tm: {r['rev_tm_celsius']}°C | GC: {r['rev_gc_pct']}%</span></td>
-                <td><b>{r['amplicon_size_bp']} bp</b></td>
+                <td>{fwd_seq}<br><span style="font-size:11px; color:#64748B;">Tm: {fwd_tm} | GC: {fwd_gc}</span></td>
+                <td>{rev_seq}<br><span style="font-size:11px; color:#64748B;">Tm: {rev_tm} | GC: {rev_gc}</span></td>
+                <td><b>{amp_size}</b></td>
                 <td><span class="badge" style="background:#F0FDF4; color:#16A34A; border:1px solid #22C55E;">{r['primer_quality']}</span></td>
             </tr>
             """
@@ -1816,14 +1824,22 @@ def export_html_report(
                     '<span class="badge" style="background:#EFF6FF; color:#2563EB; border:1px solid #3B82F6;">Inclusion Isoform</span>' :
                     '<span class="badge" style="background:#FDF2F8; color:#DB2777; border:1px solid #EC4899;">Exclusion Isoform</span>';
                 
+                const fwdTm = (r.fwd_tm_celsius !== null && r.fwd_tm_celsius !== undefined) ? Number(r.fwd_tm_celsius).toFixed(1) + '°C' : 'N/A';
+                const fwdGc = (r.fwd_gc_pct !== null && r.fwd_gc_pct !== undefined) ? Number(r.fwd_gc_pct).toFixed(1) + '%' : 'N/A';
+                const revTm = (r.rev_tm_celsius !== null && r.rev_tm_celsius !== undefined) ? Number(r.rev_tm_celsius).toFixed(1) + '°C' : 'N/A';
+                const revGc = (r.rev_gc_pct !== null && r.rev_gc_pct !== undefined) ? Number(r.rev_gc_pct).toFixed(1) + '%' : 'N/A';
+                const ampSize = (r.amplicon_size_bp !== null && r.amplicon_size_bp !== undefined) ? r.amplicon_size_bp + ' bp' : 'N/A';
+                const fwdSeqHtml = (r.fwd_sequence && r.fwd_sequence !== 'N/A') ? `<code style="font-weight:700; color:#1E40AF;">${{r.fwd_sequence}}</code>` : `<span style="color:#64748B;">N/A</span>`;
+                const revSeqHtml = (r.rev_sequence && r.rev_sequence !== 'N/A') ? `<code style="font-weight:700; color:#1E40AF;">${{r.rev_sequence}}</code>` : `<span style="color:#64748B;">N/A</span>`;
+
                 html += `
                 <tr>
                     <td><b>${{r.gene_symbol}}</b></td>
                     <td>${{badge}}</td>
                     <td><b>${{r.target_region || (r.target_isoform + ' Junction')}}</b><br><span style="font-size:11px; color:#64748B;">Coords: <code>${{r.coordinates || 'N/A'}}</code></span></td>
-                    <td><code style="font-weight:700; color:#1E40AF;">${{r.fwd_sequence}}</code><br><span style="font-size:11px; color:#64748B;">Tm: ${{r.fwd_tm_celsius}}°C | GC: ${{r.fwd_gc_pct}}%</span></td>
-                    <td><code style="font-weight:700; color:#1E40AF;">${{r.rev_sequence}}</code><br><span style="font-size:11px; color:#64748B;">Tm: ${{r.rev_tm_celsius}}°C | GC: ${{r.rev_gc_pct}}%</span></td>
-                    <td><b>${{r.amplicon_size_bp}} bp</b></td>
+                    <td>${{fwdSeqHtml}}<br><span style="font-size:11px; color:#64748B;">Tm: ${{fwdTm}} | GC: ${{fwdGc}}</span></td>
+                    <td>${{revSeqHtml}}<br><span style="font-size:11px; color:#64748B;">Tm: ${{revTm}} | GC: ${{revGc}}</span></td>
+                    <td><b>${{ampSize}}</b></td>
                     <td><span class="badge" style="background:#F0FDF4; color:#16A34A; border:1px solid #22C55E;">${{r.primer_quality}}</span></td>
                 </tr>
                 `;

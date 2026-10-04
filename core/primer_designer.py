@@ -186,7 +186,9 @@ def design_rtqpcr_primers(
                         **p3_res
                     }
 
-    # 2. Honest status reporting when FASTA is absent (NO fake CTAG sequences)
+    # 2. Honest status reporting when FASTA is absent or Primer3 finds no valid pair (NO fake values)
+    has_fasta = bool(fasta_path and os.path.exists(fasta_path))
+    quality_status = "No Compliant Primer Pair Found" if has_fasta else "Requires FASTA Index"
     return {
         "gene_symbol": gene_symbol,
         "target_isoform": iso,
@@ -195,14 +197,14 @@ def design_rtqpcr_primers(
         "coordinates": coords,
         "target_region": target_region,
         "junction_location": junction_location,
-        "fwd_sequence": "Pending Reference FASTA",
-        "fwd_tm_celsius": 60.0,
-        "fwd_gc_pct": 50.0,
-        "rev_sequence": "Pending Reference FASTA",
-        "rev_tm_celsius": 60.0,
-        "rev_gc_pct": 50.0,
-        "amplicon_size_bp": 120,
-        "primer_quality": "Requires FASTA Index"
+        "fwd_sequence": "N/A",
+        "fwd_tm_celsius": None,
+        "fwd_gc_pct": None,
+        "rev_sequence": "N/A",
+        "rev_tm_celsius": None,
+        "rev_gc_pct": None,
+        "amplicon_size_bp": None,
+        "primer_quality": quality_status
     }
 
 
