@@ -23,40 +23,18 @@ def resolve_gene_exon_coords(gene_symbol: str, event_type: str, coordinates: str
             nums = nums[1:]
         
         if len(nums) >= 6:
-            # Full 3-exon coordinates: e.g. [ex1_s, ex1_e, ex2_s, ex2_e, ex3_s, ex3_e]
+            # Full authentic 3-exon coordinates: e.g. [ex1_s, ex1_e, ex2_s, ex2_e, ex3_s, ex3_e]
             return {
                 "chrom": chrom,
                 "event_type": event,
                 "nums": nums,
                 "ex1": (nums[0], nums[1]),
                 "ex2": (nums[2], nums[3]),
-                "ex3": (nums[4], nums[5])
-            }
-        elif len(nums) >= 4:
-            # 2 exons or partial: expand into 3 segments
-            p1, p2, p3, p4 = nums[0], nums[1], nums[2], nums[3]
-            span = max(400, (p4 - p1))
-            return {
-                "chrom": chrom,
-                "event_type": event,
-                "nums": nums,
-                "ex1": (p1, p2),
-                "ex2": (p2 + int(span * 0.25), p2 + int(span * 0.45)),
-                "ex3": (p3, p4)
-            }
-        elif len(nums) >= 2:
-            mid_s, mid_e = nums[0], nums[1]
-            diff = max(150, mid_e - mid_s)
-            return {
-                "chrom": chrom,
-                "event_type": event,
-                "nums": nums,
-                "ex1": (mid_s - diff * 3, mid_s - diff * 2),
-                "ex2": (mid_s, mid_e),
-                "ex3": (mid_e + diff * 2, mid_e + diff * 3)
+                "ex3": (nums[4], nums[5]),
+                "valid": True
             }
 
-    # If coordinates are unavailable, return clean invalid marker (NO coordinate fabrication)
+    # If coordinates are incomplete or unavailable, return clean invalid marker (NO coordinate fabrication)
     return {
         "chrom": chrom,
         "event_type": event,
@@ -87,7 +65,7 @@ def plot_exon_structure(
     
     if not coord_data.get("valid", True) or coord_data["ex1"] == (0, 0):
         fig.add_annotation(
-            text=f"<b>Genomic exon coordinates unavailable for {gene_symbol} ({event})</b><br><span style='color:#64748B;'>Provided coordinates: {coordinates}</span>",
+            text=f"<b>Genomic exon coordinates incomplete or unavailable for {gene_symbol} ({event})</b><br><span style='color:#64748B;'>Provided coordinates: {coordinates}</span>",
             xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
             font=dict(size=14, color="#64748B")
         )
@@ -364,8 +342,4 @@ def plot_exon_structure(
     )
 
     return fig
-
-if __name__ == "__main__":
-    fig = plot_exon_structure()
-    print("Exon structure visualizer unit test OK!")
 

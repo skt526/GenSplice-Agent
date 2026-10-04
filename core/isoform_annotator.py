@@ -1,7 +1,7 @@
 """
 GenSplice-Agent Event-Level Isoform Annotation & Functional Impairment Engine
 - Evaluates transcript integrity, CDS reading frame alterations, de novo PTCs,
-  canonical 50-55 nt Nonsense-Mediated Decay (NMD) rule, and quantitative LoF impairment scores.
+  canonical 50-55 nt Nonsense-Mediated Decay (NMD) rule, and heuristic functional impairment priority index (0–100).
 - Genuine genomic logic: NO hardcoded mock dictionaries or fabricated domain names.
 """
 
@@ -92,8 +92,8 @@ def parse_gtf_cds_structure(gtf_path: str) -> dict:
 
 def calculate_functional_impairment_score(dpsi: float, log2fc: float, cds_frame: str, nmd: str, domain: str = "CDS Segment") -> tuple:
     """
-    Calculates a literature-grounded Loss-of-Function (LoF) Functional Impairment Probability Score (%)
-    along with risk classification tier and primary dysfunction cause.
+    Calculates a literature-grounded Loss-of-Function (LoF) Heuristic Functional Impairment Priority Index (0–100)
+    along with priority classification tier and primary dysfunction cause.
 
     Returns: (impairment_score_pct, impairment_tier, primary_dysfunction_cause)
     """
@@ -135,13 +135,13 @@ def calculate_functional_impairment_score(dpsi: float, log2fc: float, cds_frame:
     else:
         cause = "Partial Isoform Variation"
 
-    # Determine Risk Tier
+    # Determine Priority Tier based on Heuristic Functional Impairment Priority Index (0–100 scale)
     if score >= 75.0:
-        tier = f"🔴 High Risk ({score:.0f}%)"
+        tier = f"🔴 High Priority ({score:.0f})"
     elif score >= 45.0:
-        tier = f"🟠 Moderate Risk ({score:.0f}%)"
+        tier = f"🟠 Moderate Priority ({score:.0f})"
     else:
-        tier = f"🟢 Low Risk ({score:.0f}%)"
+        tier = f"🟢 Low Priority ({score:.0f})"
 
     return score, tier, cause
 

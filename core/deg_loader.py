@@ -10,7 +10,7 @@ def parse_gtf_gene_map(gtf_path: str = None) -> dict:
     candidate_gtfs = [gtf_path] if gtf_path else []
     
     # Auto-discover reference GTF files if not explicitly provided
-    for default_dir in ["human-ref", "arabidopsis-ref", "test-ref", "ref"]:
+    for default_dir in ["human-ref", "mouse-ref", "ref"]:
         if os.path.isdir(default_dir):
             for fname in os.listdir(default_dir):
                 if fname.endswith(".gtf"):

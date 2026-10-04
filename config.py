@@ -26,7 +26,6 @@ THEME_MUTED = "#64748B"
 THEME_BORDER = "#E2E8F0"
 
 # Threshold Line Colors
-DEG_THRESHOLD_COLOR = "#EF4444"  # Red vertical lines for DEG
 AS_THRESHOLD_COLOR = "#3B82F6"   # Blue horizontal lines for Splicing
 
 # 5 rMATS Splicing Event Type Colors

@@ -48,7 +48,7 @@ GenSplice-Agent comprises four primary computational modules:
   - **CDS Reading Frame Assessment**: Evaluates whether spliced segment lengths maintain coding triplet frames ($\Delta L \pmod 3 = 0$) or introduce frame shifts.
   - **Premature Termination Codon (PTC) Detection**: Predicts candidate stop codon positions relative to the terminal exon junction.
   - **Nonsense-Mediated mRNA Decay (NMD) Heuristic**: Flags transcripts sensitive to degradation based on the 50–55 nt rule upstream of the last exon-exon junction.
-  - **Functional Risk Stratification**: Ranks events into High, Moderate, and Low risk tiers.
+  - **Functional Priority Stratification**: Ranks events into High, Moderate, and Low priority tiers via a literature-grounded Heuristic Functional Impairment Priority Index (0–100 scale).
 
 #### 🧪 Module C: Isoform-Specific RT-qPCR Primer Design (`core/primer_designer.py`)
 - Generates discriminative primer pairs targeting inclusion-specific and exclusion-specific splice junctions.

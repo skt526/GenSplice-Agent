@@ -2,7 +2,6 @@ import os
 import json
 import pandas as pd
 import numpy as np
-from config import NOISE_LOG2FC_CUTOFF, NOISE_FDR_CUTOFF
 
 try:
     from pydeseq2.dds import DeseqDataSet
@@ -93,15 +92,8 @@ def run_deg_analysis(feature_counts_path: str, control_bams: list, treatment_bam
             res_df["padj"] = res_df["padj"].fillna(1.0)
             res_df["log2FoldChange"] = res_df["log2FoldChange"].fillna(0.0)
 
-            # Exclude unperturbed noise genes (|log2FC| <= cutoff & padj >= cutoff)
-            is_noise = (res_df["log2FoldChange"].abs() <= NOISE_LOG2FC_CUTOFF) & (res_df["padj"] >= NOISE_FDR_CUTOFF)
-            noise_cnt = int(is_noise.sum())
-            if noise_cnt > 0:
-                res_df = res_df[~is_noise].reset_index(drop=True)
-                print(f"  [PyDESeq2] Excluded {noise_cnt} unperturbed noise genes (|log2FC| <= {NOISE_LOG2FC_CUTOFF}, padj >= {NOISE_FDR_CUTOFF}).")
-
             res_df.to_csv(output_csv_path, index=False)
-            print(f"  ✔ PyDESeq2 DEG analysis completed ({len(res_df)} active genes) -> {output_csv_path}")
+            print(f"  ✔ PyDESeq2 DEG analysis completed ({len(res_df)} quantified genes) -> {output_csv_path}")
             return
         except Exception as e:
             print(f"  Warning: PyDESeq2 calculation encountered exception ({e}). Using standard fallback...")
@@ -177,12 +169,5 @@ def run_deg_analysis(feature_counts_path: str, control_bams: list, treatment_bam
     df_result["padj"] = df_result["padj"].fillna(1.0)
     df_result["log2FoldChange"] = df_result["log2FoldChange"].fillna(0.0)
 
-    # Exclude unperturbed noise genes (|log2FC| <= cutoff & padj >= cutoff)
-    is_noise = (df_result["log2FoldChange"].abs() <= NOISE_LOG2FC_CUTOFF) & (df_result["padj"] >= NOISE_FDR_CUTOFF)
-    noise_cnt = int(is_noise.sum())
-    if noise_cnt > 0:
-        df_result = df_result[~is_noise].reset_index(drop=True)
-        print(f"  [DEG Calculator] Excluded {noise_cnt} unperturbed noise genes (|log2FC| <= {NOISE_LOG2FC_CUTOFF}, padj >= {NOISE_FDR_CUTOFF}).")
-
     df_result.to_csv(output_csv_path, index=False)
-    print(f"  ✔ Saved DEG results ({len(df_result)} active genes, {np.sum(df_result['padj'] <= 0.05)} significant at FDR <= 0.05) to {output_csv_path}")
+    print(f"  ✔ Saved complete DEG results ({len(df_result)} quantified genes, {np.sum(df_result['padj'] <= 0.05)} significant at FDR <= 0.05) to {output_csv_path}")

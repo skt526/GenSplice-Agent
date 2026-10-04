@@ -778,7 +778,7 @@ def export_html_report(
                 <thead>
                     <tr>
                         <th>Gene</th>
-                        <th>Impairment Risk (%)</th>
+                        <th>Functional Impairment Priority (0–100)</th>
                         <th>Primary Dysfunction Cause</th>
                         <th>Event Type</th>
                         <th>Transcript ID</th>
@@ -1298,7 +1298,6 @@ def export_html_report(
 
             let chrom = info.chrom || "chr1";
             let ex1 = info.ex1, ex2 = info.ex2, ex3 = info.ex3;
-
             if (!ex1 || !ex2 || !ex3) {{
                 const coords = info.coordinates || "";
                 const mChr = coords.match(/(chr[0-9XYM]+)/i);
@@ -1309,23 +1308,18 @@ def export_html_report(
                     ex1 = [nums[0], nums[1]];
                     ex2 = [nums[2], nums[3]];
                     ex3 = [nums[4], nums[5]];
-                }} else if (nums.length >= 4) {{
-                    const p1 = nums[0], p2 = nums[1], p3 = nums[2], p4 = nums[3];
-                    const span = Math.max(400, p4 - p1);
-                    ex1 = [p1, p2];
-                    ex2 = [p2 + Math.round(span * 0.25), p2 + Math.round(span * 0.45)];
-                    ex3 = [p3, p4];
-                }} else if (nums.length >= 2) {{
-                    const s = nums[0], e = nums[1], diff = Math.max(150, e - s);
-                    ex1 = [s - diff * 3, s - diff * 2];
-                    ex2 = [s, e];
-                    ex3 = [e + diff * 2, e + diff * 3];
-                }} else {{
-                    chrom = info.chrom || "chr1";
-                    ex1 = [1000, 1200];
-                    ex2 = [1800, 2000];
-                    ex3 = [2600, 2800];
                 }}
+            }}
+
+            if (!ex1 || !ex2 || !ex3 || (ex1[0] === 0 && ex1[1] === 0)) {{
+                Plotly.react(sashimiDiv, [], {{
+                    title: `<b>Genomic exon coordinates incomplete or unavailable for ${{symbol}} (${{eventType}})</b><br><span style="color:#64748B; font-size:12px;">Provided coordinates: ${{info.coordinates || 'N/A'}}</span>`,
+                    paper_bgcolor: "#FFFFFF", plot_bgcolor: "#F8FAFC",
+                    xaxis: {{ showgrid: false, showticklabels: false }},
+                    yaxis: {{ showgrid: false, showticklabels: false }},
+                    height: 260
+                }});
+                return;
             }}
 
             const color_constitutive = "#2563EB";
