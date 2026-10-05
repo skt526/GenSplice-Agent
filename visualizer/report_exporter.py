@@ -380,8 +380,23 @@ def export_html_report(
     kegg_records_json = json.dumps(kegg_records)
 
     # 9. Compact JSON dataset for client-side JS engine (lightweight ~1.5MB)
+    def _calc_log_fdr(v):
+        try:
+            val = float(v)
+            if not math.isfinite(val) or val >= 1.0:
+                return 0.0
+            if val <= 0:
+                return 20.0
+            return round(-math.log10(max(val, 1e-20)), 3)
+        except Exception:
+            return 0.0
+
+    df_volcano_events = df_volcano_events.with_columns([
+        pl.col("as_fdr").map_elements(_calc_log_fdr, return_dtype=pl.Float64).alias("log_fdr")
+    ])
+
     essential_cols = [c for c in [
-        "geneSymbol", "gene_id", "delta_psi", "as_fdr", "as_pvalue",
+        "geneSymbol", "gene_id", "delta_psi", "as_fdr", "log_fdr", "as_pvalue",
         "event_type", "coordinates", "inc_counts", "exc_counts",
         "log2FoldChange", "deg_fdr"
     ] if c in df_volcano_events.columns]
@@ -394,23 +409,17 @@ def export_html_report(
 
     df_compact = df_sorted.select(essential_cols)
 
-    # Round floats to eliminate unnecessary JSON string precision bloat
+    # Round effect size floats (leave p-values/FDR unrounded to preserve small float exponents like 1e-15)
     round_exprs = []
     if "delta_psi" in df_compact.columns:
         round_exprs.append(pl.col("delta_psi").round(4))
-    if "as_fdr" in df_compact.columns:
-        round_exprs.append(pl.col("as_fdr").round(6))
-    if "as_pvalue" in df_compact.columns:
-        round_exprs.append(pl.col("as_pvalue").round(6))
     if "log2FoldChange" in df_compact.columns:
         round_exprs.append(pl.col("log2FoldChange").round(4))
-    if "deg_fdr" in df_compact.columns:
-        round_exprs.append(pl.col("deg_fdr").round(6))
 
     if round_exprs:
         df_compact = df_compact.with_columns(round_exprs)
 
-    raw_data_json = df_compact.to_pandas().to_json(orient="records")
+    raw_data_json = df_compact.to_pandas().to_json(orient="records", double_precision=15)
 
     # 10. Dynamically build gene -> pathways map from actual GO and KEGG enrichment results
     gene_pathway_map = {}
@@ -2147,7 +2156,7 @@ def export_html_report(
             rawGeneData.forEach(g => {{
                 const dpsi = g.delta_psi !== undefined && g.delta_psi !== null ? Number(g.delta_psi) : 0.0;
                 const fdr = g.as_fdr !== undefined && g.as_fdr !== null ? Number(g.as_fdr) : 1.0;
-                const logFdr = (fdr <= 0) ? 20.0 : -Math.log10(Math.max(fdr, 1e-20));
+                const logFdr = (g.log_fdr !== undefined && g.log_fdr !== null) ? Number(g.log_fdr) : ((fdr <= 0) ? 20.0 : -Math.log10(Math.max(fdr, 1e-20)));
                 const isSig = (Math.abs(dpsi) >= psiCut) && (fdr <= fdrCut);
 
                 let status = "Non-Significant";
@@ -2209,7 +2218,7 @@ def export_html_report(
                 rawGeneData.forEach(g => {{
                     const dpsi = Math.abs(g.delta_psi || 0);
                     const fdr = g.as_fdr !== undefined && g.as_fdr !== null ? Number(g.as_fdr) : 1.0;
-                    const logFdr = (fdr <= 0) ? 20.0 : -Math.log10(Math.max(fdr, 1e-20));
+                    const logFdr = (g.log_fdr !== undefined && g.log_fdr !== null) ? Number(g.log_fdr) : ((fdr <= 0) ? 20.0 : -Math.log10(Math.max(fdr, 1e-20)));
                     if (isFinite(dpsi) && dpsi > maxDataX) maxDataX = dpsi;
                     if (isFinite(logFdr) && logFdr > maxDataY) maxDataY = logFdr;
                 }});
