@@ -542,7 +542,8 @@ def main():
         from visualizer.report_exporter import export_html_report
         
         min_junc_reads = config.get("splicing", {}).get("min_junction_reads", 10)
-        df_rmats_all = load_rmats_data(str(rmats_dir), min_junction_reads=min_junc_reads)
+        noise_dpsi = config.get("splicing", {}).get("noise_delta_psi_cutoff", 0.05)
+        df_rmats_all = load_rmats_data(str(rmats_dir), min_junction_reads=min_junc_reads, noise_delta_psi_cutoff=noise_dpsi)
         df_rmats_primary = select_primary_splicing_events(df_rmats_all)
         
         if deg_result_csv.exists() and deg_result_csv.stat().st_size > 0:
@@ -551,9 +552,9 @@ def main():
             df_deg_raw = None
 
         # 1. Representative event per gene for Volcano plot & KPI cards (gene-level deduplication)
-        df_merged_report = merge_deg_and_rmats(df_deg_raw, df_rmats_primary, deduplicate_genes=True)
+        df_merged_report = merge_deg_and_rmats(df_deg_raw, df_rmats_primary, deduplicate_genes=True, noise_delta_psi_cutoff=noise_dpsi)
         # 2. Multi-event preserved dataset for Event-Level Isoform table and Sashimi isoforms
-        df_merged_all_events = merge_deg_and_rmats(df_deg_raw, df_rmats_all, deduplicate_genes=False)
+        df_merged_all_events = merge_deg_and_rmats(df_deg_raw, df_rmats_all, deduplicate_genes=False, noise_delta_psi_cutoff=noise_dpsi)
         
         export_html_report(
             df_merged=df_merged_report,

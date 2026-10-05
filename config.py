@@ -12,7 +12,7 @@ DEFAULT_MIN_JUNCTION_READS = 10  # Minimum total junction reads across replicate
 
 # Background Noise Exclusion Cutoffs (Excludes unperturbed genes/events with zero biological change)
 DEFAULT_FILTER_NOISE = True
-NOISE_DELTA_PSI_CUTOFF = 0.01  # |dPSI| <= 0.01 represents unperturbed / zero splicing shift
+NOISE_DELTA_PSI_CUTOFF = 0.05  # |dPSI| <= 0.05 represents unperturbed / subtle technical noise
 NOISE_LOG2FC_CUTOFF = 0.01     # |log2FC| <= 0.01 represents unperturbed / zero expression shift
 NOISE_FDR_CUTOFF = 0.90        # FDR >= 0.90 indicates non-significant / zero-confidence background noise
 

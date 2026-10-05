@@ -15,6 +15,7 @@ splicing:
   min_junction_reads: 10
   delta_psi_cutoff: 0.10
   fdr_cutoff: 0.05
+  noise_delta_psi_cutoff: 0.05
 
 inputs:
   base_dir: "./inputs"
