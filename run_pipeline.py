@@ -546,6 +546,11 @@ def main():
         df_rmats_all = load_rmats_data(str(rmats_dir), min_junction_reads=min_junc_reads)
         df_rmats_primary = select_primary_splicing_events(df_rmats_all)
         
+        if deg_result_csv.exists() and deg_result_csv.stat().st_size > 0:
+            df_deg_raw = load_deg_data(str(deg_result_csv), gtf_path=str(gtf_path) if gtf_path.exists() else None)
+        else:
+            df_deg_raw = None
+
         # 1. Representative event per gene for Volcano plot & KPI cards (gene-level deduplication)
         df_merged_report = merge_deg_and_rmats(df_deg_raw, df_rmats_primary, deduplicate_genes=True)
         # 2. Multi-event preserved dataset for Event-Level Isoform table, Sashimi isoforms, and RT-qPCR primers
