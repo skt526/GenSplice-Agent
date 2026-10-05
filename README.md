@@ -55,6 +55,14 @@ inputs/
     └── treatment_rep1_2.fq.gz
 ```
 
+> [!TIP]
+> **Need test data?** You can automatically download the genuine human CLL splicing benchmark dataset (**GSE190087** / SF3B1 K700E):
+> ```bash
+> ./download quick       # Fast 1 vs 1 pair test (~6 GB)
+> # or
+> ./download benchmark   # Full 3 vs 3 replicate benchmark (~17 GB)
+> ```
+
 ### 4. Execute the Pipeline
 Run the main pipeline wrapper:
 ```bash
@@ -90,6 +98,9 @@ GenSplice-Agent/
 ├── install.sh              # Installer source script
 ├── ref                     # Reference genome setup wrapper
 ├── ref.sh                  # Downloader & STAR index generator (human/mouse)
+├── download                # Benchmark dataset downloader wrapper
+├── download_GSE190087.sh   # ENA direct download script (GSE190087 / PRJNA786720)
+├── download_GSE190087.py   # Python dataset downloader engine
 ├── GenSplice               # Main pipeline execution wrapper
 ├── GenSplice.sh            # Pipeline execution script
 ├── run_pipeline.py         # 5-step pipeline orchestrator
