@@ -250,5 +250,5 @@ def select_primary_splicing_events(df_rmats: pl.DataFrame) -> pl.DataFrame:
     ).sort(["geneSymbol", "as_fdr", "abs_delta_psi"], descending=[False, False, True])
 
     # Group by geneSymbol and pick the top event
-    primary_df = df_ranked.unique(subset=["geneSymbol"], keep="first")
+    primary_df = df_ranked.unique(subset=["geneSymbol"], keep="first", maintain_order=True)
     return primary_df.drop("abs_delta_psi")

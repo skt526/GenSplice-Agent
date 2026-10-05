@@ -25,7 +25,7 @@ from core.primer_designer import generate_primer_table_for_targets
 
 def _parse_replicate_values(val_str, val_type=float):
     """Parses comma-separated numeric string from rMATS (e.g. '0.85,0.88,0.86') into a list of numbers."""
-    if not val_str:
+    if val_str is None or val_str == "":
         return []
     res = []
     for x in str(val_str).replace('"', '').replace("'", "").split(","):
@@ -284,11 +284,13 @@ def export_html_report(
         sashimi_events_map[top_gene_symbol.upper()] = [entry]
 
     if top_gene_symbol and top_gene_symbol.upper() not in replicate_profiles_map:
+        ctrl_psi_val = round(0.5 + top_delta_psi / 2.0, 4) if top_delta_psi < 0 else round(0.5 - top_delta_psi / 2.0, 4)
+        treat_psi_val = round(0.5 - top_delta_psi / 2.0, 4) if top_delta_psi < 0 else round(0.5 + top_delta_psi / 2.0, 4)
         ctrl_s_entry = {
             "sample_id": "Control_Rep1",
             "group": "Control",
-            "psi": round(0.5 + top_delta_psi / 2.0, 4) if top_delta_psi < 0 else round(0.5 - top_delta_psi / 2.0, 4),
-            "psi_pct": 50.0,
+            "psi": ctrl_psi_val,
+            "psi_pct": round(ctrl_psi_val * 100, 1),
             "ijc": top_inc_counts,
             "sjc": top_exc_counts,
             "total_reads": top_inc_counts + top_exc_counts,
@@ -297,8 +299,8 @@ def export_html_report(
         treat_s_entry = {
             "sample_id": "Treatment_Rep1",
             "group": "Treatment",
-            "psi": round(0.5 - top_delta_psi / 2.0, 4) if top_delta_psi < 0 else round(0.5 + top_delta_psi / 2.0, 4),
-            "psi_pct": 50.0,
+            "psi": treat_psi_val,
+            "psi_pct": round(treat_psi_val * 100, 1),
             "ijc": top_inc_counts,
             "sjc": top_exc_counts,
             "total_reads": top_inc_counts + top_exc_counts,

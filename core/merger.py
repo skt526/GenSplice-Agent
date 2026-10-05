@@ -57,7 +57,7 @@ def merge_deg_and_rmats(
     # If df_deg lacks real gene symbols (e.g. geneSymbol == gene_id), extract clean mapping from rMATS
     rmats_symbol_map = (
         df_rmats_prepared
-        .filter(pl.col("symbol_clean").is_not_null() & ~pl.col("symbol_clean").str.starts_with("ENSG") & ~pl.col("symbol_clean").str.starts_with("AT"))
+        .filter(pl.col("symbol_clean").is_not_null() & ~pl.col("symbol_clean").str.starts_with("ENS") & ~pl.col("symbol_clean").str.starts_with("AT"))
         .select([
             pl.col("gene_id_clean"),
             pl.col("symbol_clean").alias("mapped_symbol")
@@ -75,7 +75,7 @@ def merge_deg_and_rmats(
     # If df_deg only has symbol and no ENSEMBL ID, map from symbol -> gene_id_clean using rMATS
     rmats_id_map = (
         df_rmats_prepared
-        .filter(pl.col("gene_id_clean").is_not_null() & (pl.col("gene_id_clean").str.starts_with("ENSG") | pl.col("gene_id_clean").str.starts_with("AT")))
+        .filter(pl.col("gene_id_clean").is_not_null() & (pl.col("gene_id_clean").str.starts_with("ENS") | pl.col("gene_id_clean").str.starts_with("AT")))
         .select([
             pl.col("symbol_clean"),
             pl.col("gene_id_clean").alias("mapped_gid")
@@ -148,7 +148,7 @@ def merge_deg_and_rmats(
 
     # Conditionally deduplicate by geneSymbol keeping the row with lowest FDR / highest significance
     if deduplicate_genes and "geneSymbol" in merged.columns:
-        merged = merged.sort(["as_fdr", "deg_fdr"], descending=[False, False]).unique(subset=["geneSymbol"], keep="first")
+        merged = merged.sort(["as_fdr", "deg_fdr"], descending=[False, False]).unique(subset=["geneSymbol"], keep="first", maintain_order=True)
 
     # Classify Alternative Splicing Status: Inclusion Favored, Exclusion Favored, Non-Significant
     is_as_sig = (pl.col("delta_psi").abs() >= delta_psi_cutoff) & (pl.col("as_fdr") <= as_fdr_cutoff)

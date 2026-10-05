@@ -174,17 +174,21 @@ def annotate_isoform_events(df_merged, gtf_path: str = None) -> pd.DataFrame:
         exc_counts = int(row.get("exc_counts", 0) if row.get("exc_counts") is not None else 0)
 
         # Parse coordinate positions
+        exon_s, exon_e = 0, 0
+        exon_len = 120
         try:
             parts = coords.replace(":", "-").split("-")
             num_parts = [int(p) for p in parts if p.isdigit()]
             if len(num_parts) >= 4:
-                exon_s, exon_e = num_parts[2], num_parts[3] if len(num_parts) >= 4 else (num_parts[0], num_parts[1])
+                exon_s, exon_e = num_parts[2], num_parts[3]
                 exon_len = abs(exon_e - exon_s)
             elif len(num_parts) >= 2:
-                exon_len = abs(num_parts[1] - num_parts[0])
+                exon_s, exon_e = num_parts[0], num_parts[1]
+                exon_len = abs(exon_e - exon_s)
             else:
                 exon_len = 120
         except Exception:
+            exon_s, exon_e = 0, 0
             exon_len = 120
 
         # Retrieve GTF gene models if available
@@ -210,12 +214,13 @@ def annotate_isoform_events(df_merged, gtf_path: str = None) -> pd.DataFrame:
             # Check exact CDS overlap with the alternative spliced segment
             cds_list = tx_data.get("cds", [])
             cds_overlap_bp = 0
-            for c in cds_list:
-                c_start, c_end = c[0], c[1]
-                ov_s = max(exon_s, c_start)
-                ov_e = min(exon_e, c_end)
-                if ov_s < ov_e:
-                    cds_overlap_bp += (ov_e - ov_s)
+            if exon_s > 0 and exon_e > 0:
+                for c in cds_list:
+                    c_start, c_end = c[0], c[1]
+                    ov_s = max(exon_s, c_start)
+                    ov_e = min(exon_e, c_end)
+                    if ov_s < ov_e:
+                        cds_overlap_bp += (ov_e - ov_s)
 
             if cds_overlap_bp > 0:
                 domain = f"Coding Exon Segment ({gene})"
@@ -231,7 +236,7 @@ def annotate_isoform_events(df_merged, gtf_path: str = None) -> pd.DataFrame:
                     # Canonical 50-55 nt rule evaluation
                     # Check distance from event to last exon-exon junction in transcript
                     exons = tx_data.get("exons", [])
-                    if len(exons) >= 2:
+                    if len(exons) >= 2 and exon_s > 0 and exon_e > 0:
                         last_junction = exons[-2][1] if strand == "+" else exons[1][0]
                         dist_to_last_junc = (last_junction - exon_e) if strand == "+" else (exon_s - last_junction)
                         if dist_to_last_junc > 55:

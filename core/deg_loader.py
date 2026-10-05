@@ -100,7 +100,7 @@ def load_deg_data(
     gtf_map = parse_gtf_gene_map(gtf_path)
     if gtf_map:
         clean_ids = df.select(pl.col("gene_id").str.split(".").list.first()).to_series().to_list()
-        mapped_symbols = [gtf_map.get(gid, orig) for gid, orig in zip(clean_ids, df.select("geneSymbol").to_series().to_list())]
+        mapped_symbols = [gtf_map.get(gid, orig or gid) for gid, orig in zip(clean_ids, df.select("geneSymbol").to_series().to_list())]
         df = df.with_columns(pl.Series("geneSymbol", mapped_symbols))
 
     if "log2FoldChange" not in df.columns:
