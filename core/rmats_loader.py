@@ -43,7 +43,7 @@ def load_rmats_data(
                 continue
 
         try:
-            df = pl.read_csv(filepath, separator="\t", ignore_errors=True)
+            df = pl.read_csv(filepath, separator="\t", ignore_errors=True, infer_schema_length=10000)
             if df.height == 0:
                 continue
 

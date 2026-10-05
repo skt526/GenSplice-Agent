@@ -60,7 +60,7 @@ def load_deg_data(
     # Auto-detect delimiter
     delimiter = "\t" if filepath.endswith((".tsv", ".txt")) else ","
     
-    df = pl.read_csv(filepath, separator=delimiter, ignore_errors=True)
+    df = pl.read_csv(filepath, separator=delimiter, ignore_errors=True, infer_schema_length=10000)
 
     # Standardize column mapping
     col_mapping = {}

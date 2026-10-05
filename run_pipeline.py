@@ -552,7 +552,7 @@ def main():
 
         # 1. Representative event per gene for Volcano plot & KPI cards (gene-level deduplication)
         df_merged_report = merge_deg_and_rmats(df_deg_raw, df_rmats_primary, deduplicate_genes=True)
-        # 2. Multi-event preserved dataset for Event-Level Isoform table, Sashimi isoforms, and RT-qPCR primers
+        # 2. Multi-event preserved dataset for Event-Level Isoform table and Sashimi isoforms
         df_merged_all_events = merge_deg_and_rmats(df_deg_raw, df_rmats_all, deduplicate_genes=False)
         
         export_html_report(

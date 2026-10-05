@@ -3,8 +3,6 @@ GenSplice-Agent Configuration & Global Design System
 Light Mode Theme with Shaded Translucent Threshold Regions
 """
 
-import os
-
 # Default Statistical Cutoffs
 DEFAULT_LOG2FC_CUTOFF = 1.0
 DEFAULT_DELTA_PSI_CUTOFF = 0.1

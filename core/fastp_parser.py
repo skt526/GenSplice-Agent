@@ -1,6 +1,5 @@
 import os
 import json
-from pathlib import Path
 from typing import List
 
 def get_mean_read_length_from_fastp(fastp_json_paths: List[str]) -> int:

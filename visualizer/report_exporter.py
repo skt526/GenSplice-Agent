@@ -4,24 +4,20 @@ Light Mode interactive HTML report with:
 - Dedicated Alternative Splicing Volcano Plot & Target Selector (ΔPSI vs -log₁₀ FDR)
 - Splicing Direction Classification (Inclusion Favored, Exclusion Favored, Non-Significant Background)
 - Real-Time Dynamic Sliders (ΔPSI effect size & rMATS FDR significance)
-- Synchronized NCBI Gene Explorer, Isoform Annotation Matrix, Sashimi Plot, and Primer Designer
+- Synchronized NCBI Gene Explorer, Isoform Annotation Matrix, Sashimi Plot, and Replicate Profile
 - GO Term & KEGG Pathway Enrichment Charts & Tables focused on Significant Splicing Targets
 """
 
 import os
 import json
-import time
 import math
 import polars as pl
-import pandas as pd
 import plotly.graph_objects as go
 from visualizer.as_volcano_plot import build_as_volcano_plot
-from visualizer.enrichment_plot import build_enrichment_chart
 from core.merger import get_splicing_kpis
 from core.enrichment import fetch_enrichment
 from core.isoform_annotator import annotate_isoform_events
 from visualizer.exon_structure import plot_exon_structure, resolve_gene_exon_coords
-from core.primer_designer import generate_primer_table_for_targets
 
 def _parse_replicate_values(val_str, val_type=float):
     """Parses comma-separated numeric string from rMATS (e.g. '0.85,0.88,0.86') into a list of numbers."""
@@ -326,57 +322,7 @@ def export_html_report(
     sashimi_events_json = json.dumps(sashimi_events_map)
     replicate_profiles_json = json.dumps(replicate_profiles_map)
 
-    # 7. RT-qPCR Primer Designer Engine (Synchronized with Targets & Reference FASTA)
-    primer_df = generate_primer_table_for_targets(target_candidates, fasta_path=fasta_path)
-    primer_records = primer_df.to_dicts() if primer_df.height > 0 else []
-    primer_records_json = json.dumps(primer_records)
-
-    first_primer_gene = top_gene_symbol if top_gene_symbol else "-"
-    first_coords = top_coords if top_gene_symbol else "-"
-    first_event = top_event if top_gene_symbol else "-"
-
-    primer_rows_html = ""
-    if primer_df.height > 0 and top_gene_symbol:
-        matching_rows = primer_df.filter(pl.col("gene_symbol") == first_primer_gene)
-        if matching_rows.height == 0 and primer_records:
-            first_primer_gene = primer_records[0]["gene_symbol"]
-            first_coords = primer_records[0].get("coordinates", "N/A")
-            first_event = primer_records[0].get("event_type", "SE")
-            matching_rows = primer_df.filter(pl.col("gene_symbol") == first_primer_gene)
-
-        # Render only the primary event's primer pairs initially
-        if "event_index" in matching_rows.columns:
-            display_rows = matching_rows.filter(pl.col("event_index") == 0)
-            if display_rows.height == 0:
-                display_rows = matching_rows.head(2)
-        else:
-            display_rows = matching_rows.head(2)
-
-        for r in display_rows.iter_rows(named=True):
-            isoform_badge = '<span class="badge" style="background:#EFF6FF; color:#2563EB; border:1px solid #3B82F6;">Inclusion Isoform</span>' if r['target_isoform'].lower() == 'inclusion' else '<span class="badge" style="background:#FDF2F8; color:#DB2777; border:1px solid #EC4899;">Exclusion Isoform</span>'
-            fwd_tm = f"{r['fwd_tm_celsius']:.1f}°C" if r.get('fwd_tm_celsius') is not None else "N/A"
-            fwd_gc = f"{r['fwd_gc_pct']:.1f}%" if r.get('fwd_gc_pct') is not None else "N/A"
-            rev_tm = f"{r['rev_tm_celsius']:.1f}°C" if r.get('rev_tm_celsius') is not None else "N/A"
-            rev_gc = f"{r['rev_gc_pct']:.1f}%" if r.get('rev_gc_pct') is not None else "N/A"
-            amp_size = f"{r['amplicon_size_bp']} bp" if r.get('amplicon_size_bp') is not None else "N/A"
-            fwd_seq = f"<code style='font-weight:700; color:#1E40AF;'>{r['fwd_sequence']}</code>" if r.get('fwd_sequence') and r['fwd_sequence'] != 'N/A' else "<span style='color:#64748B;'>N/A</span>"
-            rev_seq = f"<code style='font-weight:700; color:#1E40AF;'>{r['rev_sequence']}</code>" if r.get('rev_sequence') and r['rev_sequence'] != 'N/A' else "<span style='color:#64748B;'>N/A</span>"
-
-            primer_rows_html += f"""
-            <tr>
-                <td><b>{r['gene_symbol']}</b></td>
-                <td>{isoform_badge}</td>
-                <td><b>{r.get('target_region', r['target_isoform'] + ' Junction')}</b><br><span style="font-size:11px; color:#64748B;">Coords: <code>{r.get('coordinates', 'N/A')}</code></span></td>
-                <td>{fwd_seq}<br><span style="font-size:11px; color:#64748B;">Tm: {fwd_tm} | GC: {fwd_gc}</span></td>
-                <td>{rev_seq}<br><span style="font-size:11px; color:#64748B;">Tm: {rev_tm} | GC: {rev_gc}</span></td>
-                <td><b>{amp_size}</b></td>
-                <td><span class="badge" style="background:#F0FDF4; color:#16A34A; border:1px solid #22C55E;">{r['primer_quality']}</span></td>
-            </tr>
-            """
-    else:
-        primer_rows_html = '<tr><td colspan="7" style="text-align:center; color:#64748B; padding:16px;">No significant alternative splicing targets meet current threshold cutoffs.</td></tr>'
-
-    # 8. Splicing Target Genes for GO / KEGG Enrichment
+    # 7. Splicing Target Genes for GO / KEGG Enrichment
     splicing_genes = list(candidate_symbols) if candidate_symbols else []
     if not splicing_genes:
         splicing_genes = df_splicing_events.select("geneSymbol").to_series().to_list()
@@ -1026,40 +972,6 @@ def export_html_report(
         </div>
     </div>
 
-    <!-- SECTION 5: Isoform-Specific RT-qPCR Primer Designer Card -->
-    <div class="card" id="primer-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-bottom: 16px; flex-wrap: wrap; gap: 8px;">
-            <h2 style="color: #0F172A; margin: 0; border: none; padding: 0;">🧪 Isoform-Specific RT-qPCR Primer Designer</h2>
-            <span style="font-size: 13px; color: #64748B; font-weight: 600;">🔗 Synchronized with Visual Exon-Intron Selection</span>
-        </div>
-        
-        <!-- Target Gene Location & Exon Region Banner -->
-        <div id="primer-location-banner" style="background: #F1F5F9; border-left: 4px solid #3B82F6; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; color: #334155;">
-            <b>Selected Target:</b> <span id="primer-banner-gene" style="font-weight: 800; color: #1E40AF;">{first_primer_gene}</span> | 
-            <b>Target Coordinates:</b> <code id="primer-banner-coords" style="color: #0F172A; font-weight: 700;">{first_coords}</code> | 
-            <b>Targeted Splicing Event:</b> <span id="primer-banner-event" class="badge" style="background: #E0E7FF; color: #3730A3;">{first_event}</span>
-        </div>
-
-        <div style="overflow-x: auto; border: 1px solid #CBD5E1; border-radius: 8px;">
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Target Gene</th>
-                        <th>Target Isoform</th>
-                        <th>Targeted Splice Junction / Region</th>
-                        <th>Forward Primer (5'->3') & Tm</th>
-                        <th>Reverse Primer (5'->3') & Tm</th>
-                        <th>Amplicon Size</th>
-                        <th>Primer Quality</th>
-                    </tr>
-                </thead>
-                <tbody id="primer-table-body">
-                    {primer_rows_html}
-                </tbody>
-            </table>
-        </div>
-    </div>
-
     <div class="footer">
         Generated automatically by GenSplice-Agent Pipeline • Light Mode Theme
     </div>
@@ -1068,7 +980,6 @@ def export_html_report(
     <script>
         const rawGeneData = {raw_data_json};
         const genePathways = {gene_pathway_json};
-        const primerRecords = {primer_records_json};
         const sashimiGeneData = {sashimi_data_json};
         const sashimiEventsMap = {sashimi_events_json};
         const replicateProfilesMap = {replicate_profiles_json};
@@ -2018,7 +1929,6 @@ def export_html_report(
             filterIsoformTable(geneSymbol);
             renderSashimiPlot(geneSymbol, eventIndex);
             renderReplicateProfile(geneSymbol, eventIndex);
-            renderPrimerDetails(geneSymbol, eventIndex);
         }}
 
         function getActiveSplicingGeneSet() {{
@@ -2060,7 +1970,7 @@ def export_html_report(
             const fcColor = (r.log2FoldChange || 0) > 0 ? "#DC2626" : "#2563EB";
 
             return `
-                <tr class="isoform-data-row" data-gene="${{(r.gene_symbol || '').toUpperCase()}}" data-coords="${{r.coordinates || ''}}" data-event="${{r.event_type || ''}}" style="cursor: pointer;" title="Click to inspect Exon Structure & Primers">
+                <tr class="isoform-data-row" data-gene="${{(r.gene_symbol || '').toUpperCase()}}" data-coords="${{r.coordinates || ''}}" data-event="${{r.event_type || ''}}" style="cursor: pointer;" title="Click to inspect Exon Structure & Replicate Profile">
                     <td><b>${{r.gene_symbol || ''}}</b></td>
                     <td><span class="badge" style="${{riskStyle}}">${{r.impairment_tier || 'N/A'}}</span></td>
                     <td><span style="font-size:12px; font-weight:600; color:#334155;">${{r.primary_dysfunction_cause || 'N/A'}}</span></td>
@@ -2202,94 +2112,6 @@ def export_html_report(
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-        }}
-
-        function renderPrimerDetails(geneSymbol, eventIndex = 0) {{
-            const tbody = document.getElementById('primer-table-body');
-            const bannerGene = document.getElementById('primer-banner-gene');
-            const bannerCoords = document.getElementById('primer-banner-coords');
-            const bannerEvent = document.getElementById('primer-banner-event');
-
-            if (!geneSymbol || !primerRecords) {{
-                if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#64748B; padding:16px;">No active splicing target selected under current thresholds.</td></tr>`;
-                if (bannerGene) bannerGene.textContent = "-";
-                if (bannerCoords) bannerCoords.textContent = "-";
-                if (bannerEvent) bannerEvent.textContent = "-";
-                return;
-            }}
-
-            const upper = (geneSymbol || '').trim().toUpperCase();
-            const events = (sashimiEventsMap && sashimiEventsMap[upper]) || [];
-            const geneRows = primerRecords.filter(r => (r.gene_symbol || '').toUpperCase() === upper);
-
-            const evIdx = parseInt(eventIndex !== undefined && eventIndex !== null ? eventIndex : 0, 10);
-            let targetEvent = (evIdx >= 0 && events.length > evIdx) ? events[evIdx] : (events.length > 0 ? events[0] : null);
-
-            let rows = [];
-            if (evIdx === -1) {{
-                rows = geneRows;
-                if (bannerGene) bannerGene.textContent = geneSymbol;
-                if (bannerCoords) bannerCoords.textContent = `All Coordinates (${{events.length}} events)`;
-                if (bannerEvent) bannerEvent.textContent = `All Events (${{events.length}} total)`;
-            }} else {{
-                if (targetEvent) {{
-                    if (bannerGene) bannerGene.textContent = geneSymbol;
-                    if (bannerCoords) bannerCoords.textContent = targetEvent.coordinates || 'N/A';
-                    const evNum = events.length > 1 ? `Event ${{evIdx + 1}} of ${{events.length}}` : `Event 1`;
-                    if (bannerEvent) bannerEvent.textContent = `${{targetEvent.event_type}} (${{evNum}})`;
-
-                    rows = geneRows.filter(r => r.event_index === evIdx);
-                    if (!rows.length && targetEvent.coordinates) {{
-                        rows = geneRows.filter(r => r.coordinates === targetEvent.coordinates);
-                    }}
-                    if (!rows.length) {{
-                        rows = geneRows.slice(0, 2);
-                    }}
-                }} else {{
-                    const ginfo = (sashimiGeneData && (sashimiGeneData[upper] || sashimiGeneData[geneSymbol])) || {{}};
-                    if (bannerGene) bannerGene.textContent = geneSymbol;
-                    if (bannerCoords) bannerCoords.textContent = (geneRows.length && geneRows[0].coordinates) ? geneRows[0].coordinates : (ginfo.coordinates || 'N/A');
-                    if (bannerEvent) bannerEvent.textContent = (geneRows.length && geneRows[0].event_type) ? geneRows[0].event_type : (ginfo.event_type || 'SE');
-                    rows = geneRows.slice(0, 2);
-                }}
-            }}
-
-            if (!tbody) return;
-
-            if (!rows.length) {{
-                const targetCoordStr = targetEvent ? targetEvent.coordinates : 'N/A';
-                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#64748B; padding:16px;">Specific primer pairs not pre-calculated for <b>${{geneSymbol}}</b> (Target coordinates: <code>${{targetCoordStr}}</code>).</td></tr>`;
-                return;
-            }}
-
-            let html = '';
-            rows.forEach(r => {{
-                const isInc = (r.target_isoform || '').toLowerCase() === 'inclusion';
-                const badge = isInc ?
-                    '<span class="badge" style="background:#EFF6FF; color:#2563EB; border:1px solid #3B82F6;">Inclusion Isoform</span>' :
-                    '<span class="badge" style="background:#FDF2F8; color:#DB2777; border:1px solid #EC4899;">Exclusion Isoform</span>';
-                
-                const fwdTm = (r.fwd_tm_celsius !== null && r.fwd_tm_celsius !== undefined) ? Number(r.fwd_tm_celsius).toFixed(1) + '°C' : 'N/A';
-                const fwdGc = (r.fwd_gc_pct !== null && r.fwd_gc_pct !== undefined) ? Number(r.fwd_gc_pct).toFixed(1) + '%' : 'N/A';
-                const revTm = (r.rev_tm_celsius !== null && r.rev_tm_celsius !== undefined) ? Number(r.rev_tm_celsius).toFixed(1) + '°C' : 'N/A';
-                const revGc = (r.rev_gc_pct !== null && r.rev_gc_pct !== undefined) ? Number(r.rev_gc_pct).toFixed(1) + '%' : 'N/A';
-                const ampSize = (r.amplicon_size_bp !== null && r.amplicon_size_bp !== undefined) ? r.amplicon_size_bp + ' bp' : 'N/A';
-                const fwdSeqHtml = (r.fwd_sequence && r.fwd_sequence !== 'N/A') ? `<code style="font-weight:700; color:#1E40AF;">${{r.fwd_sequence}}</code>` : `<span style="color:#64748B;">N/A</span>`;
-                const revSeqHtml = (r.rev_sequence && r.rev_sequence !== 'N/A') ? `<code style="font-weight:700; color:#1E40AF;">${{r.rev_sequence}}</code>` : `<span style="color:#64748B;">N/A</span>`;
-
-                html += `
-                <tr>
-                    <td><b>${{r.gene_symbol}}</b></td>
-                    <td>${{badge}}</td>
-                    <td><b>${{r.target_region || (r.target_isoform + ' Junction')}}</b><br><span style="font-size:11px; color:#64748B;">Coords: <code>${{r.coordinates || 'N/A'}}</code></span></td>
-                    <td>${{fwdSeqHtml}}<br><span style="font-size:11px; color:#64748B;">Tm: ${{fwdTm}} | GC: ${{fwdGc}}</span></td>
-                    <td>${{revSeqHtml}}<br><span style="font-size:11px; color:#64748B;">Tm: ${{revTm}} | GC: ${{revGc}}</span></td>
-                    <td><b>${{ampSize}}</b></td>
-                    <td><span class="badge" style="background:#F0FDF4; color:#16A34A; border:1px solid #22C55E;">${{r.primer_quality}}</span></td>
-                </tr>
-                `;
-            }});
-            tbody.innerHTML = html;
         }}
 
         function updateThresholds() {{
@@ -2739,7 +2561,6 @@ def export_html_report(
                 if (replicateEventSelect) replicateEventSelect.value = evIdx;
                 renderSashimiPlot(curGene, evIdx >= 0 ? evIdx : 0);
                 renderReplicateProfile(curGene, evIdx >= 0 ? evIdx : 0);
-                renderPrimerDetails(curGene, evIdx >= 0 ? evIdx : 0);
             }});
         }}
         if (replicateEventSelect) {{
@@ -2749,7 +2570,6 @@ def export_html_report(
                 if (sashimiEventSelect) sashimiEventSelect.value = evIdx;
                 renderReplicateProfile(curGene, evIdx >= 0 ? evIdx : 0);
                 renderSashimiPlot(curGene, evIdx >= 0 ? evIdx : 0);
-                renderPrimerDetails(curGene, evIdx >= 0 ? evIdx : 0);
             }});
         }}
         const volcanoDivEl = document.getElementById('plotly-as-volcano-div');

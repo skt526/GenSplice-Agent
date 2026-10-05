@@ -11,7 +11,7 @@ import numpy as np
 import polars as pl
 import pandas as pd
 import plotly.graph_objects as go
-from config import AS_THRESHOLD_COLOR, EVENT_COLORS, VOLCANO_COLORS, VOLCANO_SHADING
+from config import VOLCANO_COLORS, VOLCANO_SHADING
 
 def build_as_volcano_plot(
     df_splicing: pl.DataFrame,

@@ -4,10 +4,7 @@ Provides real-time dynamic enrichment analysis using gseapy / Enrichr API.
 Enforces strict scientific data integrity: NO synthetic or mock enrichment data.
 """
 
-import math
-import os
 import pandas as pd
-import polars as pl
 import numpy as np
 
 # Cache dict to prevent redundant API calls

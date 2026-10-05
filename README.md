@@ -9,7 +9,7 @@
 
 `GenSplice-Agent` is a fully automated, end-to-end computational pipeline for differential alternative splicing quantification and functional validation from raw RNA-seq data. It streamlines quality control (`fastp`), splice-aware genome alignment (`STAR`), gene-level differential expression (`featureCounts` / DESeq2 / CPM), and event-level alternative splicing quantification (`rMATS`). 
 
-The pipeline produces a self-contained, interactive Light Mode HTML dashboard (`gensplice_report.html`) that synchronizes an Alternative Splicing Volcano Plot, dynamic threshold sliders, exon-intron Sashimi plots, sample-level replicate profiles, transcript functional impairment evaluation, live NCBI/PubMed literature querying, and RT-qPCR primer design.
+The pipeline produces a self-contained, interactive Light Mode HTML dashboard (`gensplice_report.html`) that synchronizes an Alternative Splicing Volcano Plot, dynamic threshold sliders, exon-intron Sashimi plots, sample-level replicate profiles, transcript functional impairment evaluation, and live NCBI/PubMed literature querying.
 
 ---
 
@@ -20,8 +20,7 @@ The pipeline produces a self-contained, interactive Light Mode HTML dashboard (`
 - **Dynamic Threshold Control**: Client-side reactive sliders for $\Delta\text{PSI}$ effect size and rMATS FDR significance, instantly updating event counts, candidate gene sets, and downstream visualizations.
 - **Sample-Level Replicate PSI & Junction Depth Profile**: Decomposes biological replicate concordance, mean PSI values, and stacked raw Inclusion Junction Counts (IJC) vs. Skipping Junction Counts (SJC).
 - **Heuristic Functional Impairment Priority Index (0–100)**: Evaluates CDS reading frame shifts ($\Delta L \pmod 3 \ne 0$), de novo premature termination codons (PTC), and canonical 50–55 nt Nonsense-Mediated mRNA Decay (NMD) rules.
-- **Isoform-Specific RT-qPCR Primer Designer**: Thermodynamic nearest-neighbor design (Primer3 engine) spanning exon-exon junctions (Inclusion vs. Exclusion) using authentic reference FASTA sequences.
-- **Synchronized Multi-Card Navigation**: Selecting a gene in the Volcano plot, table, or dropdown instantly updates the Sashimi plot, Replicate profile, Isoform matrix, Primer table, and live NCBI/PubMed literature.
+- **Synchronized Multi-Card Navigation**: Selecting a gene in the Volcano plot, table, or dropdown instantly updates the Sashimi plot, Replicate profile, Isoform matrix, and live NCBI/PubMed literature.
 - **Fault-Tolerant Checkpointing**: Granular stage tracking (`pipeline_checkpoint.json`) allows interrupted runs to resume seamlessly. Previous outputs are automatically archived with timestamps (`outputs_{YYMMDD}_{HHMMSS}/`).
 
 ---
@@ -55,14 +54,6 @@ inputs/
     └── treatment_rep1_2.fq.gz
 ```
 
-> [!TIP]
-> **Need test data?** You can automatically download the genuine human CLL splicing benchmark dataset (**GSE190087** / SF3B1 K700E):
-> ```bash
-> ./download quick       # Fast 1 vs 1 pair test (~6 GB)
-> # or
-> ./download benchmark   # Full 3 vs 3 replicate benchmark (~17 GB)
-> ```
-
 ### 4. Execute the Pipeline
 Run the main pipeline wrapper:
 ```bash
@@ -84,7 +75,6 @@ All dependencies are automatically managed via the `gensplice-agent` Conda envir
 | **Alignment** | `STAR` | `>= 2.7.11a` | 2-pass splice-aware reference genome mapping |
 | **Quantification** | `subread` (`featureCounts`) | `>= 2.0.6` | Gene-level read count summarization |
 | **Splicing Engine** | `rMATS-turbo` (`rmats.py`) | `>= 4.3.0` | Splicing event detection (SE, RI, MXE, A5SS, A3SS) |
-| **Primer Engine** | `primer3-py` / `pyfaidx` | `>= 2.0.0` | Thermodynamic primer design & genomic FASTA extraction |
 | **Data Processing** | `polars` / `pandas` | `>= 0.20.0` | High-throughput columnar table processing & filtering |
 | **Interactive UI** | `plotly` / `jinja2` | `>= 5.20.0` | Client-side reactive HTML visualization |
 
@@ -94,15 +84,9 @@ All dependencies are automatically managed via the `gensplice-agent` Conda envir
 
 ```text
 GenSplice-Agent/
-├── install                 # Shell installer (Conda environment builder)
-├── install.sh              # Installer source script
-├── ref                     # Reference genome setup wrapper
-├── ref.sh                  # Downloader & STAR index generator (human/mouse)
-├── download                # Benchmark dataset downloader wrapper
-├── download_GSE190087.sh   # ENA direct download script (GSE190087 / PRJNA786720)
-├── download_GSE190087.py   # Python dataset downloader engine
-├── GenSplice               # Main pipeline execution wrapper
-├── GenSplice.sh            # Pipeline execution script
+├── install                 # One-click environment builder & hardware optimizer
+├── ref                     # Reference genome downloader & STAR index builder
+├── GenSplice               # Main pipeline execution entry point
 ├── run_pipeline.py         # 5-step pipeline orchestrator
 ├── config.yaml             # User-configurable pipeline settings
 ├── config.py               # Theme colors, cutoffs, and default parameters
@@ -114,15 +98,13 @@ GenSplice-Agent/
 │   ├── deg_calculator.py   # Gene expression quantification & FDR calculation
 │   ├── deg_loader.py       # DEG table loader & Ensembl-to-symbol mapping
 │   ├── rmats_loader.py     # Multi-replicate rMATS event parser & noise filter
-│   ├── merger.py           # 4-quadrant merger & splicing status classification
+│   ├── merger.py           # Splicing status classification & data merger
 │   ├── isoform_annotator.py# CDS frame shift, PTC projection, & NMD evaluator
-│   ├── primer_designer.py  # Isoform-specific RT-qPCR primer generator (Primer3)
 │   └── enrichment.py       # Genuine GO & KEGG enrichment query engine
 │
 ├── visualizer/             # Interactive plotting & report generator
 │   ├── as_volcano_plot.py  # Alternative Splicing Volcano Plot builder
 │   ├── exon_structure.py   # 2D Sashimi-style exon-intron structure renderer
-│   ├── enrichment_plot.py  # Horizontal bar chart enrichment visualizer
 │   └── report_exporter.py  # Standalone Light Mode HTML dashboard exporter
 │
 ├── inputs/                 # Input FASTQ directories
@@ -214,9 +196,6 @@ The generated report (`outputs/gensplice_report.html`) is completely standalone 
 5. **Synchronized NCBI Gene Details & Live NIH PubMed Explorer**:
    - Live querying of NCBI Gene metadata (official gene name, chromosomal location, functional summary).
    - Real-time PubMed literature search via NIH E-utilities API displaying recent peer-reviewed publications.
-6. **Isoform-Specific RT-qPCR Primer Designer**:
-   - Primer3-calculated primer pairs specifically targeting Inclusion vs. Exclusion isoform junctions.
-   - Reports forward/reverse sequences ($5' \rightarrow 3'$), melting temperatures ($T_m$), GC content, and amplicon lengths.
 
 ---
 
@@ -237,4 +216,3 @@ If you use GenSplice-Agent in your research, please cite:
 - **STAR**: Dobin et al., *Bioinformatics* (2013). doi:10.1093/bioinformatics/bts635
 - **rMATS**: Shen et al., *PNAS* (2014). doi:10.1073/pnas.1413973111
 - **fastp**: Chen et al., *Bioinformatics* (2018). doi:10.1093/bioinformatics/bty560
-- **Primer3**: Untergasser et al., *Nucleic Acids Res.* (2012). doi:10.1093/nar/gks596
