@@ -59,6 +59,7 @@ GenSplice-Agent comprises four primary computational modules:
 - Interactive features include:
   - Alternative Splicing Volcano Plot with dynamic threshold recalculation in pure JavaScript / Plotly.
   - Interactive Sashimi-style exon-intron structure visualizer responsive to gene selection.
+  - Sample-Level Replicate PSI and Junction Read Depth Profile displaying biological replicate concordance, mean PSI indicators, and IJC/SJC raw junction count decomposition.
   - Synchronized NCBI Gene summary and PubMed literature query interface.
   - Gene Ontology (GO Biological Process) and KEGG pathway enrichment visualizer.
 

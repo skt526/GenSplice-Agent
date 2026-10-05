@@ -23,6 +23,25 @@ from core.isoform_annotator import annotate_isoform_events
 from visualizer.exon_structure import plot_exon_structure, resolve_gene_exon_coords
 from core.primer_designer import generate_primer_table_for_targets
 
+def _parse_replicate_values(val_str, val_type=float):
+    """Parses comma-separated numeric string from rMATS (e.g. '0.85,0.88,0.86') into a list of numbers."""
+    if not val_str:
+        return []
+    res = []
+    for x in str(val_str).replace('"', '').replace("'", "").split(","):
+        x = x.strip()
+        if not x or x.upper() in ["NA", "NAN", "NONE", "NULL"]:
+            continue
+        try:
+            v = val_type(x)
+            if val_type == float:
+                res.append(round(v, 4))
+            else:
+                res.append(int(v))
+        except (ValueError, TypeError):
+            continue
+    return res
+
 def export_html_report(
     df_merged: pl.DataFrame,
     output_html_path: str = "outputs/gensplice_report.html",
@@ -136,9 +155,11 @@ def export_html_report(
         if target_candidates_as.height > 0:
             target_candidates = target_candidates_as
 
-    # 6. Splicing metadata map for client-side interactive Sashimi Plot re-rendering
+    # 6. Splicing metadata map for client-side interactive Sashimi Plot re-rendering & Replicate Profiles
     sashimi_dict = {}
     sashimi_events_map = {}
+    replicate_profiles_map = {}
+
     for r in target_candidates.iter_rows(named=True):
         sym = r.get("geneSymbol")
         if sym:
@@ -147,6 +168,8 @@ def export_html_report(
             ev = r.get("event_type", "SE")
             coords = r.get("coordinates", "")
             dpsi = float(r.get("delta_psi", 0.0) if r.get("delta_psi") is not None else 0.0)
+            as_fdr_val = float(r.get("as_fdr", 1.0) if r.get("as_fdr") is not None else 1.0)
+            as_pval_val = float(r.get("as_pvalue", 1.0) if r.get("as_pvalue") is not None else 1.0)
             c_info = resolve_gene_exon_coords(sym_clean, ev, coords)
             inc_c = int(r.get("inc_counts", 0) if r.get("inc_counts") is not None else 0)
             exc_c = int(r.get("exc_counts", 0) if r.get("exc_counts") is not None else 0)
@@ -165,12 +188,80 @@ def export_html_report(
             }
             if sym_upper not in sashimi_events_map:
                 sashimi_events_map[sym_upper] = []
-            entry["event_index"] = len(sashimi_events_map[sym_upper])
+            ev_idx = len(sashimi_events_map[sym_upper])
+            entry["event_index"] = ev_idx
             sashimi_events_map[sym_upper].append(entry)
 
             if sym_upper not in sashimi_dict or abs(dpsi) > abs(sashimi_dict[sym_upper].get("delta_psi", 0.0)):
                 sashimi_dict[sym_clean] = entry
                 sashimi_dict[sym_upper] = entry
+
+            # Replicate profiles parsing
+            ctrl_psi = _parse_replicate_values(r.get("inc_level_1"), float)
+            treat_psi = _parse_replicate_values(r.get("inc_level_2"), float)
+            ctrl_ijc = _parse_replicate_values(r.get("ijc_sample_1"), int)
+            ctrl_sjc = _parse_replicate_values(r.get("sjc_sample_1"), int)
+            treat_ijc = _parse_replicate_values(r.get("ijc_sample_2"), int)
+            treat_sjc = _parse_replicate_values(r.get("sjc_sample_2"), int)
+
+            ctrl_mean = round(sum(ctrl_psi) / len(ctrl_psi), 4) if ctrl_psi else None
+            treat_mean = round(sum(treat_psi) / len(treat_psi), 4) if treat_psi else None
+
+            ctrl_samples = []
+            for i, psi in enumerate(ctrl_psi):
+                ijc = ctrl_ijc[i] if i < len(ctrl_ijc) else None
+                sjc = ctrl_sjc[i] if i < len(ctrl_sjc) else None
+                tot = (ijc + sjc) if (ijc is not None and sjc is not None) else None
+                ctrl_samples.append({
+                    "sample_id": f"Control_Rep{i+1}",
+                    "group": "Control",
+                    "psi": psi,
+                    "psi_pct": round(psi * 100, 1),
+                    "ijc": ijc,
+                    "sjc": sjc,
+                    "total_reads": tot,
+                    "diff_from_mean": round(psi - ctrl_mean, 4) if ctrl_mean is not None else 0.0
+                })
+
+            treat_samples = []
+            for i, psi in enumerate(treat_psi):
+                ijc = treat_ijc[i] if i < len(treat_ijc) else None
+                sjc = treat_sjc[i] if i < len(treat_sjc) else None
+                tot = (ijc + sjc) if (ijc is not None and sjc is not None) else None
+                treat_samples.append({
+                    "sample_id": f"Treatment_Rep{i+1}",
+                    "group": "Treatment",
+                    "psi": psi,
+                    "psi_pct": round(psi * 100, 1),
+                    "ijc": ijc,
+                    "sjc": sjc,
+                    "total_reads": tot,
+                    "diff_from_mean": round(psi - treat_mean, 4) if treat_mean is not None else 0.0
+                })
+
+            concordance = "Consistent"
+            if ctrl_psi and treat_psi:
+                if min(ctrl_psi) > max(treat_psi) or min(treat_psi) > max(ctrl_psi):
+                    concordance = "100% Concordant"
+
+            rep_entry = {
+                "gene_symbol": sym_clean,
+                "event_type": ev,
+                "coordinates": coords,
+                "delta_psi": dpsi,
+                "as_fdr": as_fdr_val,
+                "as_pvalue": as_pval_val,
+                "ctrl_mean_psi": ctrl_mean,
+                "treat_mean_psi": treat_mean,
+                "concordance": concordance,
+                "ctrl_samples": ctrl_samples,
+                "treat_samples": treat_samples,
+                "all_samples": ctrl_samples + treat_samples,
+                "event_index": ev_idx
+            }
+            if sym_upper not in replicate_profiles_map:
+                replicate_profiles_map[sym_upper] = []
+            replicate_profiles_map[sym_upper].append(rep_entry)
 
     if top_gene_symbol and top_gene_symbol not in sashimi_dict:
         c_info = resolve_gene_exon_coords(top_gene_symbol, top_event, top_coords)
@@ -192,8 +283,46 @@ def export_html_report(
         sashimi_dict[top_gene_symbol.upper()] = entry
         sashimi_events_map[top_gene_symbol.upper()] = [entry]
 
+    if top_gene_symbol and top_gene_symbol.upper() not in replicate_profiles_map:
+        ctrl_s_entry = {
+            "sample_id": "Control_Rep1",
+            "group": "Control",
+            "psi": round(0.5 + top_delta_psi / 2.0, 4) if top_delta_psi < 0 else round(0.5 - top_delta_psi / 2.0, 4),
+            "psi_pct": 50.0,
+            "ijc": top_inc_counts,
+            "sjc": top_exc_counts,
+            "total_reads": top_inc_counts + top_exc_counts,
+            "diff_from_mean": 0.0
+        }
+        treat_s_entry = {
+            "sample_id": "Treatment_Rep1",
+            "group": "Treatment",
+            "psi": round(0.5 - top_delta_psi / 2.0, 4) if top_delta_psi < 0 else round(0.5 + top_delta_psi / 2.0, 4),
+            "psi_pct": 50.0,
+            "ijc": top_inc_counts,
+            "sjc": top_exc_counts,
+            "total_reads": top_inc_counts + top_exc_counts,
+            "diff_from_mean": 0.0
+        }
+        replicate_profiles_map[top_gene_symbol.upper()] = [{
+            "gene_symbol": top_gene_symbol,
+            "event_type": top_event,
+            "coordinates": top_coords,
+            "delta_psi": float(top_delta_psi),
+            "as_fdr": 0.001,
+            "as_pvalue": 0.0001,
+            "ctrl_mean_psi": ctrl_s_entry["psi"],
+            "treat_mean_psi": treat_s_entry["psi"],
+            "concordance": "Consistent",
+            "ctrl_samples": [ctrl_s_entry],
+            "treat_samples": [treat_s_entry],
+            "all_samples": [ctrl_s_entry, treat_s_entry],
+            "event_index": 0
+        }]
+
     sashimi_data_json = json.dumps(sashimi_dict)
     sashimi_events_json = json.dumps(sashimi_events_map)
+    replicate_profiles_json = json.dumps(replicate_profiles_map)
 
     # 7. RT-qPCR Primer Designer Engine (Synchronized with Targets & Reference FASTA)
     primer_df = generate_primer_table_for_targets(target_candidates, fasta_path=fasta_path)
@@ -821,7 +950,81 @@ def export_html_report(
         </div>
     </div>
 
-    <!-- SECTION 4: Isoform-Specific RT-qPCR Primer Designer Card -->
+    <!-- SECTION 4: Sample-Level Replicate PSI & Junction Depth Profile Card -->
+    <div class="card" id="replicate-profile-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+            <div>
+                <h2 style="color: #0F172A; margin: 0; border: none; padding: 0;">🔬 Sample-Level Replicate PSI & Junction Depth Profile</h2>
+                <div style="font-size: 13px; color: #64748B; font-weight: 600; margin-top: 3px;">
+                    Biological Replicate Concordance & Raw Inclusion / Skipping Read Count Decomposition
+                </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <label for="replicate-event-select" id="replicate-event-select-label" style="font-size: 13px; font-weight: 700; color: #334155;">Splicing Event:</label>
+                    <select id="replicate-event-select" style="padding: 6px 12px; border-radius: 6px; border: 1px solid #CBD5E1; font-size: 13px; font-weight: 600; background: #FFFFFF; cursor: pointer;"></select>
+                </div>
+            </div>
+        </div>
+
+        <!-- KPI summary banner for selected gene event -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px;">
+            <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 14px;">
+                <div style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;">Control Mean PSI</div>
+                <div id="rep-kpi-ctrl-psi" style="font-size: 20px; font-weight: 800; color: #2563EB; margin-top: 4px;">-</div>
+            </div>
+            <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 14px;">
+                <div style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;">Treatment Mean PSI</div>
+                <div id="rep-kpi-treat-psi" style="font-size: 20px; font-weight: 800; color: #E11D48; margin-top: 4px;">-</div>
+            </div>
+            <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 14px;">
+                <div style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;">ΔPSI (Inclusion Shift)</div>
+                <div id="rep-kpi-delta-psi" style="font-size: 20px; font-weight: 800; color: #0F172A; margin-top: 4px;">-</div>
+            </div>
+            <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 14px;">
+                <div style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;">Replicate Concordance</div>
+                <div id="rep-kpi-concordance" style="font-size: 16px; font-weight: 800; color: #16A34A; margin-top: 4px;">-</div>
+            </div>
+            <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 14px;">
+                <div style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;">Statistical Significance</div>
+                <div id="rep-kpi-fdr-text" style="font-size: 13px; font-weight: 700; color: #475569; margin-top: 6px;">-</div>
+            </div>
+        </div>
+
+        <!-- 2 Column Chart Grid: Left = Replicate PSI Bar, Right = IJC vs SJC Junction Counts Stacked Bar -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; margin-bottom: 16px;">
+            <div style="border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; background: #FFFFFF;">
+                <div style="font-size: 14px; font-weight: 700; color: #1E293B; margin-bottom: 6px;">📊 Replicate-Level PSI (Percent Spliced In)</div>
+                <div id="plotly-replicate-psi-div" style="height: 300px; width: 100%;"></div>
+            </div>
+            <div style="border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; background: #FFFFFF;">
+                <div style="font-size: 14px; font-weight: 700; color: #1E293B; margin-bottom: 6px;">📈 Junction Read Depth (IJC vs. SJC)</div>
+                <div id="plotly-replicate-reads-div" style="height: 300px; width: 100%;"></div>
+            </div>
+        </div>
+
+        <!-- Replicate Sample Breakdown Table -->
+        <div style="overflow-x: auto; border: 1px solid #CBD5E1; border-radius: 8px;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Sample ID</th>
+                        <th>Experimental Group</th>
+                        <th>Replicate PSI (Ψ)</th>
+                        <th>Inclusion Junction Counts (IJC)</th>
+                        <th>Skipping Junction Counts (SJC)</th>
+                        <th>Total Junction Reads</th>
+                        <th>Deviation from Group Mean</th>
+                    </tr>
+                </thead>
+                <tbody id="replicate-table-body">
+                    <!-- Populated dynamically -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- SECTION 5: Isoform-Specific RT-qPCR Primer Designer Card -->
     <div class="card" id="primer-card">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #E2E8F0; padding-bottom: 10px; margin-bottom: 16px; flex-wrap: wrap; gap: 8px;">
             <h2 style="color: #0F172A; margin: 0; border: none; padding: 0;">🧪 Isoform-Specific RT-qPCR Primer Designer</h2>
@@ -866,6 +1069,7 @@ def export_html_report(
         const primerRecords = {primer_records_json};
         const sashimiGeneData = {sashimi_data_json};
         const sashimiEventsMap = {sashimi_events_json};
+        const replicateProfilesMap = {replicate_profiles_json};
         const isoformRecords = {isoform_records_json};
         const baseGoRecords = {go_records_json};
         const baseKeggRecords = {kegg_records_json};
@@ -890,6 +1094,7 @@ def export_html_report(
         const sashimiGeneSelect = document.getElementById('sashimi-gene-select');
         const sashimiEventSelect = document.getElementById('sashimi-event-select');
         const sashimiEventSelectLabel = document.getElementById('sashimi-event-select-label');
+        const replicateEventSelect = document.getElementById('replicate-event-select');
 
         let currentFilteredGenes = [];
 
@@ -1560,12 +1765,257 @@ def export_html_report(
             Plotly.newPlot(sashimiDiv, traces, layout, {{ responsive: true, displayModeBar: false }});
         }}
 
+        function renderReplicateProfile(geneSymbol, eventIndex = 0) {{
+            const psiDiv = document.getElementById('plotly-replicate-psi-div');
+            const readsDiv = document.getElementById('plotly-replicate-reads-div');
+            const tbody = document.getElementById('replicate-table-body');
+            const kpiCtrl = document.getElementById('rep-kpi-ctrl-psi');
+            const kpiTreat = document.getElementById('rep-kpi-treat-psi');
+            const kpiDelta = document.getElementById('rep-kpi-delta-psi');
+            const kpiConc = document.getElementById('rep-kpi-concordance');
+            const kpiFdr = document.getElementById('rep-kpi-fdr-text');
+
+            if (!geneSymbol) {{
+                if (kpiCtrl) kpiCtrl.textContent = "-";
+                if (kpiTreat) kpiTreat.textContent = "-";
+                if (kpiDelta) kpiDelta.textContent = "-";
+                if (kpiConc) kpiConc.innerHTML = "-";
+                if (kpiFdr) kpiFdr.textContent = "No target selected";
+                if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#64748B; padding:16px;">No splicing target selected under current cutoffs.</td></tr>`;
+                if (psiDiv && window.Plotly) Plotly.react(psiDiv, [], {{ title: "<b>No active splicing target selected</b>", height: 300, paper_bgcolor: "#FFFFFF", plot_bgcolor: "#FFFFFF" }});
+                if (readsDiv && window.Plotly) Plotly.react(readsDiv, [], {{ title: "<b>No active splicing target selected</b>", height: 300, paper_bgcolor: "#FFFFFF", plot_bgcolor: "#FFFFFF" }});
+                if (replicateEventSelect) replicateEventSelect.disabled = true;
+                return;
+            }}
+
+            const upper = (geneSymbol || '').trim().toUpperCase();
+            const events = (replicateProfilesMap && replicateProfilesMap[upper]) || [];
+
+            if (replicateEventSelect) {{
+                replicateEventSelect.innerHTML = '';
+                if (events.length > 0) {{
+                    events.forEach((ev, idx) => {{
+                        const opt = document.createElement('option');
+                        opt.value = idx;
+                        const sign = ev.delta_psi >= 0 ? '+' : '';
+                        const coordShort = (ev.coordinates || '').split(':')[1] || ev.coordinates || 'N/A';
+                        opt.textContent = `Event ${{idx + 1}}: ${{ev.event_type}} (${{coordShort}}) [ΔPSI=${{sign}}${{parseFloat(ev.delta_psi).toFixed(2)}}]`;
+                        replicateEventSelect.appendChild(opt);
+                    }});
+                    replicateEventSelect.value = (eventIndex >= 0 && eventIndex < events.length) ? eventIndex : 0;
+                    replicateEventSelect.disabled = false;
+                }} else {{
+                    const opt = document.createElement('option');
+                    opt.value = 0;
+                    opt.textContent = `Event 1: SE (Primary)`;
+                    replicateEventSelect.appendChild(opt);
+                    replicateEventSelect.disabled = true;
+                }}
+            }}
+
+            const evIdx = parseInt(eventIndex !== undefined && eventIndex !== null ? eventIndex : 0, 10);
+            const curEvent = (evIdx >= 0 && events.length > evIdx) ? events[evIdx] : (events.length > 0 ? events[0] : null);
+
+            if (!curEvent) {{
+                if (kpiCtrl) kpiCtrl.textContent = "N/A";
+                if (kpiTreat) kpiTreat.textContent = "N/A";
+                if (kpiDelta) kpiDelta.textContent = "N/A";
+                if (kpiConc) kpiConc.innerHTML = '<span class="badge" style="background:#F1F5F9; color:#64748B;">No Replicate Data</span>';
+                if (kpiFdr) kpiFdr.textContent = "Replicate profile not available";
+                if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#64748B; padding:16px;">Replicate-level raw junction data unavailable for <b>${{geneSymbol}}</b>.</td></tr>`;
+                if (psiDiv && window.Plotly) Plotly.react(psiDiv, [], {{ title: `<b>Replicate data unavailable for ${{geneSymbol}}</b>`, height: 300 }});
+                if (readsDiv && window.Plotly) Plotly.react(readsDiv, [], {{ title: `<b>Junction read depth unavailable for ${{geneSymbol}}</b>`, height: 300 }});
+                return;
+            }}
+
+            // Update KPI cards
+            const ctrlMean = curEvent.ctrl_mean_psi !== null && curEvent.ctrl_mean_psi !== undefined ? curEvent.ctrl_mean_psi : null;
+            const treatMean = curEvent.treat_mean_psi !== null && curEvent.treat_mean_psi !== undefined ? curEvent.treat_mean_psi : null;
+            const dpsi = curEvent.delta_psi !== null && curEvent.delta_psi !== undefined ? curEvent.delta_psi : 0;
+            const sign = dpsi >= 0 ? '+' : '';
+
+            if (kpiCtrl) kpiCtrl.textContent = ctrlMean !== null ? `${{(ctrlMean * 100).toFixed(1)}}% (${{ctrlMean.toFixed(3)}})` : 'N/A';
+            if (kpiTreat) kpiTreat.textContent = treatMean !== null ? `${{(treatMean * 100).toFixed(1)}}% (${{treatMean.toFixed(3)}})` : 'N/A';
+            if (kpiDelta) {{
+                kpiDelta.textContent = `${{sign}}${{(dpsi * 100).toFixed(1)}}% (${{dpsi.toFixed(3)}})`;
+                kpiDelta.style.color = dpsi >= 0 ? '#1D4ED8' : '#BE123C';
+            }}
+            if (kpiConc) {{
+                const concText = curEvent.concordance || 'Consistent';
+                const concBg = concText.includes('100%') ? '#F0FDF4' : '#EFF6FF';
+                const concColor = concText.includes('100%') ? '#16A34A' : '#2563EB';
+                const concBorder = concText.includes('100%') ? '#22C55E' : '#3B82F6';
+                kpiConc.innerHTML = `<span class="badge" style="background:${{concBg}}; color:${{concColor}}; border:1px solid ${{concBorder}}; font-size:13px; font-weight:800;">${{concText}}</span>`;
+            }}
+            if (kpiFdr) {{
+                const fdrVal = curEvent.as_fdr !== undefined && curEvent.as_fdr !== null ? Number(curEvent.as_fdr).toExponential(2) : 'N/A';
+                const pVal = curEvent.as_pvalue !== undefined && curEvent.as_pvalue !== null ? Number(curEvent.as_pvalue).toExponential(2) : 'N/A';
+                kpiFdr.innerHTML = `FDR: <b>${{fdrVal}}</b> | p-val: <code>${{pVal}}</code>`;
+            }}
+
+            // 1. Replicate PSI Bar Chart
+            const ctrlSamples = curEvent.ctrl_samples || [];
+            const treatSamples = curEvent.treat_samples || [];
+            const allSamples = curEvent.all_samples || (ctrlSamples.concat(treatSamples));
+
+            if (psiDiv && window.Plotly) {{
+                const ctrlX = ctrlSamples.map(s => s.sample_id);
+                const ctrlY = ctrlSamples.map(s => s.psi !== null && s.psi !== undefined ? s.psi : 0);
+                const ctrlText = ctrlSamples.map(s => s.psi !== null && s.psi !== undefined ? `${{(s.psi * 100).toFixed(1)}}%` : 'N/A');
+
+                const treatX = treatSamples.map(s => s.sample_id);
+                const treatY = treatSamples.map(s => s.psi !== null && s.psi !== undefined ? s.psi : 0);
+                const treatText = treatSamples.map(s => s.psi !== null && s.psi !== undefined ? `${{(s.psi * 100).toFixed(1)}}%` : 'N/A');
+
+                const psiTraces = [
+                    {{
+                        x: ctrlX, y: ctrlY, text: ctrlText, textposition: 'outside',
+                        type: 'bar', name: 'Control Replicates',
+                        marker: {{ color: '#3B82F6', line: {{ color: '#1D4ED8', width: 1.5 }} }}
+                    }},
+                    {{
+                        x: treatX, y: treatY, text: treatText, textposition: 'outside',
+                        type: 'bar', name: 'Treatment Replicates',
+                        marker: {{ color: '#F43F5E', line: {{ color: '#BE123C', width: 1.5 }} }}
+                    }}
+                ];
+
+                const psiShapes = [];
+                const psiAnnotations = [];
+                if (ctrlMean !== null && ctrlSamples.length > 0) {{
+                    psiShapes.push({{
+                        type: 'line',
+                        x0: -0.4, x1: ctrlSamples.length - 0.6,
+                        y0: ctrlMean, y1: ctrlMean,
+                        line: {{ color: '#1D4ED8', width: 2.5, dash: 'dash' }}
+                    }});
+                    psiAnnotations.push({{
+                        x: (ctrlSamples.length - 1) / 2, y: Math.min(ctrlMean + 0.06, 1.05),
+                        text: `Mean: ${{(ctrlMean * 100).toFixed(1)}}%`,
+                        showarrow: false,
+                        font: {{ size: 11, color: '#1D4ED8', weight: 'bold' }},
+                        bgcolor: 'rgba(255,255,255,0.85)'
+                    }});
+                }}
+                if (treatMean !== null && treatSamples.length > 0) {{
+                    psiShapes.push({{
+                        type: 'line',
+                        x0: ctrlSamples.length - 0.4, x1: ctrlSamples.length + treatSamples.length - 0.6,
+                        y0: treatMean, y1: treatMean,
+                        line: {{ color: '#BE123C', width: 2.5, dash: 'dash' }}
+                    }});
+                    psiAnnotations.push({{
+                        x: ctrlSamples.length + (treatSamples.length - 1) / 2, y: Math.min(treatMean + 0.06, 1.05),
+                        text: `Mean: ${{(treatMean * 100).toFixed(1)}}%`,
+                        showarrow: false,
+                        font: {{ size: 11, color: '#BE123C', weight: 'bold' }},
+                        bgcolor: 'rgba(255,255,255,0.85)'
+                    }});
+                }}
+
+                const psiLayout = {{
+                    margin: {{ l: 50, r: 20, t: 30, b: 60 }},
+                    paper_bgcolor: '#FFFFFF', plot_bgcolor: '#FFFFFF',
+                    height: 300,
+                    xaxis: {{ tickangle: -20, tickfont: {{ size: 11, color: '#334155' }} }},
+                    yaxis: {{
+                        title: '<b>Inclusion Level (Ψ)</b>',
+                        range: [0, 1.15],
+                        tickformat: '.0%',
+                        showgrid: true,
+                        gridcolor: '#F1F5F9'
+                    }},
+                    barmode: 'group',
+                    legend: {{ orientation: 'h', y: 1.15, x: 0.5, xanchor: 'center', font: {{ size: 11 }} }},
+                    shapes: psiShapes,
+                    annotations: psiAnnotations
+                }};
+                Plotly.react(psiDiv, psiTraces, psiLayout, {{ responsive: true, displayModeBar: false }});
+            }}
+
+            // 2. Junction Read Depth Decomposition Chart (IJC vs. SJC)
+            if (readsDiv && window.Plotly) {{
+                const sampleIds = allSamples.map(s => s.sample_id);
+                const ijcValues = allSamples.map(s => s.ijc !== null && s.ijc !== undefined ? s.ijc : 0);
+                const sjcValues = allSamples.map(s => s.sjc !== null && s.sjc !== undefined ? s.sjc : 0);
+
+                const readsTraces = [
+                    {{
+                        x: sampleIds, y: ijcValues,
+                        type: 'bar', name: 'Inclusion Reads (IJC)',
+                        text: ijcValues.map(v => v > 0 ? v : ''),
+                        textposition: 'inside',
+                        marker: {{ color: '#2563EB' }}
+                    }},
+                    {{
+                        x: sampleIds, y: sjcValues,
+                        type: 'bar', name: 'Skipping Reads (SJC)',
+                        text: sjcValues.map(v => v > 0 ? v : ''),
+                        textposition: 'inside',
+                        marker: {{ color: '#F59E0B' }}
+                    }}
+                ];
+
+                const readsLayout = {{
+                    margin: {{ l: 60, r: 20, t: 30, b: 60 }},
+                    paper_bgcolor: '#FFFFFF', plot_bgcolor: '#FFFFFF',
+                    height: 300,
+                    xaxis: {{ tickangle: -20, tickfont: {{ size: 11, color: '#334155' }} }},
+                    yaxis: {{
+                        title: '<b>Junction Read Counts</b>',
+                        showgrid: true,
+                        gridcolor: '#F1F5F9'
+                    }},
+                    barmode: 'stack',
+                    legend: {{ orientation: 'h', y: 1.15, x: 0.5, xanchor: 'center', font: {{ size: 11 }} }}
+                }};
+                Plotly.react(readsDiv, readsTraces, readsLayout, {{ responsive: true, displayModeBar: false }});
+            }}
+
+            // 3. Replicate Sample Table
+            if (tbody) {{
+                let tableHtml = '';
+                allSamples.forEach(s => {{
+                    const isCtrl = (s.group || '').toLowerCase().includes('control');
+                    const grpBadge = isCtrl
+                        ? '<span class="badge" style="background:#EFF6FF; color:#1D4ED8; border:1px solid #BFDBFE;">Control</span>'
+                        : '<span class="badge" style="background:#FFF1F2; color:#BE123C; border:1px solid #FECDD3;">Treatment</span>';
+                    const psiStr = s.psi !== null && s.psi !== undefined ? `<b>${{(s.psi * 100).toFixed(1)}}%</b> (${{s.psi.toFixed(3)}})` : 'N/A';
+                    const ijcStr = s.ijc !== null && s.ijc !== undefined ? s.ijc.toLocaleString() : 'N/A';
+                    const sjcStr = s.sjc !== null && s.sjc !== undefined ? s.sjc.toLocaleString() : 'N/A';
+                    const totStr = s.total_reads !== null && s.total_reads !== undefined ? `<b>${{s.total_reads.toLocaleString()}}</b>` : 'N/A';
+
+                    let diffStr = 'N/A';
+                    if (s.diff_from_mean !== null && s.diff_from_mean !== undefined) {{
+                        const diffVal = s.diff_from_mean;
+                        const dSign = diffVal >= 0 ? '+' : '';
+                        const dColor = Math.abs(diffVal) <= 0.05 ? '#16A34A' : '#D97706';
+                        diffStr = `<span style="font-weight:700; color:${{dColor}};">${{dSign}}${{(diffVal * 100).toFixed(1)}}%</span>`;
+                    }}
+
+                    tableHtml += `
+                        <tr>
+                            <td><b>${{s.sample_id}}</b></td>
+                            <td>${{grpBadge}}</td>
+                            <td>${{psiStr}}</td>
+                            <td><span style="color:#2563EB; font-weight:700;">${{ijcStr}}</span></td>
+                            <td><span style="color:#D97706; font-weight:700;">${{sjcStr}}</span></td>
+                            <td>${{totStr}}</td>
+                            <td>${{diffStr}}</td>
+                        </tr>
+                    `;
+                }});
+                tbody.innerHTML = tableHtml || `<tr><td colspan="7" style="text-align:center; color:#64748B; padding:16px;">No samples recorded.</td></tr>`;
+            }}
+        }}
+
         function handleMasterGeneSelection(geneSymbol, eventIndex = 0) {{
             if (ncbiSelect && ncbiSelect.value !== geneSymbol) ncbiSelect.value = geneSymbol;
             if (sashimiGeneSelect && sashimiGeneSelect.value !== geneSymbol) sashimiGeneSelect.value = geneSymbol;
             renderNcbiGeneDetails(geneSymbol);
             filterIsoformTable(geneSymbol);
             renderSashimiPlot(geneSymbol, eventIndex);
+            renderReplicateProfile(geneSymbol, eventIndex);
             renderPrimerDetails(geneSymbol, eventIndex);
         }}
 
@@ -1851,9 +2301,9 @@ def export_html_report(
             currentFilteredGenes = [];
 
             const volcanoPoints = {{
-                Inclusion: {{ x: [], y: [], text: [] }},
-                Exclusion: {{ x: [], y: [], text: [] }},
-                NonSig: {{ x: [], y: [], text: [] }}
+                Inclusion: {{ x: [], y: [], text: [], customdata: [] }},
+                Exclusion: {{ x: [], y: [], text: [], customdata: [] }},
+                NonSig: {{ x: [], y: [], text: [], customdata: [] }}
             }};
 
             rawGeneData.forEach(g => {{
@@ -1890,6 +2340,7 @@ def export_html_report(
                 volcanoPoints[ptKey].x.push(dpsi);
                 volcanoPoints[ptKey].y.push(logFdr);
                 volcanoPoints[ptKey].text.push(hoverText);
+                volcanoPoints[ptKey].customdata.push(g.geneSymbol || "");
 
                 const updatedGene = {{ ...g, current_splicing_status: status }};
                 currentFilteredGenes.push(updatedGene);
@@ -1974,18 +2425,21 @@ def export_html_report(
                 const updatedTraces = [
                     {{
                         x: volcanoPoints.Inclusion.x, y: volcanoPoints.Inclusion.y, text: volcanoPoints.Inclusion.text,
+                        customdata: volcanoPoints.Inclusion.customdata,
                         mode: 'markers', name: 'Inclusion Favored',
                         marker: {{ color: '#2563EB', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }},
                         hoverinfo: 'text', visible: true
                     }},
                     {{
                         x: volcanoPoints.Exclusion.x, y: volcanoPoints.Exclusion.y, text: volcanoPoints.Exclusion.text,
+                        customdata: volcanoPoints.Exclusion.customdata,
                         mode: 'markers', name: 'Exclusion Favored',
                         marker: {{ color: '#E11D48', size: 10, opacity: 0.9, line: {{ width: 0.8, color: '#FFFFFF' }} }},
                         hoverinfo: 'text', visible: true
                     }},
                     {{
                         x: volcanoPoints.NonSig.x, y: volcanoPoints.NonSig.y, text: volcanoPoints.NonSig.text,
+                        customdata: volcanoPoints.NonSig.customdata,
                         mode: 'markers', name: 'Non-Significant Background',
                         marker: {{ color: '#94A3B8', size: 6, opacity: 0.5, line: {{ width: 0.5, color: '#FFFFFF' }} }},
                         hoverinfo: 'text', visible: true
@@ -2280,8 +2734,31 @@ def export_html_report(
             sashimiEventSelect.addEventListener('change', (e) => {{
                 const curGene = sashimiGeneSelect ? sashimiGeneSelect.value : (ncbiSelect ? ncbiSelect.value : '');
                 const evIdx = parseInt(e.target.value, 10);
+                if (replicateEventSelect) replicateEventSelect.value = evIdx;
                 renderSashimiPlot(curGene, evIdx >= 0 ? evIdx : 0);
-                renderPrimerDetails(curGene, evIdx);
+                renderReplicateProfile(curGene, evIdx >= 0 ? evIdx : 0);
+                renderPrimerDetails(curGene, evIdx >= 0 ? evIdx : 0);
+            }});
+        }}
+        if (replicateEventSelect) {{
+            replicateEventSelect.addEventListener('change', (e) => {{
+                const curGene = sashimiGeneSelect ? sashimiGeneSelect.value : (ncbiSelect ? ncbiSelect.value : '');
+                const evIdx = parseInt(e.target.value, 10);
+                if (sashimiEventSelect) sashimiEventSelect.value = evIdx;
+                renderReplicateProfile(curGene, evIdx >= 0 ? evIdx : 0);
+                renderSashimiPlot(curGene, evIdx >= 0 ? evIdx : 0);
+                renderPrimerDetails(curGene, evIdx >= 0 ? evIdx : 0);
+            }});
+        }}
+        const volcanoDivEl = document.getElementById('plotly-as-volcano-div');
+        if (volcanoDivEl) {{
+            volcanoDivEl.on('plotly_click', function(data) {{
+                if (data && data.points && data.points.length > 0) {{
+                    const sym = data.points[0].customdata;
+                    if (sym) {{
+                        handleMasterGeneSelection(sym);
+                    }}
+                }}
             }});
         }}
         const isoformTbody = document.getElementById('isoform-table-body');

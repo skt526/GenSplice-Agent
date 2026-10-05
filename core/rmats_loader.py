@@ -65,6 +65,18 @@ def load_rmats_data(
                     col_map[c] = "chr"
                 elif clower == "strand":
                     col_map[c] = "strand"
+                elif clower in ["inclevel1", "inc_level_1"]:
+                    col_map[c] = "inc_level_1"
+                elif clower in ["inclevel2", "inc_level_2"]:
+                    col_map[c] = "inc_level_2"
+                elif clower in ["ijc_sample_1", "ijc1"]:
+                    col_map[c] = "ijc_sample_1"
+                elif clower in ["sjc_sample_1", "sjc1"]:
+                    col_map[c] = "sjc_sample_1"
+                elif clower in ["ijc_sample_2", "ijc2"]:
+                    col_map[c] = "ijc_sample_2"
+                elif clower in ["sjc_sample_2", "sjc2"]:
+                    col_map[c] = "sjc_sample_2"
 
             df = df.rename(col_map)
 
@@ -172,6 +184,10 @@ def load_rmats_data(
                 selected_cols.append("chr")
             if "strand" in df.columns:
                 selected_cols.append("strand")
+            for opt_c in ["inc_level_1", "inc_level_2", "ijc_sample_1", "sjc_sample_1", "ijc_sample_2", "sjc_sample_2"]:
+                if opt_c in df.columns:
+                    df = df.with_columns(pl.col(opt_c).cast(pl.Utf8).fill_null(""))
+                    selected_cols.append(opt_c)
 
             sub_df = df.select(selected_cols)
 
