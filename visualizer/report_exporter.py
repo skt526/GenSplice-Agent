@@ -70,16 +70,31 @@ def export_html_report(
     else:
         df_splicing_events = df_merged
 
-    # 2. Build Alternative Splicing Volcano Plot
+    # 3. KPI metrics for Alternative Splicing Volcano Plot (calculated on 100% full dataset)
+    kpis = get_splicing_kpis(df_splicing_events, delta_psi_cutoff=delta_psi_cutoff, fdr_cutoff=as_fdr_cutoff)
+
+    # 3b. Smart Background Downsampling for Interactive Volcano Plot & HTML Payload
+    # Candidates (|dPSI| >= 0.05 OR as_fdr <= 0.15): 100% full precision preserved for dynamic slider interaction
+    # Pure Background (|dPSI| < 0.05 AND as_fdr > 0.15): Downsampled to max 2,500 representative points
+    is_candidate = (pl.col("delta_psi").abs() >= 0.05) | (pl.col("as_fdr") <= 0.15)
+    df_candidates = df_splicing_events.filter(is_candidate)
+    df_background = df_splicing_events.filter(~is_candidate)
+
+    max_bg_sample = 2500
+    if df_background.height > max_bg_sample:
+        df_bg_sampled = df_background.sample(n=max_bg_sample, seed=42)
+    else:
+        df_bg_sampled = df_background
+
+    df_volcano_events = pl.concat([df_candidates, df_bg_sampled], how="diagonal")
+
+    # 2. Build Alternative Splicing Volcano Plot using optimized event dataset
     fig_volcano = build_as_volcano_plot(
-        df_splicing=df_splicing_events,
+        df_splicing=df_volcano_events,
         delta_psi_cutoff=delta_psi_cutoff,
         fdr_cutoff=as_fdr_cutoff
     )
     volcano_html = fig_volcano.to_html(full_html=False, include_plotlyjs="cdn", div_id="plotly-as-volcano-div")
-
-    # 3. KPI metrics for Alternative Splicing Volcano Plot
-    kpis = get_splicing_kpis(df_splicing_events, delta_psi_cutoff=delta_psi_cutoff, fdr_cutoff=as_fdr_cutoff)
 
     # 4. Identify initial top significant splicing target for Visual Exon-Intron Sashimi Plot
     top_gene_symbol = ""
@@ -252,7 +267,6 @@ def export_html_report(
                 "concordance": concordance,
                 "ctrl_samples": ctrl_samples,
                 "treat_samples": treat_samples,
-                "all_samples": ctrl_samples + treat_samples,
                 "event_index": ev_idx
             }
             if sym_upper not in replicate_profiles_map:
@@ -314,7 +328,6 @@ def export_html_report(
             "concordance": "Consistent",
             "ctrl_samples": [ctrl_s_entry],
             "treat_samples": [treat_s_entry],
-            "all_samples": [ctrl_s_entry, treat_s_entry],
             "event_index": 0
         }]
 
@@ -371,10 +384,10 @@ def export_html_report(
         "geneSymbol", "gene_id", "delta_psi", "as_fdr", "as_pvalue",
         "event_type", "coordinates", "inc_counts", "exc_counts",
         "log2FoldChange", "deg_fdr"
-    ] if c in df_splicing_events.columns]
+    ] if c in df_volcano_events.columns]
 
     # Priority sorting: Significant splicing targets first -> sorted by as_fdr -> delta_psi
-    df_sorted = df_splicing_events.with_columns([
+    df_sorted = df_volcano_events.with_columns([
         ((pl.col("delta_psi").abs() >= delta_psi_cutoff) & (pl.col("as_fdr") <= as_fdr_cutoff))
         .alias("is_sig_target")
     ]).sort(["is_sig_target", "as_fdr", "delta_psi"], descending=[True, False, True])
@@ -978,6 +991,7 @@ def export_html_report(
 
     <!-- Real-Time Threshold, Point Color Recalculation & Dynamic CSV Script -->
     <script>
+        const totalSplicingCount = {kpis['total']};
         const rawGeneData = {raw_data_json};
         const genePathways = {gene_pathway_json};
         const sashimiGeneData = {sashimi_data_json};
@@ -2170,11 +2184,13 @@ def export_html_report(
                 currentFilteredGenes.push(updatedGene);
             }});
 
-            document.getElementById('kpi-total').textContent = rawGeneData.length;
-            document.getElementById('kpi-sig').textContent = incCount + excCount;
-            document.getElementById('kpi-inc').textContent = incCount;
-            document.getElementById('kpi-exc').textContent = excCount;
-            document.getElementById('kpi-nonsig').textContent = nonSigCount;
+            const totalEvents = (typeof totalSplicingCount !== 'undefined' && totalSplicingCount > 0) ? totalSplicingCount : rawGeneData.length;
+            const sigCount = incCount + excCount;
+            document.getElementById('kpi-total').textContent = totalEvents.toLocaleString();
+            document.getElementById('kpi-sig').textContent = sigCount.toLocaleString();
+            document.getElementById('kpi-inc').textContent = incCount.toLocaleString();
+            document.getElementById('kpi-exc').textContent = excCount.toLocaleString();
+            document.getElementById('kpi-nonsig').textContent = Math.max(0, totalEvents - sigCount).toLocaleString();
 
             const activeSplicingGenes = currentFilteredGenes
                 .filter(g => g.current_splicing_status === "Inclusion" || g.current_splicing_status === "Exclusion")
@@ -2473,10 +2489,13 @@ def export_html_report(
         function downloadFilteredCSV() {{
             if (!currentFilteredGenes.length) return;
 
+            const targetsOnly = currentFilteredGenes.filter(g => g.current_splicing_status === "Inclusion" || g.current_splicing_status === "Exclusion");
+            const exportList = targetsOnly.length > 0 ? targetsOnly : currentFilteredGenes;
+
             const headers = ["geneSymbol", "gene_id", "splicing_status", "delta_psi", "as_fdr", "as_pvalue", "event_type", "coordinates", "inc_counts", "exc_counts", "log2FoldChange", "deg_fdr"];
             let csvContent = headers.join(",") + "\\n";
 
-            currentFilteredGenes.forEach(g => {{
+            exportList.forEach(g => {{
                 const row = [
                     `"${{g.geneSymbol || ''}}"`,
                     `"${{g.gene_id || ''}}"`,
