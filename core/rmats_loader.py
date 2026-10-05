@@ -149,7 +149,12 @@ def load_rmats_data(
             ])
 
             # Parse real junction read counts if present in rMATS output
-            has_ijc = "IJC_SAMPLE_1" in df.columns and "SJC_SAMPLE_1" in df.columns
+            col_ijc1 = "ijc_sample_1" if "ijc_sample_1" in df.columns else ("IJC_SAMPLE_1" if "IJC_SAMPLE_1" in df.columns else None)
+            col_sjc1 = "sjc_sample_1" if "sjc_sample_1" in df.columns else ("SJC_SAMPLE_1" if "SJC_SAMPLE_1" in df.columns else None)
+            col_ijc2 = "ijc_sample_2" if "ijc_sample_2" in df.columns else ("IJC_SAMPLE_2" if "IJC_SAMPLE_2" in df.columns else None)
+            col_sjc2 = "sjc_sample_2" if "sjc_sample_2" in df.columns else ("SJC_SAMPLE_2" if "SJC_SAMPLE_2" in df.columns else None)
+
+            has_ijc = col_ijc1 is not None and col_sjc1 is not None
             if has_ijc:
                 def _sum_counts(val_series):
                     sums = []
@@ -164,10 +169,10 @@ def load_rmats_data(
                             sums.append(0)
                     return sums
 
-                ijc1_sum = _sum_counts(df["IJC_SAMPLE_1"])
-                sjc1_sum = _sum_counts(df["SJC_SAMPLE_1"])
-                ijc2_sum = _sum_counts(df["IJC_SAMPLE_2"]) if "IJC_SAMPLE_2" in df.columns else [0] * df.height
-                sjc2_sum = _sum_counts(df["SJC_SAMPLE_2"]) if "SJC_SAMPLE_2" in df.columns else [0] * df.height
+                ijc1_sum = _sum_counts(df[col_ijc1])
+                sjc1_sum = _sum_counts(df[col_sjc1])
+                ijc2_sum = _sum_counts(df[col_ijc2]) if col_ijc2 else [0] * df.height
+                sjc2_sum = _sum_counts(df[col_sjc2]) if col_sjc2 else [0] * df.height
                 
                 df = df.with_columns([
                     pl.Series("inc_counts", [i1 + i2 for i1, i2 in zip(ijc1_sum, ijc2_sum)], dtype=pl.Int64),
@@ -191,7 +196,7 @@ def load_rmats_data(
 
             sub_df = df.select(selected_cols)
 
-            if min_junction_reads > 0:
+            if min_junction_reads > 0 and has_ijc:
                 # Filter low-coverage junction read events (< min_junction_reads) to eliminate false-positive artifacts
                 is_low_coverage = (pl.col("inc_counts") + pl.col("exc_counts")) < min_junction_reads
                 sub_df = sub_df.filter(~is_low_coverage)

@@ -476,7 +476,6 @@ def main():
         # Clean tmp directory to prevent duplicate BAM entries across old .rmats files
         tmp_dir = rmats_dir / "tmp"
         if tmp_dir.exists():
-            import shutil
             shutil.rmtree(tmp_dir)
         tmp_dir.mkdir(parents=True, exist_ok=True)
 
