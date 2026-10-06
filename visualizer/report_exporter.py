@@ -73,20 +73,43 @@ def export_html_report(
     # 3. KPI metrics for Alternative Splicing Volcano Plot (calculated on 100% full dataset)
     kpis = get_splicing_kpis(df_splicing_events, delta_psi_cutoff=delta_psi_cutoff, fdr_cutoff=as_fdr_cutoff)
 
-    # 3b. Smart Background Downsampling for Interactive Volcano Plot & HTML Payload
-    # Candidates (|dPSI| >= 0.05 OR as_fdr <= 0.15): 100% full precision preserved for dynamic slider interaction
-    # Pure Background (|dPSI| < 0.05 AND as_fdr > 0.15): Downsampled to max 2,500 representative points
-    is_candidate = (pl.col("delta_psi").abs() >= 0.05) | (pl.col("as_fdr") <= 0.15)
+    # 3b. Natural Biological & Coverage-Power Partitioning for Volcano Plot & Interactive Payload
+    # 1. Target Exploration Candidates: Statistically plausible targets (FDR <= 0.20 AND |dPSI| >= 0.05)
+    #    -> 100% full multi-event preservation (all isoforms/events kept without any loss)
+    is_candidate = (pl.col("as_fdr") <= 0.20) & (pl.col("delta_psi").abs() >= 0.05)
     df_candidates = df_splicing_events.filter(is_candidate)
-    df_background = df_splicing_events.filter(~is_candidate)
 
-    max_bg_sample = 2500
-    if df_background.height > max_bg_sample:
-        df_bg_sampled = df_background.sample(n=max_bg_sample, seed=42)
+    # 2. Invariant Baseline Background: Events outside exploration zone (~is_candidate)
+    #    Naturally filtered using biological criteria instead of an artificial random sample:
+    #    Criterion A (Statistical Power / High Confidence): Total junction reads >= 30 across replicates
+    #    Criterion B (Gene-level Baseline): Primary representative event per gene (deduplicated by geneSymbol)
+    df_background_raw = df_splicing_events.filter(~is_candidate)
+    if df_background_raw.height > 0:
+        # Criterion A: Minimum read coverage power for reliable invariant baseline
+        has_counts = ("inc_counts" in df_background_raw.columns) and ("exc_counts" in df_background_raw.columns)
+        if has_counts:
+            df_bg_powered = df_background_raw.filter((pl.col("inc_counts") + pl.col("exc_counts")) >= 30)
+            if df_bg_powered.height < 500:
+                # Fallback to >= 15 if coverage is generally low across the library
+                df_bg_powered = df_background_raw.filter((pl.col("inc_counts") + pl.col("exc_counts")) >= 15)
+        else:
+            df_bg_powered = df_background_raw
+
+        # Criterion B: Gene-level primary representative event for clean baseline reference
+        if "geneSymbol" in df_bg_powered.columns and df_bg_powered.height > 0:
+            df_bg_filtered = (
+                df_bg_powered
+                .with_columns(pl.col("delta_psi").abs().alias("abs_dpsi"))
+                .sort(["as_fdr", "abs_dpsi"], descending=[False, True])
+                .unique(subset=["geneSymbol"], keep="first", maintain_order=True)
+                .drop("abs_dpsi")
+            )
+        else:
+            df_bg_filtered = df_bg_powered
     else:
-        df_bg_sampled = df_background
+        df_bg_filtered = df_background_raw
 
-    df_volcano_events = pl.concat([df_candidates, df_bg_sampled], how="diagonal")
+    df_volcano_events = pl.concat([df_candidates, df_bg_filtered], how="diagonal")
 
     # 2. Build Alternative Splicing Volcano Plot using optimized event dataset
     fig_volcano = build_as_volcano_plot(
@@ -145,16 +168,23 @@ def export_html_report(
         sashimi_html = fig_sashimi.to_html(full_html=False, include_plotlyjs=False, div_id="plotly-sashimi-div")
         sashimi_title_text = "<b>No Alternative Splicing Targets Meeting Cutoffs</b>"
 
-    # 5. Extract Candidate Splicing Target Genes for downstream analyses
-    candidate_symbols = set()
+    # 5. Extract Candidate Splicing Target Genes for downstream analyses (Top 500 significant candidate genes)
+    max_detailed_genes = 500
+    candidate_symbols = []
     if sig_events.height > 0 and "geneSymbol" in sig_events.columns:
-        candidate_symbols.update(
-            g.strip() for g in sig_events["geneSymbol"].drop_nulls().to_list() if g and g.strip()
-        )
+        seen_syms = set()
+        for g in sig_events["geneSymbol"].drop_nulls().to_list():
+            g_clean = g.strip()
+            if g_clean and g_clean not in seen_syms:
+                seen_syms.add(g_clean)
+                candidate_symbols.append(g_clean)
+                if len(candidate_symbols) >= max_detailed_genes:
+                    break
 
     # Filter df_all_events: strictly preserve candidate splicing genes or empty state (no synthetic fallbacks)
-    if candidate_symbols and "geneSymbol" in df_all_events.columns:
-        target_candidates = df_all_events.filter(pl.col("geneSymbol").is_in(list(candidate_symbols)))
+    candidate_symbols_set = set(candidate_symbols)
+    if candidate_symbols_set and "geneSymbol" in df_all_events.columns:
+        target_candidates = df_all_events.filter(pl.col("geneSymbol").is_in(list(candidate_symbols_set)))
     else:
         target_candidates = df_all_events.clear()
 
@@ -1758,7 +1788,7 @@ def export_html_report(
                 if (kpiDelta) kpiDelta.textContent = "N/A";
                 if (kpiConc) kpiConc.innerHTML = '<span class="badge" style="background:#F1F5F9; color:#64748B;">No Replicate Data</span>';
                 if (kpiFdr) kpiFdr.textContent = "Replicate profile not available";
-                if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#64748B; padding:16px;">Replicate-level raw junction data unavailable for <b>${{geneSymbol}}</b>.</td></tr>`;
+                if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#64748B; padding:16px;">Replicate-level raw junction profiles are pre-computed for Top 500 candidate targets. Raw reads for <b>${{geneSymbol}}</b> are available in pipeline CSV outputs.</td></tr>`;
                 if (psiDiv && window.Plotly) Plotly.react(psiDiv, [], {{ title: `<b>Replicate data unavailable for ${{geneSymbol}}</b>`, height: 300 }});
                 if (readsDiv && window.Plotly) Plotly.react(readsDiv, [], {{ title: `<b>Junction read depth unavailable for ${{geneSymbol}}</b>`, height: 300 }});
                 return;
